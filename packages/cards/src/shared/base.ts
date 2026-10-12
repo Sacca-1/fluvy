@@ -7,6 +7,7 @@ import {
 import { baseStyles, fitPills } from '@fluvy/ui';
 import type { CSSResultGroup, PropertyValues } from 'lit';
 import { COMMON_ALIASES, normaliseConfig, type AliasSpec, type KnownKeys } from './config.js';
+import { FontsSettled } from './fonts.js';
 import type { EditorDefaults, RowsListSpec } from './rows-editor.js';
 
 /** The base card's fields every editor may show; a card names the ones it honours. */
@@ -70,28 +71,19 @@ export abstract class Card<C extends FluvyCardConfig = FluvyCardConfig> extends 
     );
   }
 
-  private refit: (() => void) | undefined;
-  private fontTimer = 0;
+  constructor() {
+    super();
+    // A pill fitted before the web font lands is fitted again once it has: a frame after the font set says so
+    // (the face is usable for layout only then), and once more at 1.2 s as a safety net. Fitting in the
+    // `loadingdone` handler itself measured the fallback face still, which left a tab row 8 px too wide
+    // until the safety net ran.
+    new FontsSettled(this, () => {
+      if (this.isConnected) fitPills(this.renderRoot, true);
+    });
+  }
 
   protected override updated(changed: PropertyValues): void {
     super.updated(changed);
     fitPills(this.renderRoot);
-    if (!this.refit && typeof document !== 'undefined' && document.fonts) {
-      // one listener per card, released with the card: a web font can land after the first render
-      this.refit = () => {
-        if (this.isConnected) fitPills(this.renderRoot, true);
-      };
-      document.fonts.addEventListener('loadingdone', this.refit);
-      void document.fonts.ready.then(this.refit);
-      this.fontTimer = window.setTimeout(this.refit, 1200); // a face can become usable a frame after `ready` says so
-    }
-  }
-
-  override disconnectedCallback(): void {
-    super.disconnectedCallback();
-    if (this.refit) document.fonts.removeEventListener('loadingdone', this.refit);
-    this.refit = undefined;
-    clearTimeout(this.fontTimer);
-    this.fontTimer = 0;
   }
 }

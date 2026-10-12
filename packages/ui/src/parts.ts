@@ -665,7 +665,16 @@ export function fitPills(root: ParentNode, force = false): void {
     box.style.paddingLeft = ''; // measured without last time's lead-in and tail
     box.style.paddingRight = '';
     el.style.width = 'max-content';
-    const natural = Math.ceil(parseFloat(getComputedStyle(el).width) || el.offsetWidth);
+    // the content itself — the text and a glyph beside it — never the box around it: a tab in a row that fills
+    // has grown and lost its lead, and a pill measured by its box there came out 12 wider, which unfilled the row,
+    // whose next fitting filled it again (the row flickered between the two every time a font settled)
+    const range = document.createRange();
+    range.selectNodeContents(box);
+    const natural = Math.ceil(
+      range.getBoundingClientRect().width ||
+        parseFloat(getComputedStyle(el).width) ||
+        el.offsetWidth,
+    );
     const width = up4(natural + pad);
     const next = `${width}px`;
     el.style.width = next === previous ? previous : next;
