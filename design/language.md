@@ -166,8 +166,9 @@ Rectangular tappables share **one radius: 12** (option tiles, buttons, keys, fie
   ends in an ellipsis before its key: the name gives way, its key never does (the key is its own part, never inside
   the name's box). A value never shrinks past the extra-small size, and never wraps.
 - **The chart**: one curve per sensor, each on its own scale (the units differ, so a line is read against its own
-  readout), in its measure's tone. Fills are lighter (16 %) so no curve hides another. A tone that would repeat
-  passes to the next spare one.
+  readout), in its measure's tone. Fills are lighter (16 %) so no curve hides another. A tone that would repeat passes
+  to the next spare one.
+
 - **Scrubbing**: every readout says that moment, written at its reading's precision while it stays in the reading's
   unit (the figure never grows under the finger; a moment in a larger unit, 1.23 kW under 505 W, keeps its own). When
   is a pill in the bubble's colours (the text's ink, the page's words) on the axis row, which is 20 tall for it, the
@@ -475,6 +476,54 @@ stops, the cursor reads "—"), never a zero. "Right now" is the house's own use
 **Empty.** An energy card's empty panel sits 16 under its head and says what is missing in one line ("No batteries
 yet"), with how to fix it as the hint under it ("Add them here, or give the Energy dashboard its batteries").
 
+## History bars (1.8)
+
+A sensor's last days, weeks or months as bars from Home Assistant's long-term statistics (issue #38's mock-up,
+matched by default; every element the person's).
+
+- **The data**: one `recorder/statistics_during_period` per sensor, period, count, statistic, unit and hour, shared
+  by every card of that sensor for five minutes. Buckets are counted on the house's calendar (a day from the
+  midnight Home Assistant shows, a week from its Monday, a month from its first; a 25-hour day is one bucket) and a
+  row belongs to the bucket its `start` falls in, never to its position: a day the recorder skipped is an empty
+  bucket (0 for what a meter gained, no bar for a measurement), and its neighbours do not move. No history
+  fallback: without statistics the card says "No statistics yet" and how they come. The bucket in progress is drawn
+  only when asked (`include_today`), so the bars are finished days; a scalable unit scales up (a Wh meter reads in
+  kWh), never down. Caps: 92 days, 52 weeks, 24 months.
+- **The head**: the icon circle, the name, "Last 7 days" (with "· Today" when the running day is drawn; an
+  unavailable sensor opens the line with its state and keeps its history). The readouts (`head`, the total and the
+  average by default; a measurement's average and highest) sit beside the title, right-aligned, a hairline between
+  them, **only on a column of 440 or more where nothing of the head gives way for them**; on a phone they take their
+  own row under the head (44), left-aligned with the hairline, folded into equal centred columns where even that row
+  would not hold them in a line. Under the pointer they become one readout — the bar's date and its value — and come
+  back when it leaves.
+- **The chart**: a 120 plot (80 compact) over a nice scale (Heckbert's 1 · 2 · 2.5 · 5, four intervals at most,
+  zero always a tick), dashed `--fluvy-border` gridlines across, the ticks 11/500 disabled ink, the unit rotated
+  beside them; bars 40 % of their slot (2–40), rounded at the top only (4) and flat on the zero line (a bar that hangs is rounded at its foot), a pastel of the card's tone — the ink at 60 % over the card at the top, 48 % at the foot, negative bars hanging from zero, a bucket with nothing a quiet 2 px stub; the values 12/500 in the text's ink, 4 above the bars, **all or none** (none where one would not hold its slot: thirty days write none); the dates (12/500, secondary ink) thinned to every n-th bar so neighbours keep 12 apart, the last bar always read, a label kept inside the plot at the ends.
+  Bars grow in with an 18 ms stagger. Scrubbing lights the bar under the pointer and quiets the rest to 40 %; ← →
+  Home End Escape walk the bars from the keyboard.
+- **The facts strip**: a page-filled panel 24 under the dates (radius 16, padding 16) of cells 44 tall — a circle, an
+  11/600 caps label and a 20/24 figure with its unit — in equal columns 24 apart with a hairline in the gap. Columns
+  by measure, the circles first: three, two or one columns with their circles — the first whose cells hold a circle
+  with every label and figure (two at a 360 column, the third fact alone on its row; three at the mock-up's width) —
+  else one column with the glyph alone before the words, the figure at the extra-small size and then no glyph at all
+  before a figure would ever be cut. A neutral circle is the card's own disc with a hairline on the page's surface; a
+  coloured fact's circle wears its tone's wash. A fact's label is a name and may end in an ellipsis in a column too
+  narrow even for that. Each fact is a button: its `tap_action`, else the sensor's more-info (a share opens the sensor
+  it is a share of). Icons per kind: bolt, chart, trend up, trend down, calendar, leaf, globe, car, grid, tag, text; a
+  fact's own `color` is its circle's accent.
+
+- **Honest figures**: the facts come from the bars drawn; the equivalents (CO₂ 0.4 kg a kWh, 22 kg a tree a year,
+  5 km a kWh, money at the house's price) are rough, named "est." where they are money, each factor editable, and
+  only shown when asked for; a kind without its ground (no kWh, no price, no other sensor) reads "—". Money is the
+  figure then the symbol, two decimals; a share whole percent; CO₂ and trees one decimal; kilometres none.
+- **Heights** (360): full 40 + 44 + 60 + 20 + 20 + 120 + 24 + 24 + 32 + 44 × rows + 12 × (rows − 1) = 484 by default
+  (two rows of facts); compact 272; mini 148 (the head and one 48 row of readouts beside a sparkline, a readout giving
+  way before the sparkline, the sparkline before the last readout). The declared height counts the strip's rows by its
+  labels (two a row with their circles at 360, three where the labels are short, one where a label runs long: a caps
+  label is about 7.4 px a character); a figure wider than its third (a year of months) folds the strip once more than
+  declared, and the "No statistics" panel is shorter.
+
+
 ## People (1.6)
 
 - **Each their own**: a name, a colour (a 2 px ring round the avatar, 2 clear of it on the card: a picture would hide a
@@ -586,8 +635,19 @@ yet"), with how to fix it as the hint under it ("Add them here, or give the Ener
   within ±12 a channel, or within 15 % of its temperature range. The default six are warm and cool whites (2700 and
   5000 K, clamped to the bulb) then red, orange, green, blue; a bulb without a white gets red, orange, green, blue,
   purple, pink. The house lists its own (`colors`: `warm`, `cool`, a Home Assistant colour name, `#rrggbb`,
-  `[r, g, b]`, `picker`); a colour name is Home Assistant's own bulb colour, not the palette's tone — a bulb wears no
-  palette. **`picker`** is a round ringed in the hues (the colour wheel's conic) that opens the browser's own colour
+  `[r, g, b]`, `picker`, or any of those with a name — `{ color: '#ff2d55', name: 'Lila' }`, 1.8); a colour name is
+  Home Assistant's own bulb colour, not the palette's tone — a bulb wears no palette. **The list is the house's, any
+  number, any mix, any order** (1.8): no cap and no minimum, the rounds wrap by count (three one short row from the
+  left, twelve two rows of six at a phone's column), the card's height follows the rows, `colors: []` draws no row,
+  and the picker is a peer of the rest, wherever it is put. **What a round says** (its title and accessible name,
+  the picker's input): the name the config gave it; else a white's word, the picker's, a colour's word where the
+  catalogue has one, a hex as itself (canonical, `#ff2d55`), any other Home Assistant colour as words ("Deep purple").
+  **The editor edits the list row by row** (the rows editor, reorderable): a row is a colour — the words, the
+  picker, or Custom colour, which shows Home Assistant's colour well under it with its word as the helper (the well
+  paints its whole box, so it carries no floating label; nothing is typed into the select — Home Assistant's select
+  with a typed value says the value, not the word; a Home Assistant colour name still reads from YAML) — and a name; the bulb's default six show as rows until the list is touched, and the YAML
+  stays the smallest that says the same (a word alone bare, a custom colour its hex, a name wrapping it as
+  `{ color, name }`). **`picker`** is a round ringed in the hues (the colour wheel's conic) that opens the browser's own colour
   picker: an `<input type=color>` fills the round unseen, so the tap and the keyboard reach it; a colour chosen there
   is sent as `rgb_color` 250 ms after the last change (a drag in the picker is not a call a move). The round holds
   the bulb's colour, checked, inside a 3 px ring of the hues while the bulb is on a colour none of the other rounds
@@ -599,6 +659,64 @@ yet"), with how to fix it as the hint under it ("Add them here, or give the Ener
 - **Heights** are the config's: the slot (100) when a temperature or a hue ruler may show, the row (8 + 52 a row of
   six) when the colours may; a white bulb under the same config draws less. `show_color: false` is the white bulb's
   card. The controls' table and row come in their own chunk the first colour bulb fetches.
+
+## Automations (1.8)
+
+**The card lists, Home Assistant automates.** `fluvy-automations-card` is every automation of the house as a row: a
+clock circle for a Fluvy schedule, the automation glyph for the rest, the name, and under it the schedule's days,
+its window and its next run ("Workdays · 06:45–08:00 · Next in 9 h") or the plain automation's last run ("Ran
+07:00", "3 days ago", "Never run"); the switch at the end (`show_switch`, a chevron without it), the row's tone the
+card's accent while it is on, the Unavailable skin with an inert switch when it cannot be read. **Rows** (60),
+**compact** (48, the name and its switch), **tiles** (two a row of 84: the name and its next or last run, the on
+ones lit; one a row where a line would be cut). Long lists fold after `max_rows` into "{count} more" / "Show less".
+The head: the icon circle, the title, "{on} of {count} on", and **one trailing element** — the `+` round for an
+administrator (`show_add`), else the card's "…" where its tap has somewhere to go; a hold on the head is the hold
+action. `show_filters` puts the chips All · Schedules · On under the head (44, 16 under); `show: schedules`, `area`,
+`sort` (name, next, last; a listed `entities` keeps its order under name) narrow and order the list. **Days as
+people say them**: "Every day", "Workdays", "Weekends", a run of three or more with an en dash ("Mon–Fri", "Fri–Mon"
+across the week's end), the rest one by one ("Mon, Wed, Fri"); the short weekdays are the language's own. Moments:
+the house's clock ("09:05", "09:05 AM"), "Sunrise", "Sunset −30 min", "Sunrise +1 h 15 min"; a window is its two
+moments with an en dash ("09:00–11:00", "Sunrise +15 min–Sunset −30 min"). **A narrow row's line gives way in an
+order, each form whole, never a segment cut**: the next run says itself in fewer words ("In 10 h") and then goes,
+the sun's offsets go ("Sunrise–Sunset"), the end goes, a long day list becomes "4 days"; the days' word and the start
+never go, and where even that least line ("Every day · Sunrise") would not hold beside the switch (whose 56 is
+reserved before anything) it takes a second line and the row grows. An empty house: the empty panel ("No automations", "Tap + to
+add a schedule" for an administrator); an emptying filter says "Nothing here". Everyone sees the list and the
+switch; only an administrator reads configs (Home Assistant allows no one else), sees the `+` and opens the sheet —
+a tap is Home Assistant's own dialog for the rest.
+
+**The sheet** (`fluvy-schedule-sheet`, a chunk of its own fetched on the first tap) is the keypad's modal bottom
+sheet: 392 wide, 16 padding, radius 24, the scrim behind it; the dialog is the viewport and **the sheet scrolls
+inside it** — its footer ends the content, nothing sticky, so it opens whole on a phone at 150 %. Sections 24 apart,
+a label (11/600 caps) 8 above its control. **What**: a live search field (the search glyph trailing; keys typed in
+it never reach Home Assistant's shortcuts), the targets chosen as content-sized chips with a close glyph, the
+candidates as compact rows grouped by area ("No area" last) — **six matches, then "{n} more · keep typing"**, never
+an inner scroll. **Do**: the verbs the targets share as tiles (Turn on · Turn off · Open · Close · Run; chips where a
+word would not hold its tile), the chosen one carrying its value ("70 %", "21 °C"); a light turned on gets a
+Brightness row with a stepper in fives from "As it is", a thermostat a Target row in the house's unit; dimmed until
+a target is chosen. **When**: four tiles — Every day · Workdays · Weekends · Custom, 2 × 2 — **Workdays always
+available**, its second line "Workday sensor" when the house has one and "Mon–Fri" when it has not (the data layer
+writes the sensor condition or the weekday list); **a tile's value is one line, measured**: where it would not hold
+its cell it takes its shorter word ("Sensor", "4 days"), else goes — dropped, never wrapped — so every row of tiles
+stays 84 ("70 %" under Turn on by the same rule); Custom shows **the seven days as chips in one full row** (four
+and three where seven short words would not hold), from the day the house starts its week on, each named in full
+for a reader. Start: At a time · Sunrise · Sunset, then the time field (its arrows move the minutes by `time_step`,
+five by default) or the Offset row ("Sunset −30 min · Today 19:11", a stepper by the same step within ±3 h). Until:
+a switch that reveals the end's chips and field and, with two verbs to choose from, a compact "At the end" row
+defaulting to the opposite; hidden for Run. **Name**: a text field that suggests itself ("Kitchen lamp · Mon–Fri
+09:00–11:00", "+1" for more targets) until a name is typed. **Footer**: for an existing schedule a full-width
+Delete in the danger ink that **arms on the first tap** ("Tap again to delete", a wash of the same, forgotten after
+four seconds), then the pair Cancel · Save — **one width for both**: the design's 172 where the row holds two of
+them and the 16 between, else the row's equal share while the longer label holds it ("Abbrechen" on a phone at
+150 %), else the label's own and the two stacked — **Save disabled until the schedule is whole** (a target, a verb, a start; an end before a clock start is "until tomorrow" and allowed).
+Saving is honest: the sheet dims and locks, a success closes it and the row appears the moment its entity does, a
+refusal keeps it editable with Home Assistant's message under the footer. The focus goes to the search (new) or the
+first verb tile (existing) on opening and back to the row on closing; Escape and the scrim close. **Details** (a
+plain automation): the name, "last run · On", the switch in the head, "Open in Home Assistant" and "Traces" as rows
+(with a config id), the pair Close · Run — Run reads "Done" for a beat, as the actions card does.
+
+**Heights** at a 360 column: the head (100), the filter chips (60) when shown, then 60 a row, 48 compact, or the
+tiles two a row (84, 8 apart) with the fold row (16 + 48) under them; the empty panel (132 with its hint) under the head.
 
 ## Room lights (1.4)
 

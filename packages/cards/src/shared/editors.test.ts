@@ -103,16 +103,14 @@ describe('the editors’ contract', () => {
     for (const item of fields(form.schema))
       expect(isWord(form.computeLabel?.(item, key), item.name), item.name).toBe(true);
     for (const list of card.lists)
-      for (const item of fields(list.schema))
-        expect(
-          isWord(
-            list.computeLabel?.(item, key) ??
-              form.computeLabel?.(item, key) ??
-              itemLabels(item, key),
-            item.name,
-          ),
-          `${list.key}.${item.name}`,
-        ).toBe(true);
+      for (const item of fields(list.schema)) {
+        const label =
+          list.computeLabel?.(item, key) ?? form.computeLabel?.(item, key) ?? itemLabels(item, key);
+        // a field may carry no floating label on purpose (a colour well paints its whole box): its word is then
+        // the helper under it
+        const word = label === '' ? list.computeHelper?.(item, key) : label;
+        expect(isWord(word, item.name), `${list.key}.${item.name}`).toBe(true);
+      }
   });
 
   it.each(cards)('$tag: what the form and the lists show is base ∪ keys', ({ tag, card }) => {

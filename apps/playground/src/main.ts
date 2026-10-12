@@ -142,9 +142,9 @@ const mock = createHass([...states.values()], {
   (selected.length === 1 && selected[0]?.[1].units === 'imperial')
     ? { units: 'imperial' as const }
     : {}),
-  api: (method, path) => {
+  api: (method, path, body) => {
     for (const [, s] of selected) {
-      const answer = s.api?.(method, path);
+      const answer = s.api?.(method, path, body);
       if (answer !== undefined) return answer;
     }
     return [];

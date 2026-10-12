@@ -5,6 +5,50 @@ and the versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-10-12
+
+### Added
+
+- **Automations** (#33): `fluvy-automations-card` lists every automation of the house — on or off, when it last
+  ran — and the schedules Fluvy writes among them with their days, times and next run; rows, compact rows or tiles,
+  filters, a fold for long lists. A schedule is a native Home Assistant automation (in Settings → Automations too),
+  created and edited in a sheet: what it targets, what it does (on, off, open, close, run; a brightness or a
+  target temperature), on which days (every day, workdays by the workday sensor, the weekend, your own), when (a
+  time, or sunrise and sunset with an offset) and until when. Only administrators add, edit or delete; everyone
+  sees the list, the switch and Home Assistant's dialog on tap. The card comes in its own chunk, the sheet in
+  another fetched on the first tap; the words of the family are in eight languages.
+- **Quick colours of your own, named and edited one by one** (#37): the light card's `colors` take any colour as
+  `#rrggbb` or `[r, g, b]` beside the words, each with a name of its own (`{ color: '#ff2d55', name: 'Lila' }`)
+  that its round says, and the editor edits the list row by row — a colour (the words, the picker, or Custom colour
+  with a colour well) and a name — in your order, any number of them, with the bulb's default six shown as rows
+  until the list is touched. A hex now reads as itself ("#ff2d55", no longer "Ff2d55") and a Home Assistant colour
+  as words ("Deep purple"); the row wraps by count (three make one short row, twelve two) and the card's height
+  follows.
+- **History bars** (#38): `fluvy-history-bars-card` draws a sensor's last days, weeks or months as bars from Home
+  Assistant's long-term statistics — the value over each bar on a nice scale with dashed gridlines and the unit
+  beside it, the dates under them, the total and the average beside the title (on their own row on a phone), and a
+  strip of facts under the chart on the page's surface: the highest, the lowest and the average by default, or what
+  the bars come to in CO₂, trees, kilometres and money, a share of another sensor, or a template of your own. The
+  readouts and the facts are lists you compose in order, each with its own name, icon, colour, unit, decimals,
+  factor and tap action; a bar can be what a meter gained or a measurement's mean, highest or lowest; the day in
+  progress joins when asked; a pointer or the arrow keys read a bar's day in the readouts' place. Three layouts
+  (`full`, `compact`, `mini`), every part switchable, eight languages, in the energy family's chunk.
+
+### Changed
+
+- The every-page budget is 224 KB (222 in 1.7), the languages' 20 KB (16): the automations family's announcement
+  and words and the light's own colours; the automations card and its sheet come as two chunks of their own, the
+  history bars in the energy family's.
+- Dev dependencies: eslint 10.12, typescript-eslint 8.71.1, Vite 8.3.4, happy-dom 20.14.6, Playwright 1.64,
+  @types/node 24.19.1.
+
+### Fixed
+
+- A pill (a chip's width) was fitted by its box rather than its content, and fitted again in the font event itself,
+  a frame before the face was usable: a tab row could flicker between filling its line and not — the chips card's
+  tabs at a phone's column, seen by the measurer in CI since 1.6. Fitted by the content, in the element's own pixels
+  under a zoomed view, a frame after a font lands.
+
 ## [1.7.0] — 2026-10-12
 
 ### Added

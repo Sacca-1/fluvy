@@ -38,6 +38,14 @@ export interface RowsListSpec {
   readonly computeLabel?: FormLabeler;
   /** What is said under an item's field; the card's, then the shared item helpers, say the rest. */
   readonly computeHelper?: FormLabeler;
+  /**
+   * A config entry as the editor's item, when the list's grammar is wider than ids and `{ id, … }` objects (a
+   * light's quick colours: words, hexes, triplets, named objects); null drops the entry. Without it, a bare id
+   * becomes `{ [idKey]: id }` and an object that carries an id is kept as it is.
+   */
+  readonly read?: (raw: unknown) => Item | null;
+  /** An item back as its config entry, the reverse of `read`; null drops the item. Without it, `compact`. */
+  readonly write?: (item: Item) => Entry | null;
 }
 
 type Labeler = FormLabeler;
@@ -141,15 +149,29 @@ export const compact = (item: Item, idKey: string): Entry => {
     : Object.fromEntries(keys.map((key) => [key, item[key]]));
 };
 
-/** The items of a list as the editor shows them: under `key`, else under the alias. */
-export const itemsOf = (config: LovelaceCardConfig | undefined, list: RowsListSpec): Item[] => {
+/** A config entry as the list's item: the list's own reading, else the id rule. */
+export const itemOf = (raw: unknown, list: RowsListSpec): Item | null =>
+  list.read ? list.read(raw) : toItem(raw, idKeyOf(list), list.also);
+
+/** An item back as the list's config entry: the list's own writing, else `compact`. */
+export const entryOf = (item: Item, list: RowsListSpec): Entry | null =>
+  list.write ? list.write(item) : compact(item, idKeyOf(list));
+
+/**
+ * The items of a list as the editor shows them: under `key`, else under the alias; and, when the config names
+ * neither, `fallback` — what the card does then, shown as rows and written only once the list is touched. A list
+ * the config names empty is empty: `colors: []` shows no row.
+ */
+export const itemsOf = (
+  config: LovelaceCardConfig | undefined,
+  list: RowsListSpec,
+  fallback?: readonly unknown[],
+): Item[] => {
   const own = config?.[list.key];
   const raw = Array.isArray(own) && own.length ? own : list.alias ? config?.[list.alias] : own;
-  return Array.isArray(raw)
-    ? raw
-        .map((entry) => toItem(entry, idKeyOf(list), list.also))
-        .filter((item): item is Item => item !== null)
-    : [];
+  const absent = own === undefined && (!list.alias || config?.[list.alias] === undefined);
+  const entries = Array.isArray(raw) ? raw : absent ? (fallback ?? []) : [];
+  return entries.map((entry) => itemOf(entry, list)).filter((item): item is Item => item !== null);
 };
 
 /** The config with one list replaced: written under the list's own key, the alias (if any) dropped so the card reads one list. */
@@ -298,8 +320,20 @@ export class FluvyRowsEditor extends LitElement {
     return localize(this.hass, key);
   }
 
+  /** What the card does when the config names no list: its default under the list's key, shown as rows until the list is touched. */
+  private fallback(list: RowsListSpec): readonly unknown[] | undefined {
+    const value = this.defaults()[list.key];
+    return Array.isArray(value) ? value : undefined;
+  }
+
+  private items(list: RowsListSpec): Item[] {
+    return itemsOf(this.config, list, this.fallback(list));
+  }
+
   private written(list: RowsListSpec): Entry[] {
-    return itemsOf(this.config, list).map((item) => compact(item, idKeyOf(list)));
+    return this.items(list)
+      .map((item) => entryOf(item, list))
+      .filter((entry): entry is Entry => entry !== null);
   }
 
   private commit(next: LovelaceCardConfig): void {
@@ -330,7 +364,10 @@ export class FluvyRowsEditor extends LitElement {
     event.stopPropagation();
     if (!this.config) return;
     const entries = this.written(list);
-    entries[index] = compact(event.detail.value, idKeyOf(list));
+    const entry = entryOf(event.detail.value, list);
+    // an item that says nothing any more (its id cleared) leaves the list
+    if (entry === null) entries.splice(index, 1);
+    else entries[index] = entry;
     this.commit(withList(this.config, list, entries));
   }
 
@@ -339,9 +376,9 @@ export class FluvyRowsEditor extends LitElement {
     const idKey = idKeyOf(list);
     const id = event.detail.value[idKey];
     if (!this.config || typeof id !== 'string' || !id) return;
-    this.commit(
-      withList(this.config, list, [...this.written(list), compact({ [idKey]: id }, idKey)]),
-    );
+    const entry = entryOf({ [idKey]: id }, list);
+    if (entry === null) return;
+    this.commit(withList(this.config, list, [...this.written(list), entry]));
     this.requestUpdate(); // the picker goes back to empty
   }
 
@@ -424,7 +461,7 @@ export class FluvyRowsEditor extends LitElement {
   }
 
   private renderList(list: RowsListSpec): TemplateResult {
-    const items = itemsOf(this.config, list);
+    const items = this.items(list);
     return html`<div class="list">
       <p class="list__title">${this.t(list.title)}</p>
       <ha-sortable
@@ -471,12 +508,16 @@ export class FluvyRowsEditor extends LitElement {
     const spec = this.spec;
     if (!spec || !this.config) return nothing;
     if (!this.ready) return html`<div class="wait"></div>`;
-    const own = Object.fromEntries(
-      Object.entries(this.config).filter(
-        ([key]) => !spec.lists.some((list) => list.key === key || list.alias === key),
-      ),
-    );
-    const data = { ...this.defaults(), ...own };
+    // the card's form holds everything but the lists: neither the config's nor a default under a list's key
+    const withoutLists = (
+      entries: Readonly<Record<string, unknown>>,
+    ): Readonly<Record<string, unknown>> =>
+      Object.fromEntries(
+        Object.entries(entries).filter(
+          ([key]) => !spec.lists.some((list) => list.key === key || list.alias === key),
+        ),
+      );
+    const data = { ...withoutLists(this.defaults()), ...withoutLists(this.config) };
     return html`
       <ha-form
         .hass=${this.hass}

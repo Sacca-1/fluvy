@@ -22,6 +22,7 @@ const house = {
   }),
   'lock.door': entity('lock.door', 'locked'),
   'alarm_control_panel.home': entity('alarm_control_panel.home', 'disarmed'),
+  'automation.morning': entity('automation.morning', 'on', { id: 'fluvy_0123456789ab' }),
 };
 
 describe('simulate', () => {
@@ -127,6 +128,31 @@ describe('simulate', () => {
         at,
       ),
     ).toEqual({});
+  });
+
+  it('switches an automation on and off, toggles it, and keeps the moment it ran', () => {
+    const call = (service: string) =>
+      simulate(
+        house,
+        { domain: 'automation', service, target: { entity_id: 'automation.morning' } },
+        at,
+      )['automation.morning'];
+    expect(call('turn_off')?.state).toBe('off');
+    expect(call('turn_on')?.state).toBe('on');
+    expect(call('turn_on')?.last_changed).toBe('2026-09-29T08:00:00.000Z'); // already on
+    expect(call('toggle')?.state).toBe('off');
+    const off = { 'automation.morning': entity('automation.morning', 'off') };
+    expect(
+      simulate(
+        off,
+        { domain: 'automation', service: 'toggle', target: { entity_id: 'automation.morning' } },
+        at,
+      )['automation.morning']?.state,
+    ).toBe('on');
+    const ran = call('trigger');
+    expect(ran?.state).toBe('on');
+    expect(ran?.attributes['last_triggered']).toBe(at.toISOString());
+    expect(ran?.attributes['id']).toBe('fluvy_0123456789ab');
   });
 
   it('reads the targets from the target, else from the data', () => {

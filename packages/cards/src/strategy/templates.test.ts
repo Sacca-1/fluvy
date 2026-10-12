@@ -118,7 +118,13 @@ describe('the dashboard templates', () => {
     for (const template of TEMPLATES)
       for (const card of cardsOf((await generate({ type: template.type }, everything())).views))
         used.add(card.type);
-    expect(CATALOGUE.map(([tag]) => `custom:${tag}`).filter((type) => !used.has(type))).toEqual([]);
+    // the automations card is placed by hand (1.8): the automatic dashboards do not put it on a view
+    const byHand = new Set(['custom:fluvy-automations-card']);
+    expect(
+      CATALOGUE.map(([tag]) => `custom:${tag}`).filter(
+        (type) => !used.has(type) && !byHand.has(type),
+      ),
+    ).toEqual([]);
   });
 
   it('give every view the template’s columns: three, and two on the wall', async () => {

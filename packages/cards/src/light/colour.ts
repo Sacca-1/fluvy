@@ -2,25 +2,29 @@ import type { EntityView, MessageKey } from '@fluvy/core';
 import { icon, label, rulerLabels, type RulerChangeDetail } from '@fluvy/ui';
 import { css, html, nothing, type TemplateResult } from 'lit';
 import { COLOURED, hexOf } from '../shared/light.js';
+import {
+  clamp255,
+  defaultSwatches,
+  rgbOf,
+  tripletOf,
+  type Rgb,
+  type SwatchEntry,
+} from './swatches.js';
 
 /*
  * A colour bulb's controls, fetched the first time the light card draws one (`import('./colour.js')`): the hue ruler
  * that takes the temperature ruler's slot while the bulb is in a colour, the row of quick colours under it, and the
- * matching that says which of them the bulb is on. The card keeps the wiring (what to send, the hold); this keeps the
- * tables, the maths and the row's sheet.
+ * matching that says which of them the bulb is on. The card keeps the wiring (what to send, the hold) and the
+ * grammar's core part (`swatches.ts`: what an entry may be, the editor's rows); this keeps the tables, the maths and
+ * the row's sheet.
  */
 
-export type Rgb = readonly [number, number, number];
-
-/**
- * A quick colour as configured: `warm`, `cool`, one of Home Assistant's colour names, `#rrggbb` (or `#rgb`),
- * `[r, g, b]`, or `picker` — the round that opens the browser's own colour picker.
- */
-export type SwatchEntry = string | readonly number[];
+export type { Rgb, SwatchEntry, SwatchObject } from './swatches.js';
 
 /**
  * A quick colour, resolved: a white at a temperature, a colour, or the picker; `hex` is what its round shows (the
- * picker's is empty: its round is a ring of the hues, and holds the bulb's colour while the bulb is on one of its own).
+ * picker's is empty: its round is a ring of the hues, and holds the bulb's colour while the bulb is on one of its
+ * own); `label` is the name the config gave it, when it gave one.
  */
 export type Swatch =
   | {
@@ -28,9 +32,16 @@ export type Swatch =
       readonly word: 'warm' | 'cool';
       readonly kelvin: number;
       readonly hex: string;
+      readonly label?: string;
     }
-  | { readonly kind: 'colour'; readonly name: string; readonly rgb: Rgb; readonly hex: string }
-  | { readonly kind: 'picker'; readonly hex: string };
+  | {
+      readonly kind: 'colour';
+      readonly name: string;
+      readonly rgb: Rgb;
+      readonly hex: string;
+      readonly label?: string;
+    }
+  | { readonly kind: 'picker'; readonly hex: string; readonly label?: string };
 
 /** The colour the finger chose: a colour (with its hue, so the ruler holds still) or a white's temperature. */
 export type HeldColour = { readonly rgb: Rgb; readonly hue: number } | { readonly kelvin: number };
@@ -70,7 +81,7 @@ export const BULB_COLORS: Readonly<Record<string, string>> = {
   white: '#ffffff',
 };
 
-/** The colour names the catalogue has a word for (`option.red` …); any other name reads as itself, capitalised. */
+/** The colour names the catalogue has a word for (`option.red` …); any other name reads as words of its own. */
 const WORDED: ReadonlySet<string> = new Set([
   'red',
   'orange',
@@ -80,11 +91,11 @@ const WORDED: ReadonlySet<string> = new Set([
   'purple',
   'pink',
 ]);
-const capitalise = (text: string): string => text.charAt(0).toLocaleUpperCase() + text.slice(1);
-
-/** The quick colours a bulb gets when the config lists none: two whites first where it has a temperature. */
-const WITH_WHITES: readonly SwatchEntry[] = ['warm', 'cool', 'red', 'orange', 'green', 'blue'];
-const COLOURS_ONLY: readonly SwatchEntry[] = ['red', 'orange', 'green', 'blue', 'purple', 'pink'];
+/** A Home Assistant colour name as words: `deep-purple` reads "Deep purple". */
+const wordsOf = (name: string): string => {
+  const words = name.replace(/-/g, ' ');
+  return words.charAt(0).toLocaleUpperCase() + words.slice(1);
+};
 
 /** A colour counts as a swatch's within this much a channel; a white within this share of the bulb's range. */
 const RGB_TOLERANCE = 12;
@@ -95,17 +106,6 @@ const PICKER_OPENS_ON = '#ff9800';
 /** A colour chosen in the picker goes to the bulb this long after the last change: a drag in it is not a call a move. */
 const PICK_DEBOUNCE = 250;
 const pickTimers = new WeakMap<HTMLInputElement, number>();
-
-const clamp255 = (v: number): number => Math.max(0, Math.min(255, Math.round(v)));
-
-/** `#rrggbb` or `#rgb` (any case, the hash optional) as `[r, g, b]`; anything else nothing. */
-export function rgbOf(text: string): Rgb | undefined {
-  const match = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(text.trim());
-  if (!match) return undefined;
-  const digits = match[1] ?? '';
-  const hex = digits.length === 3 ? [...digits].map((c) => c + c).join('') : digits;
-  return [0, 2, 4].map((i) => Number.parseInt(hex.slice(i, i + 2), 16)) as unknown as Rgb;
-}
 
 /** A black body at `kelvin` as the colour a white bulb shows (Tanner Helland's fit; 1000–40000 K). */
 export function kelvinRgb(kelvin: number): Rgb {
@@ -138,14 +138,20 @@ export function hueOf([r, g, b]: Rgb): number {
   return Math.round(h * 60 + 360) % 360;
 }
 
-/** A quick colour as configured, resolved for a bulb whose temperatures run `minK`–`maxK`; nothing for what is not one. */
+/**
+ * A quick colour as configured, resolved for a bulb whose temperatures run `minK`–`maxK`; nothing for what is not
+ * one. A named entry (`{ color, name }`) is its colour with the name as its label; a hex is named by its canonical
+ * `#rrggbb`, a Home Assistant colour by its name.
+ */
 export function resolveSwatch(entry: SwatchEntry, minK: number, maxK: number): Swatch | undefined {
   if (Array.isArray(entry)) {
-    const parts = entry.slice(0, 3);
-    if (parts.length < 3 || parts.some((n) => typeof n !== 'number' || !Number.isFinite(n)))
-      return undefined;
-    const rgb = parts.map(clamp255) as unknown as Rgb;
-    return { kind: 'colour', name: hexOf(rgb), rgb, hex: hexOf(rgb) };
+    const rgb = tripletOf(entry);
+    return rgb ? { kind: 'colour', name: hexOf(rgb), rgb, hex: hexOf(rgb) } : undefined;
+  }
+  if (typeof entry === 'object' && entry !== null && 'color' in entry) {
+    const swatch = resolveSwatch(entry.color, minK, maxK);
+    const label = typeof entry.name === 'string' ? entry.name.trim() : '';
+    return swatch && label ? { ...swatch, label } : swatch;
   }
   if (typeof entry !== 'string') return undefined;
   const text = entry.trim().toLowerCase();
@@ -154,8 +160,24 @@ export function resolveSwatch(entry: SwatchEntry, minK: number, maxK: number): S
     const kelvin = Math.max(minK, Math.min(maxK, text === 'warm' ? 2700 : 5000));
     return { kind: 'white', word: text, kelvin, hex: hexOf(kelvinRgb(kelvin)) };
   }
-  const rgb = rgbOf(BULB_COLORS[text] ?? text);
-  return rgb ? { kind: 'colour', name: text, rgb, hex: hexOf(rgb) } : undefined;
+  const known = Object.hasOwn(BULB_COLORS, text);
+  const rgb = rgbOf(known ? (BULB_COLORS[text] ?? '') : text);
+  return rgb
+    ? { kind: 'colour', name: known ? text : hexOf(rgb), rgb, hex: hexOf(rgb) }
+    : undefined;
+}
+
+/**
+ * What a swatch's round says (its title, its accessible name, the picker's input): the name the config gave it,
+ * else a white's word, the picker's, a colour's word where the catalogue has one, a hex as itself, and any other
+ * Home Assistant colour as words ("Deep purple").
+ */
+export function swatchWord(swatch: Swatch, t: (key: MessageKey) => string): string {
+  if (swatch.label) return swatch.label;
+  if (swatch.kind === 'white') return t(`light.${swatch.word}`);
+  if (swatch.kind === 'picker') return t('option.picker');
+  if (WORDED.has(swatch.name)) return t(`option.${swatch.name}` as MessageKey);
+  return swatch.name.startsWith('#') ? swatch.name : wordsOf(swatch.name);
 }
 
 /**
@@ -252,17 +274,10 @@ export function colourControls(o: ColourOptions): TemplateResult {
   const saturation = hs?.[1] || 100;
   const range = o.maxK - o.minK;
   const modes = o.view.attr<string[]>('supported_color_modes') ?? [];
-  const entries = o.colors ?? (modes.includes('color_temp') ? WITH_WHITES : COLOURS_ONLY);
+  const entries = o.colors ?? defaultSwatches(modes);
   const swatches = entries.flatMap((entry) => resolveSwatch(entry, o.minK, o.maxK) ?? []);
   const active = activeSwatch(swatches, shown, range);
-  const word = (swatch: Swatch): string =>
-    swatch.kind === 'white'
-      ? o.t(`light.${swatch.word}`)
-      : swatch.kind === 'picker'
-        ? o.t('option.picker')
-        : WORDED.has(swatch.name)
-          ? o.t(`option.${swatch.name}` as MessageKey)
-          : capitalise(swatch.name);
+  const word = (swatch: Swatch): string => swatchWord(swatch, o.t);
   const pickSwatch = (swatch: Swatch): void => {
     if (swatch.kind === 'white')
       o.pick({ kelvin: swatch.kelvin }, { color_temp_kelvin: swatch.kelvin });
@@ -305,6 +320,8 @@ export function colourControls(o: ColourOptions): TemplateResult {
           ></fluvy-ruler>
           ${rulerLabels([])}`
       : o.temperature();
+  // a list of none (`colors: []`) draws no row at all, not an empty one with its 16 above
+  if (!swatches.length) return html`${slot}`;
   return html`${slot}
     <div class="lc-swatches">
       ${swatches.map((swatch, i) => {
@@ -348,9 +365,10 @@ export function colourControls(o: ColourOptions): TemplateResult {
 }
 
 /**
- * The quick colours' row: 16 above, 44 rounds 8 apart from the left, wrapping (six fill a phone's column). A round is
- * its colour, its edge that colour a shade deeper (a grey ring stair-stepped round a saturated round; a pale one still
- * stands off the card by it), the check in black or white by luminance.
+ * The quick colours' row: 16 above, 44 rounds 8 apart from the left, wrapping by count (six fill a phone's column:
+ * three make one short row, twelve two full ones; a wider column holds more a row). The list has no cap and no
+ * minimum. A round is its colour, its edge that colour a shade deeper (a grey ring stair-stepped round a saturated
+ * round; a pale one still stands off the card by it), the check in black or white by luminance.
  */
 export const styles = css`
   .lc-swatches {

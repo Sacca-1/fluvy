@@ -73,10 +73,14 @@ export const calls = (page) =>
     window.fluvyMock.calls.map((c) => ({ s: `${c.domain}.${c.service}`, d: c.data, t: c.target })),
   );
 
-/** Forgets the calls and the more-info requests seen so far. */
+/** The REST calls the cards made on the mock (their method, path and body), since the last reset. */
+export const apiCalls = (page) => page.evaluate(() => window.fluvyMock.apiCalls.slice());
+
+/** Forgets the calls, the REST calls and the more-info requests seen so far. */
 export const reset = (page) =>
   page.evaluate(() => {
     window.fluvyMock.calls.length = 0;
+    window.fluvyMock.apiCalls.length = 0;
     if (window.__moreInfo) window.__moreInfo.length = 0;
   });
 

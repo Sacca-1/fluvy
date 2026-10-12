@@ -339,6 +339,8 @@ const ids = (call) => [].concat(call?.d?.entity_id ?? call?.t?.entity_id ?? []);
           active: b.classList.contains('is-active'),
           width: Math.round(b.getBoundingClientRect().width),
           height: Math.round(b.getBoundingClientRect().height),
+          top: Math.round(b.getBoundingClientRect().top),
+          left: Math.round(b.getBoundingClientRect().left),
         })),
         accent: article?.dataset.accent ?? '',
         picker: root.querySelector('.lc-swatch--picker input')?.value ?? '',
@@ -385,6 +387,46 @@ const ids = (call) => [].concat(call?.d?.entity_id ?? call?.t?.entity_id ?? []);
     custom.swatches.map((s) => s.label).join('|') ===
       'Warm|Cool|#ff2d55|Amber|Teal|Purple|Pink|Blue',
     JSON.stringify(custom.swatches.map((s) => s.label)),
+  );
+  // issue #37: names of your own on the rounds — a hex, a triplet and a Home Assistant colour named, a colour name
+  // as words, a white, and the picker; the lamp's orange is none of them, so the picker is the one checked
+  const named = await readLight('Colour · named custom');
+  check(
+    'the house’s own colours with names: each round says its name, a bare Home Assistant colour reads as words, and the picker holds the bulb’s colour',
+    named.swatches.map((s) => s.label).join('|') ===
+      'Lila|Teal|Honey|Deep purple|Warm|Colour picker' &&
+      named.swatches.findIndex((s) => s.active) === 5 &&
+      named.picker === '#ff9800',
+    JSON.stringify(named.swatches.map((s) => [s.label, s.active])),
+  );
+  // any number, any mix, any order: twelve rounds wrap into two rows of six, 52 apart, the picker in the middle
+  // checked; three make one short row from the left; the card's height follows the rows
+  const twelve = await readLight('Colour · twelve');
+  const three = await readLight('Colour · three');
+  check(
+    'twelve quick colours: two rows of six (the second 52 under the first), every round 44, the picker in the middle checked',
+    twelve.swatches.length === 12 &&
+      twelve.swatches.every((s) => s.width === 44 && s.height === 44) &&
+      twelve.swatches.slice(0, 6).every((s) => s.top === twelve.swatches[0].top) &&
+      twelve.swatches.slice(6).every((s) => s.top === twelve.swatches[0].top + 52) &&
+      twelve.swatches[6].left === twelve.swatches[0].left &&
+      twelve.swatches.findIndex((s) => s.active) === 5 &&
+      twelve.swatches[5].label === 'Colour picker',
+    JSON.stringify(twelve.swatches.map((s) => [s.label, s.top, s.left, s.active])),
+  );
+  check(
+    'three quick colours: one short row from the left, 52 apart, the orange checked; the card a row (52) shorter than with twelve',
+    three.swatches.length === 3 &&
+      three.swatches.every((s) => s.top === three.swatches[0].top) &&
+      three.swatches[1].left === three.swatches[0].left + 52 &&
+      three.swatches[2].left === three.swatches[0].left + 104 &&
+      three.swatches.find((s) => s.active)?.label === 'Orange' &&
+      twelve.height - three.height === 52,
+    JSON.stringify([
+      three.swatches.map((s) => [s.label, s.top, s.left, s.active]),
+      twelve.height,
+      three.height,
+    ]),
   );
   const hidden = await readLight('Colour hidden');
   const dimmer = await readLight('Off');

@@ -5,8 +5,9 @@ import { renderTemplate } from './template.js';
 /**
  * A small, honest stand-in for Home Assistant's `hass`: a state store, service calls that change it
  * after a network-like delay, the formatting hooks, canned answers for the WebSocket reads the
- * cards make (history, statistics, forecasts, to-do items, calendar events), and templates rendered
- * live by a small Jinja of its own.
+ * cards make (history, statistics, forecasts, to-do items, calendar events), REST calls answered by
+ * the sheet and recorded with their bodies, an event bus (`subscribe_events`, and `fire` to speak on
+ * it), and templates rendered live by a small Jinja of its own.
  */
 
 /** A sample of Home Assistant's Spanish state words (its `es` translations), by domain, device class and state. */
@@ -151,7 +152,8 @@ export interface MockOptions {
   readonly registry?: Partial<Pick<HomeAssistant, 'entities' | 'devices' | 'areas' | 'floors'>>;
   readonly history?: Record<string, readonly number[]>;
   readonly ws?: Record<string, (message: Record<string, unknown>) => unknown>;
-  readonly api?: (method: string, path: string) => unknown;
+  /** REST answers: (method, path, body) → the answer, or a throw as Home Assistant's frontend throws (`{ error, status_code, body }`). */
+  readonly api?: (method: string, path: string, body?: unknown) => unknown;
   /** How long Home Assistant takes to answer a template, in ms (30: before the first paint; a real socket 50–200). */
   readonly templateDelay?: number;
   /** The house's units: metric (°C, km), or imperial (°F, mi) as a house in the US keeps them. */
@@ -167,15 +169,24 @@ export function createHass(
   hass: () => HomeAssistant;
   subscribe: (l: Listener) => () => void;
   calls: Array<{ domain: string; service: string; data: unknown; target: unknown }>;
+  /** Every REST call the cards made, with the body they sent. */
+  apiCalls: Array<{ method: string; path: string; body?: unknown }>;
   /** Changes a state (and attributes) at once and tells every listener, as a recorder update would. */
   set: (id: string, state?: string, attributes?: Record<string, unknown>) => void;
+  /** Adds an entity to the house (a schedule just written) and tells every listener. */
+  add: (seed: StateSeed) => void;
+  /** Takes an entity out of the house (a schedule just deleted) and tells every listener. */
+  remove: (id: string) => void;
+  /** Fires a bus event (`automation_reloaded`) to whoever subscribed to its type, as Home Assistant would. */
+  fire: (eventType: string, data?: Record<string, unknown>) => void;
   /** How many `render_template` subscriptions are open: what the cards hold, and must let go of. */
   templates: () => number;
 } {
   const now = options.now ?? new Date();
   const states: Record<string, HassEntity> = {};
-  for (const [entity_id, state, attributes, ago] of seeds) {
-    const reported = new Date(now.getTime() - (ago ?? 0) * 1000);
+  /** An entity as seeded: reported `ago` seconds before the house's moment, changed two hours before when unsaid. */
+  const seed = ([entity_id, state, attributes, ago]: StateSeed, at: Date): void => {
+    const reported = new Date(at.getTime() - (ago ?? 0) * 1000);
     states[entity_id] = {
       entity_id,
       state,
@@ -184,10 +195,55 @@ export function createHass(
       last_updated: iso(reported),
       ...(ago === undefined ? {} : { last_reported: iso(reported) }),
     } as HassEntity;
-  }
+  };
+  for (const entry of seeds) seed(entry, now);
   const listeners = new Set<Listener>();
   const calls: Array<{ domain: string; service: string; data: unknown; target: unknown }> = [];
+  const apiCalls: Array<{ method: string; path: string; body?: unknown }> = [];
   let current: HomeAssistant;
+
+  /** The event bus: who listens to which event type (`subscribe_events`), and `fire` to speak to them. */
+  const events = new Map<string, Set<(event: unknown) => void>>();
+  let fired = 0;
+  const fire = (eventType: string, data: Record<string, unknown> = {}): void => {
+    const event = {
+      event_type: eventType,
+      data,
+      origin: 'LOCAL',
+      time_fired: iso(new Date()),
+      context: { id: `evt${++fired}`, parent_id: null, user_id: null },
+    };
+    for (const type of [eventType, '*'])
+      for (const callback of events.get(type) ?? []) callback(event);
+  };
+  const listen = (
+    message: Record<string, unknown>,
+    callback: (event: unknown) => void,
+  ): UnsubscribeFunc => {
+    const type = typeof message['event_type'] === 'string' ? message['event_type'] : '*';
+    let set = events.get(type);
+    if (!set) events.set(type, (set = new Set()));
+    set.add(callback);
+    return () => {
+      set.delete(callback);
+    };
+  };
+
+  /** One connection for the mock's life: the cards key their caches and their stores on it. */
+  const connection: HomeAssistant['connection'] = {
+    subscribeMessage: async <T>(
+      callback: (message: T) => void,
+      message: { type: string; [k: string]: unknown },
+    ) => {
+      if (message.type === 'render_template')
+        return watch(message, callback as (event: unknown) => void);
+      if (message.type === 'subscribe_events')
+        return listen(message, callback as (event: unknown) => void);
+      const handler = options.ws?.[message.type];
+      if (handler) setTimeout(() => callback(handler(message) as T), 30);
+      return () => undefined;
+    },
+  };
 
   const watches = new Set<Watch>();
   /** Renders one watched template against the states as they are now; an error is an event too, as Home Assistant reports it. */
@@ -261,18 +317,7 @@ export function createHass(
         time_zone: 'Europe/Madrid',
       },
       user: { id: 'u1', name: 'Marta', is_admin: true },
-      connection: {
-        subscribeMessage: async <T>(
-          callback: (message: T) => void,
-          message: { type: string; [k: string]: unknown },
-        ) => {
-          if (message.type === 'render_template')
-            return watch(message, callback as (event: unknown) => void);
-          const handler = options.ws?.[message.type];
-          if (handler) setTimeout(() => callback(handler(message) as T), 30);
-          return () => undefined;
-        },
-      },
+      connection,
       callService: async (domain, service, data = {}, target) => {
         calls.push({ domain, service, data, target });
         const ids = ([] as string[]).concat(
@@ -306,8 +351,10 @@ export function createHass(
         if (handler) return handler(message) as T;
         throw new Error(`mock hass: unhandled WS message ${message.type}`);
       },
-      callApi: async <T>(method: string, path: string): Promise<T> =>
-        options.api ? (options.api(method, path) as T) : ([] as unknown as T),
+      callApi: async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+        apiCalls.push(body === undefined ? { method, path } : { method, path, body });
+        return options.api ? (options.api(method, path, body) as T) : ([] as unknown as T);
+      },
       hassUrl: (path = '') => path,
       localize: (key) => {
         const measure = MEASURE_KEY.exec(key)?.[1];
@@ -360,10 +407,20 @@ export function createHass(
       return () => listeners.delete(l);
     },
     calls,
+    apiCalls,
     set: (id, state, attributes) => {
       set(id, state, attributes);
       notify();
     },
+    add: (entry) => {
+      seed(entry, new Date());
+      notify();
+    },
+    remove: (id) => {
+      delete states[id];
+      notify();
+    },
+    fire,
     templates: () => watches.size,
   };
 }

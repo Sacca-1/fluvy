@@ -20,7 +20,7 @@ export const sheet: SheetSpec = {
   states: [...home.states, ...climate.states, ...energy.states, ...media.states],
   history: { ...home.history, ...energy.history },
   ws: { ...energy.ws, ...media.ws },
-  api: (method, path) => energy.api?.(method, path) ?? media.api?.(method, path),
+  api: (method, path, body) => energy.api?.(method, path, body) ?? media.api?.(method, path, body),
   frames: [
     { title: 'Tiles', width: 420, cards: cardsOf(home, 'Tiles').slice(0, 4) },
     {

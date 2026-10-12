@@ -79,6 +79,7 @@ const NEVER_INITIAL = [
   'fluvy-wall-back',
   'fluvy-keypad',
   'fluvy-rows-editor',
+  'fluvy-schedule-sheet',
 ];
 for (const name of initial) {
   const code = await readFile(join(dist, name), 'utf8');
@@ -92,8 +93,8 @@ for (const name of initial) {
     process.exit(1);
   }
 }
-// 222 KB since 1.7 (the light's colour controls, the surface colour, the essentials while off): 220 KB before
-const BUDGET = 222 * 1024;
+// 224 KB since 1.8 (the automations family's announcement and words, the light's own colours): 222 KB in 1.7, 220 before
+const BUDGET = 224 * 1024;
 const kb = (n) => `${(n / 1024).toFixed(1)} KB`;
 console.log(
   `Fluvy v${version} · build ${build} · every page ${kb(gzip(initial))} gzip (budget ${BUDGET / 1024} KB: ${[...initial].join(' + ')})`,

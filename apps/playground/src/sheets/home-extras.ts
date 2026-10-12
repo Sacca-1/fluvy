@@ -5,6 +5,7 @@ import { FluvyNowPlayingCard } from '../../../../packages/cards/src/now-playing/
 import { FluvyReadoutsCard } from '../../../../packages/cards/src/readouts/readouts-card.js';
 import { FluvySceneCard } from '../../../../packages/cards/src/scene/scene-card.js';
 import type { LovelaceCardConfig } from '@fluvy/core';
+import { NOW } from '../now.js';
 import type { SheetSpec } from '../scenes.js';
 
 if (!customElements.get('fluvy-hello-card'))
@@ -83,7 +84,17 @@ const MORE_ROOMS = ['Bathroom', 'Hall', 'Garage', 'Garden'].map((label) => ({
 export const sheet: SheetSpec = {
   states: [
     /* the evening of the sheet */
-    ['sun.sun', 'below_horizon', { friendly_name: 'Sun' }],
+    [
+      'sun.sun',
+      'below_horizon',
+      // the sun's next events as Home Assistant reports them: tomorrow's rising at 07:52, setting at 20:17
+      {
+        friendly_name: 'Sun',
+        next_rising: new Date(NOW.getTime() + (10 * 60 + 5) * 60_000).toISOString(),
+        next_setting: new Date(NOW.getTime() + (22 * 60 + 30) * 60_000).toISOString(),
+        rising: false,
+      },
+    ],
     [
       'weather.flat',
       'clear-night',

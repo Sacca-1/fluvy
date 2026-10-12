@@ -295,6 +295,15 @@ export function simulate<E extends SimulatedEntity>(
       case 'counter.reset':
         set(id, String(Number(a['initial'] ?? 0)));
         break;
+      case 'automation.turn_on':
+        set(id, 'on');
+        break;
+      case 'automation.turn_off':
+        set(id, 'off');
+        break;
+      case 'automation.toggle':
+        set(id, s.state === 'on' ? 'off' : 'on');
+        break;
       case 'automation.trigger':
         set(id, undefined, { last_triggered: stamp });
         break;

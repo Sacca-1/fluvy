@@ -134,17 +134,25 @@ exports[`the dashboard templates > generate the same dashboard for the demo home
         {
           "cards": [
             {
-              "entity": "sensor.solar_inverter_power",
+              "color": "amber",
+              "entity": "sensor.solar_inverter_daily_yield",
               "grid_options": {
                 "columns": 12,
               },
-              "type": "custom:fluvy-gauge-card",
+              "type": "custom:fluvy-history-bars-card",
             },
           ],
           "type": "grid",
         },
         {
           "cards": [
+            {
+              "entity": "sensor.solar_inverter_power",
+              "grid_options": {
+                "columns": 12,
+              },
+              "type": "custom:fluvy-gauge-card",
+            },
             {
               "entity": "sensor.solar_inverter_power",
               "grid_options": {

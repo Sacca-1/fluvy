@@ -152,7 +152,13 @@ describe('custom:fluvy-home strategy', () => {
     const used = new Set(
       views.flatMap((v) => v.sections.flatMap((s) => s.cards.map((c) => c.type))),
     );
-    expect(CATALOGUE.map(([tag]) => `custom:${tag}`).filter((type) => !used.has(type))).toEqual([]);
+    // the automations card is placed by hand (1.8): the automatic dashboards do not put it on a view
+    const byHand = new Set(['custom:fluvy-automations-card']);
+    expect(
+      CATALOGUE.map(([tag]) => `custom:${tag}`).filter(
+        (type) => !used.has(type) && !byHand.has(type),
+      ),
+    ).toEqual([]);
   });
 
   it('builds a view for each thing the house has, with the greeting (and the tabs, when asked) on every one', async () => {

@@ -23,8 +23,8 @@ const release = args.includes('--release') || args.includes('--tag');
 /** Each chunk's gzip budget in bytes (`core` is what every page loads; the rest come on demand). */
 const BUDGETS = {
   'fluvy.js': 2048,
-  // 222 KB since 1.7 (the light's colour wiring, the surface colour, the essentials while off): 220 before
-  core: 227_328,
+  // 224 KB since 1.8 (the automations family's announcement and words, the light's own colours): 222 in 1.7, 220 before
+  core: 229_376,
   panel: 40_960,
   strategy: 24_576,
   wall: 16_384,
@@ -34,6 +34,10 @@ const BUDGETS = {
   media: 16_384,
   // the devices family: the lock, the alarm and its keypad, the camera, the printer
   devices: 32_768,
+  // the automations family: the card, the schedule model and its store
+  automations: 16_384,
+  // the schedule sheet: targets, verbs, days, moments and the name, fetched when one is opened
+  'automations-sheet': 16_384,
   // the light card's colour controls: the quick colours' table and row, fetched by the first colour bulb
   'light-colour': 4096,
   // the weather card
@@ -43,7 +47,8 @@ const BUDGETS = {
   pages: 8192,
   activity: 32_768,
   history: 16_384,
-  lang: 16_384,
+  // 20 KB since 1.8 (the automations' words, the light's own colours): 16 before
+  lang: 20_480,
   'rolldown-runtime': 2048,
   'loader.js': 4096,
 };

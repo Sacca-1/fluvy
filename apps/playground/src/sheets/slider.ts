@@ -104,6 +104,62 @@ export const sheet: SheetSpec = {
         },
       ],
     },
+    // issue #37: the house's own colours with names of their own — a hex, a triplet and a Home Assistant colour
+    // named, a colour name as words, a white, and the picker last; the lamp's orange is none of them, so the picker
+    // holds it
+    {
+      title: 'Colour · named custom',
+      cards: [
+        {
+          type: 'custom:fluvy-light-card',
+          entity: 'light.lamp',
+          colors: [
+            { color: '#ff2d55', name: 'Lila' },
+            { color: [0, 128, 128], name: 'Teal' },
+            { color: 'amber', name: 'Honey' },
+            'deep-purple',
+            'warm',
+            'picker',
+          ],
+        },
+      ],
+    },
+    // any number, any mix, any order: twelve — whites, names, hexes, triplets, a named one, the picker in the
+    // middle — wrap into two rows of six; the picker holds the lamp's orange
+    {
+      title: 'Colour · twelve',
+      cards: [
+        {
+          type: 'custom:fluvy-light-card',
+          entity: 'light.lamp',
+          colors: [
+            'warm',
+            'cool',
+            'red',
+            '#ff2d55',
+            [0, 128, 128],
+            'picker',
+            { color: 'amber', name: 'Honey' },
+            'teal',
+            'blue',
+            '#6e41ab',
+            [255, 0, 255],
+            'pink',
+          ],
+        },
+      ],
+    },
+    // and three: one short row from the left, the orange checked
+    {
+      title: 'Colour · three',
+      cards: [
+        {
+          type: 'custom:fluvy-light-card',
+          entity: 'light.lamp',
+          colors: ['warm', 'orange', 'picker'],
+        },
+      ],
+    },
     // colours alone: no white among the quick colours, the hue ruler whatever the mode
     {
       title: 'Colour · colours alone',

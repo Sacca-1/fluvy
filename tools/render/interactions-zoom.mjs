@@ -10,7 +10,8 @@
  * ruler's knob stays under the finger and a drag lands where the finger lets go (and a tap where it taps), the
  * lock's grip rides under the finger and still only unlocks past the commit point, a dial follows the pointer to
  * the middle of its sweep, a chart reads the same moment under the pointer as at 100 %, a tab row centres the tab
- * chosen, the keypad opens whole on a phone at 150 %; and no frame gains an ellipsis or a clipped line at 125 or
+ * chosen, the keypad and the schedule sheet open whole on a phone at 150 %; and no frame gains an ellipsis or a
+ * clipped line at 125 or
  * 150 % that it does not have at 100 %.
  */
 import { dialTo, dragTo, mousePointer, rulerGeometry } from './lib/gestures.mjs';
@@ -244,6 +245,38 @@ const sized = (page) =>
   );
 }
 
+/* ---------- the history bars: the bar under the pointer, the same at every size ---------- */
+{
+  const readings = {};
+  for (const zoom of [100, 150]) {
+    const page = await open('history-bars', zoom);
+    const card = frame(page, 'Solar production').locator('fluvy-history-bars-card').first();
+    await card.scrollIntoViewIfNeeded();
+    await settle(page, 300);
+    // the fourth of seven bars, by its own box: the zoom scales the chart and the bars with it
+    const bar = await card.locator('.hb-bar').nth(3).boundingBox();
+    await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
+    await settle(page, 150);
+    readings[zoom] = {
+      label: (await card.locator('.hb-readouts .fv-readout__label').first().textContent()).trim(),
+      hovered: await card.evaluate((el) =>
+        [...el.shadowRoot.querySelectorAll('.hb-bar')].findIndex((b) =>
+          b.classList.contains('is-hover'),
+        ),
+      ),
+    };
+    await page.close();
+  }
+  check(
+    'history bars: a pointer on the fourth bar reads 06 October at 150 % as at 100 %, that bar lit',
+    readings[100].label === 'Oct 06' &&
+      readings[150].label === 'Oct 06' &&
+      readings[100].hovered === 3 &&
+      readings[150].hovered === 3,
+    JSON.stringify(readings),
+  );
+}
+
 /** A click through the mouse: WebKit's hit test names the root for a point inside a zoomed view. */
 async function tap(page, locator) {
   const box = await locator.boundingBox();
@@ -297,6 +330,37 @@ async function tap(page, locator) {
     'keypad: the dialog covers the screen and its sheet, with every key, sits inside it',
     d && s && inside(d) && inside(s) && d.width >= 389 && keys === 11,
     `dialog ${JSON.stringify(d)} · sheet ${JSON.stringify(s)} · ${keys} keys`,
+  );
+  await page.keyboard.press('Escape');
+  await page.close();
+}
+
+/* ---------- the schedule sheet: whole on a phone at 150 %, scrolling inside ---------- */
+{
+  const page = await open('automations', 150, { viewport: PHONE });
+  const card = frame(page, 'Rows').locator('fluvy-automations-card');
+  await card.scrollIntoViewIfNeeded();
+  await tap(page, card.locator('.fv-card__head .fv-round'));
+  await settle(page, 700);
+  const dialog = card.locator('fluvy-schedule-sheet dialog');
+  const sheet = dialog.locator('.fv-sheet');
+  const d = await dialog.boundingBox();
+  const s = await sheet.boundingBox();
+  const within = (b) =>
+    b.x >= -0.5 && b.y >= -0.5 && b.x + b.width <= 390.5 && b.y + b.height <= 700.5;
+  const scrolls = await sheet.evaluate((el) => el.scrollHeight > el.clientHeight);
+  check(
+    'schedule sheet: the dialog covers the phone and the sheet sits inside it, scrolling within',
+    d && s && within(d) && within(s) && d.width >= 389 && scrolls,
+    `dialog ${JSON.stringify(d)} · sheet ${JSON.stringify(s)} · scrolls ${scrolls}`,
+  );
+  await sheet.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  await settle(page, 200);
+  const save = await dialog.locator('.ss-footer .fv-btn--accent').boundingBox();
+  check(
+    'schedule sheet: scrolled to its end, Save is on the phone’s screen',
+    save && within(save),
+    JSON.stringify(save),
   );
   await page.keyboard.press('Escape');
   await page.close();

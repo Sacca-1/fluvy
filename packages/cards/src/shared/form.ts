@@ -33,7 +33,7 @@ export const SHARED_LABELS: Readonly<Record<string, MessageKey>> = {
 };
 
 /** The language an editor speaks: `getConfigForm()` is static, so it comes from the document. */
-const editorLanguage = (): Pick<HomeAssistant, 'language'> => ({
+export const editorLanguage = (): Pick<HomeAssistant, 'language'> => ({
   language: document.documentElement.lang || 'en',
 });
 

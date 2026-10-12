@@ -70,7 +70,7 @@ const WALL = /\/packages\/(core\/src\/wall\/(?!start\.ts)|cards\/src\/wall\/)/;
  * a card again the moment its tag is defined, so a dashboard with energy on it shows it; one without never waits.
  */
 const ENERGY =
-  /\/packages\/cards\/src\/(energy-cards\.ts|energy\/(?!head\.ts)|energy-flow\/|energy-model\/|energy-devices\/|production\/|balance\/|grid\/|batteries\/|ev-charger\/|sankey\/|score\/|meters\/)/;
+  /\/packages\/cards\/src\/(energy-cards\.ts|energy\/(?!head\.ts)|energy-flow\/|energy-model\/|energy-devices\/|production\/|history-bars\/|balance\/|grid\/|batteries\/|ev-charger\/|sankey\/|score\/|meters\/)/;
 
 /**
  * The media family (the player and the now-playing strip, and what only they share): fetched as the bundle starts
@@ -89,6 +89,18 @@ const MEDIA = /\/packages\/cards\/src\/(media-cards\.ts|media\/|now-playing\/|sh
 const DEVICES =
   /\/packages\/cards\/src\/(devices-cards\.ts|camera\/|alarm\/|lock\/lock-card\.ts|printer\/)/;
 
+/**
+ * The schedule sheet (its targets, day chips and moment rows): fetched the first time a schedule is opened or added,
+ * never by a dashboard that only lists; it reaches the page controls (the time field) through the pages chunk.
+ */
+const AUTOMATIONS_SHEET = /\/packages\/cards\/src\/automations\/sheet\//;
+
+/**
+ * The automations family (the card, its words' layout, the schedule model and the store): fetched as the bundle
+ * starts and defined as it lands, as the devices family is (`automations-family.ts` stays in core: the name, the height).
+ */
+const AUTOMATIONS = /\/packages\/cards\/src\/(automations-cards\.ts|automations\/)/;
+
 /** The light card's colour controls (the quick colours' table and row, the hue maths): fetched by the first colour bulb drawn. */
 const LIGHT_COLOUR = /\/packages\/cards\/src\/light\/colour\.ts/;
 
@@ -103,7 +115,8 @@ const LANGUAGE = /\/packages\/core\/src\/i18n\/locales\/(?!en\.json)([\w-]+)\.js
 
 /**
  * Where each module goes, first match wins: a language's catalogue, the page controls, the Activity page, the History
- * page, the settings panel, the strategy, the wall, the media, energy and devices families, the cards' editor, and everything else
+ * page, the settings panel, the strategy, the wall, the media, energy, devices and automations families (the schedule
+ * sheet on its own), the cards' editor, and everything else
  * (Fluvy's packages and Lit) in `core`. The bundle's own entry stays in `fluvy.js`. Rolldown processes the groups in this order; the priorities
  * only say so out loud.
  */
@@ -122,6 +135,8 @@ const GROUPS: ReadonlyArray<{
   { name: 'media', test: MEDIA },
   { name: 'energy', test: ENERGY },
   { name: 'devices', test: DEVICES },
+  { name: 'automations-sheet', test: AUTOMATIONS_SHEET },
+  { name: 'automations', test: AUTOMATIONS },
   { name: 'light-colour', test: LIGHT_COLOUR },
   { name: 'editor', test: EDITOR },
   { name: 'view-icons', test: VIEW_ICONS },

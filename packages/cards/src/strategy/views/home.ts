@@ -174,6 +174,7 @@ export function energyView(ctx: StrategyContext): Section[] {
     ),
     ...when(solarPower, (id) => [full('gauge', { entity: id })]),
     ...when(solarToday, (id) => [full('production', { entity: id })]),
+    ...when(solarToday, (id) => [full('history-bars', { entity: id, color: 'amber' })]),
     ...when(consumptionPowers.length >= 2, () => [
       full('distribution', {
         title: t('strategy.consumption'),

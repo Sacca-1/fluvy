@@ -14,6 +14,7 @@ const pad = (n: number): string => String(n).padStart(2, '0');
  * holding the house's clock as segments — hours and minutes, and the day's half on a 12-hour clock. Each segment
  * takes digits (a phone's number pad), steps with ↑ ↓ and moves on by itself once it is whole; ← → go between them.
  * With `end-of-day`, the day's end reads "24:00" (a period's last day, whole). No native indicator, no system picker.
+ * `step` is what ↑ ↓ move the minutes by (a schedule's five): to the next multiple of it, while typing stays free.
  *
  * `value` is minutes since midnight. Event: `fluvy-time` (`TimeFieldDetail`) when a segment changes it.
  */
@@ -73,6 +74,7 @@ export class FluvyTimeField extends LitElement {
 
   static override properties = {
     value: { type: Number },
+    step: { type: Number },
     hour12: { type: Boolean },
     endOfDay: { type: Boolean, attribute: 'end-of-day' },
     label: { type: String },
@@ -83,6 +85,8 @@ export class FluvyTimeField extends LitElement {
   };
 
   declare value: number;
+  /** What ↑ ↓ move the minutes by: to the next multiple of it (1 by default). */
+  declare step: number;
   /** A 12-hour clock: hours 1–12 and the day's half. */
   declare hour12: boolean;
   /** The day's end may be picked: 24:00. */
@@ -101,6 +105,7 @@ export class FluvyTimeField extends LitElement {
   constructor() {
     super();
     this.value = 0;
+    this.step = 1;
     this.hour12 = false;
     this.endOfDay = false;
     this.label = '';
@@ -161,7 +166,7 @@ export class FluvyTimeField extends LitElement {
       event.preventDefault();
       this.typed = '';
       if (which === 'h') this.setHours(this.hours + step);
-      else if (which === 'm') this.setMinutes(this.minutes + step);
+      else if (which === 'm') this.setMinutes(this.steppedMinutes(step));
       else this.flip();
       input.select();
     } else if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
@@ -209,6 +214,15 @@ export class FluvyTimeField extends LitElement {
     }
     input.select();
   };
+
+  /** The minutes a step away: the next multiple of `step` in that direction (the minute itself when `step` is 1). */
+  private steppedMinutes(direction: 1 | -1): number {
+    const step = Number.isInteger(this.step) && this.step > 0 && this.step < 60 ? this.step : 1;
+    const minutes = this.minutes;
+    return direction > 0
+      ? Math.floor(minutes / step) * step + step
+      : Math.ceil(minutes / step) * step - step;
+  }
 
   private flip(): void {
     if (this.value === END) return;

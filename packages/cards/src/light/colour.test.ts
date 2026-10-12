@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { activeSwatch, hsToRgb, hueOf, kelvinRgb, resolveSwatch, rgbOf } from './colour.js';
+import {
+  activeSwatch,
+  hsToRgb,
+  hueOf,
+  kelvinRgb,
+  resolveSwatch,
+  swatchWord,
+  type Swatch,
+} from './colour.js';
 
 describe('a colour bulb’s quick colours', () => {
   it('resolves a word, a Home Assistant colour, a hex and a triplet, and nothing else', () => {
@@ -26,7 +34,61 @@ describe('a colour bulb’s quick colours', () => {
     });
     expect(resolveSwatch('picker', 2200, 6500)).toEqual({ kind: 'picker', hex: '' });
     expect(resolveSwatch('mauve-ish', 2200, 6500)).toBeUndefined();
+    expect(resolveSwatch('constructor', 2200, 6500)).toBeUndefined(); // no colour of the prototype's
     expect(resolveSwatch([1, 2], 2200, 6500)).toBeUndefined();
+  });
+
+  it('names a hex by its canonical form, a Home Assistant colour by its name', () => {
+    expect(resolveSwatch('#abc', 2200, 6500)).toMatchObject({ name: '#aabbcc' });
+    expect(resolveSwatch('FF2D55', 2200, 6500)).toMatchObject({ name: '#ff2d55' });
+    expect(resolveSwatch([0, 128, 128], 2200, 6500)).toMatchObject({ name: '#008080' });
+    expect(resolveSwatch('Deep-Purple', 2200, 6500)).toMatchObject({
+      name: 'deep-purple',
+      hex: '#6e41ab',
+    });
+  });
+
+  it('resolves a named entry as its colour with the name as its label', () => {
+    expect(resolveSwatch({ color: '#ff2d55', name: 'Lila' }, 2200, 6500)).toEqual({
+      kind: 'colour',
+      name: '#ff2d55',
+      rgb: [255, 45, 85],
+      hex: '#ff2d55',
+      label: 'Lila',
+    });
+    expect(resolveSwatch({ color: [0, 128, 128], name: 'Teal' }, 2200, 6500)).toMatchObject({
+      hex: '#008080',
+      label: 'Teal',
+    });
+    expect(resolveSwatch({ color: 'warm', name: 'Evening' }, 2200, 6500)).toMatchObject({
+      kind: 'white',
+      kelvin: 2700,
+      label: 'Evening',
+    });
+    expect(resolveSwatch({ color: 'picker', name: 'Any' }, 2200, 6500)).toEqual({
+      kind: 'picker',
+      hex: '',
+      label: 'Any',
+    });
+    // a blank name is none; a named nothing is nothing
+    expect(resolveSwatch({ color: 'blue', name: '  ' }, 2200, 6500)).not.toHaveProperty('label');
+    expect(resolveSwatch({ color: 'mauve-ish', name: 'Mauve' }, 2200, 6500)).toBeUndefined();
+  });
+
+  it('says what a round is called: its name, else its word, its hex, or a colour name as words', () => {
+    const t = (key: string): string => `[${key}]`;
+    const word = (entry: Parameters<typeof resolveSwatch>[0]): string =>
+      swatchWord(resolveSwatch(entry, 2200, 6500) as Swatch, t);
+    expect(word('warm')).toBe('[light.warm]');
+    expect(word('picker')).toBe('[option.picker]');
+    expect(word('red')).toBe('[option.red]');
+    expect(word('#FF2D55')).toBe('#ff2d55');
+    expect(word('ff2d55')).toBe('#ff2d55');
+    expect(word([0, 128, 128])).toBe('#008080');
+    expect(word('deep-purple')).toBe('Deep purple');
+    expect(word('amber')).toBe('Amber');
+    expect(word({ color: 'amber', name: 'Honey' })).toBe('Honey');
+    expect(word({ color: 'picker', name: 'Any colour' })).toBe('Any colour');
   });
 
   it('says which quick colour the bulb is on: the nearest within tolerance, never across kinds', () => {
@@ -56,7 +118,6 @@ describe('a colour bulb’s quick colours', () => {
     expect(hueOf([255, 128, 0])).toBe(30);
     expect(hueOf([0, 0, 255])).toBe(240);
     expect(hueOf([120, 120, 120])).toBe(0);
-    expect(rgbOf('not a colour')).toBeUndefined();
   });
 
   it('draws a white at a temperature as a warm or a cool white', () => {

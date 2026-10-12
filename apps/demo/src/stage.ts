@@ -69,9 +69,9 @@ export function createStage(root: HTMLElement, look: MemoryLook): Stage {
         readonly number[]
       >,
       ws: mergeWs(selected.map(([, sheet]) => sheet.ws)),
-      api: (method, path) => {
+      api: (method, path, body) => {
         for (const [, sheet] of selected) {
-          const answer = sheet.api?.(method, path);
+          const answer = sheet.api?.(method, path, body);
           if (answer !== undefined) return answer;
         }
         return [];

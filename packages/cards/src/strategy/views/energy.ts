@@ -93,12 +93,13 @@ function todayView(ctx: StrategyContext): Section[] {
   return balanced(ctx.header, todayCards(ctx));
 }
 
-/** What the sun makes: today's production, the inverter's gauge and its day. */
+/** What the sun makes: today's production, its last days as bars, the inverter's gauge and its day. */
 function productionView(ctx: StrategyContext): Section[] {
   const { t, energy } = ctx;
   const { solarPower, solarToday } = energy;
   return balanced(ctx.header, [
     ...when(solarToday, (id) => [full('production', { entity: id })]),
+    ...when(solarToday, (id) => [full('history-bars', { entity: id, color: 'amber' })]),
     ...when(solarPower, (id) => [full('gauge', { entity: id })]),
     ...when(solarPower, (id) => [full('energy', { entity: id, name: t('energy.solar') })]),
   ]);

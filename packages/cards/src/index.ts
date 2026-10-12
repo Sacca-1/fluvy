@@ -33,6 +33,7 @@ import { FluvyRoomCard } from './room/room-card.js';
 import { FluvyLightsCard } from './lights/lights-card.js';
 import { FluvyMapCard } from './map/map-card.js';
 import { defineStrategies } from './strategy/define.js';
+import { AUTOMATIONS_FAMILY } from './automations-family.js';
 import { DEVICES_FAMILY } from './devices-family.js';
 import { ENERGY_FAMILY } from './energy-family.js';
 import { MEDIA_FAMILY } from './media-family.js';
@@ -233,13 +234,14 @@ const CATALOGUE: ReadonlyArray<
 
 for (const [tag, element, name, description] of CATALOGUE)
   registerCard({ tag, name, description }, element);
-// the weather card and the media, energy and devices families: listed and measured now, their elements fetched at once and
-// defined as they land
+// the weather card and the media, energy, devices and automations families: listed and measured now, their elements
+// fetched at once and defined as they land
 for (const [tag, name, description, height] of [
   ...WEATHER_FAMILY,
   ...MEDIA_FAMILY,
   ...ENERGY_FAMILY,
   ...DEVICES_FAMILY,
+  ...AUTOMATIONS_FAMILY,
 ])
   announceCard({ tag, name, description }, height);
 /** The families defined (what a test waits on before its page goes; the bundle never waits). */
@@ -248,27 +250,35 @@ export const familiesDefined: Promise<unknown> = Promise.all([
   import('./media-cards.js'),
   import('./energy-cards.js'),
   import('./devices-cards.js'),
+  import('./automations-cards.js'),
 ]);
 
-/** Every card with its element: the eager ones, the weather card and the media, energy and devices families (docs, tests). */
+/** Every card with its element: the eager ones, the weather card and the media, energy, devices and automations families (docs, tests). */
 export async function catalogue(): Promise<
   ReadonlyArray<
     readonly [tag: string, element: CustomElementConstructor, name: string, description: string]
   >
 > {
-  const [{ WEATHER_CATALOGUE }, { MEDIA_CATALOGUE }, { ENERGY_CATALOGUE }, { DEVICES_CATALOGUE }] =
-    await Promise.all([
-      import('./weather-cards.js'),
-      import('./media-cards.js'),
-      import('./energy-cards.js'),
-      import('./devices-cards.js'),
-    ]);
+  const [
+    { WEATHER_CATALOGUE },
+    { MEDIA_CATALOGUE },
+    { ENERGY_CATALOGUE },
+    { DEVICES_CATALOGUE },
+    { AUTOMATIONS_CATALOGUE },
+  ] = await Promise.all([
+    import('./weather-cards.js'),
+    import('./media-cards.js'),
+    import('./energy-cards.js'),
+    import('./devices-cards.js'),
+    import('./automations-cards.js'),
+  ]);
   return [
     ...CATALOGUE,
     ...WEATHER_CATALOGUE,
     ...MEDIA_CATALOGUE,
     ...ENERGY_CATALOGUE,
     ...DEVICES_CATALOGUE,
+    ...AUTOMATIONS_CATALOGUE,
   ];
 }
 // the automatic dashboards' strategies (`strategy: { type: custom:fluvy-home }` and the other templates; their file is fetched when asked)

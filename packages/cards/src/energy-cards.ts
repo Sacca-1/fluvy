@@ -7,6 +7,7 @@ import { ENERGY_FAMILY } from './energy-family.js';
 import { FluvyGridCard } from './grid/grid-card.js';
 import { FluvyMetersCard } from './meters/meters-card.js';
 import { FluvyProductionCard } from './production/production-card.js';
+import { FluvyHistoryBarsCard } from './history-bars/history-bars-card.js';
 import { FluvyBatteriesCard } from './batteries/batteries-card.js';
 import { FluvyEvChargerCard } from './ev-charger/ev-charger-card.js';
 import { FluvyEnergySankeyCard } from './sankey/sankey-card.js';
@@ -23,6 +24,7 @@ const ELEMENTS: Readonly<Record<string, CustomElementConstructor>> = {
   'fluvy-grid-card': FluvyGridCard,
   'fluvy-energy-devices-card': FluvyEnergyDevicesCard,
   'fluvy-production-card': FluvyProductionCard,
+  'fluvy-history-bars-card': FluvyHistoryBarsCard,
   'fluvy-batteries-card': FluvyBatteriesCard,
   'fluvy-ev-charger-card': FluvyEvChargerCard,
   'fluvy-meters-card': FluvyMetersCard,

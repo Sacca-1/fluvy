@@ -1,6 +1,6 @@
 # The cards
 
-Fifty cards, listed as **Fluvy · …** in the card picker, each with a live preview and an editor form. The form is
+Fifty-two cards, listed as **Fluvy · …** in the card picker, each with a live preview and an editor form. The form is
 the reference for a card's options: it shows what the card does by default, and a default you leave as it is is never
 written into the configuration. In YAML, a card is `type: custom:<tag>` plus the entity or entities it draws and any
 option the editor offers; the *Options* column below names them (a select's values in brackets, a list with its item
@@ -43,6 +43,53 @@ entities:
     color: teal
 ```
 
+A colour bulb's quick colours (`colors`) are the house's own, any number in any order: `warm`, `cool`, a Home
+Assistant colour name, `#rrggbb`, `[r, g, b]`, `picker` (a round that opens the browser's colour picker), or any of
+those with a `name` its round says. The editor edits them row by row — a colour (the words, the picker, or *Custom
+colour* with a colour well) and a name — and shows the bulb's default six until the list is touched; a hex reads as
+itself and a colour name as words ("Deep purple") when no name is given.
+
+```yaml
+type: custom:fluvy-light-card
+entity: light.lamp
+colors:
+  - warm
+  - color: "#ff2d55"
+    name: Lila
+  - color: [0, 128, 128]
+    name: Teal
+  - deep-purple
+  - picker
+```
+
+The history bars card reads a sensor's long-term statistics (`days` bars of a `period`: days, weeks or months; a
+bar is what a meter gained, or a measurement's `mean`, `max` or `min`). Its head readouts (`head`) and the facts
+under the chart (`facts`) are lists of kinds you compose in order — `total`, `average`, `highest`, `lowest`,
+`today`, and the equivalents `co2` (× `co2_factor`, 0.4 kg a kWh), `trees` (22 kg a tree a year), `km` (5 km a
+kWh), `money` (× `price`, in the house's currency), `share` (`of` another sensor) and `template` — each with its
+own `name`, `icon`, `color`, `unit`, `decimals`, `factor` and `tap_action`. The factors are rough and yours to set.
+Every part switches off (`show_values`, `show_axis`, `show_grid`, `show_dates`, `show_facts`, `show_head`), the
+day in progress joins with `include_today`, and `variant: compact` keeps the bars and their dates, `mini` a row of
+readouts and a sparkline:
+
+```yaml
+type: custom:fluvy-history-bars-card
+entity: sensor.grid_export_energy
+name: Feed-in to grid
+icon: up
+color: '#86B98C'
+price: 0.19
+facts:
+  - kind: share
+    of: sensor.solar_energy
+    name: Share of production
+    icon: tower
+  - kind: money
+    name: Revenue (est.)
+  - kind: co2
+    name: CO₂ avoided
+```
+
 ## Templates in row text
 
 In every list of rows (entities, lock, alarm, camera, bars, stat tiles, actions, helpers) a row's `secondary` may be
@@ -58,6 +105,26 @@ rows:
     secondary: "{{ state_attr('climate.living', 'current_temperature') }} °C · {{ states('sensor.humidity') }} %"
 ```
 
+## Schedules
+
+The automations card lists every automation of the house — on or off, when it last ran — and the schedules Fluvy
+wrote among them with their days, their times and their next run. A schedule is a native Home Assistant automation
+(it is in Settings → Automations too, and Home Assistant's own editor opens it); Fluvy only adds the easy sheet, the
+list and the management. Tap `+` to add one: what it targets, what it does (on, off, open, close, run; a
+brightness or a target temperature), on which days (every day, workdays by the workday integration's sensor, the
+weekend, or the days you pick), when (a time, or sunrise and sunset with an offset) and, with an end, until when.
+One edited in Home Assistant past Fluvy's shape is still listed, as a plain row; only administrators add, edit or
+delete, and everyone else sees the list, the switch and Home Assistant's dialog on tap.
+
+```yaml
+type: custom:fluvy-automations-card
+show: schedules
+variant: tiles
+entities:
+  - automation.good_morning
+  - automation.blinds
+```
+
 <!-- generated:cards -->
 
 ## Everyday
@@ -66,7 +133,7 @@ rows:
 | --- | --- | --- | --- | --- |
 | **Tile** | `custom:fluvy-tile-card` | A light, switch, cover, fan or sensor as a tile: large with a precision ruler or two readouts, compact row, or mini. | `size` (`large`, `compact`, `mini`), `tint` (`on`, `always`), `readouts` | — |
 | **Tiles** | `custom:fluvy-tiles-card` | A group of compact or mini tiles, two to four per row, 8 px apart. | `size` (`compact`, `mini`, `large`), `columns` (`1`, `2`, `3`, `4`, `auto`), `tint` (`on`, `always`), `readouts`, `tiles` (a list: `entity`, `name`, `icon`, `tone`, `color`, `readouts`, `tap_action`, `hold_action`) | `entities` → `tiles` |
-| **Light** | `custom:fluvy-light-card` | The precision dimmer: relative drag, slide away to slow down, hold for the 1 % scale, colour temperature. | `variant` (`auto`, `full`, `compact`), `show_temperature`, `show_color`, `colors` (`warm`, `cool`, `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink`, `picker`), `temperature_tint`, `live_update` | — |
+| **Light** | `custom:fluvy-light-card` | The precision dimmer: relative drag, slide away to slow down, hold for the 1 % scale, colour temperature. | `variant` (`auto`, `full`, `compact`), `show_temperature`, `show_color`, `temperature_tint`, `live_update`, `colors` (a list: `color`, `name`, `rgb`) | — |
 | **Room lights** | `custom:fluvy-lights-card` | A room’s lights on one card: one tap for the whole room, a round, chip or tile for each light, in its colour. | `area`, `variant` (`row`, `chips`, `tiles`), `show_brightness`, `show_count`, `show_level`, `light_colors`, `tint` (`on`, `always`), `lights` (a list: `entity`, `name`, `icon`, `color`) | `entities` → `lights` |
 | **Thermostat** | `custom:fluvy-thermostat-card` | Climate, water heater or humidifier on a dial, with modes, presets and fan speeds. | `variant` (`dial`, `compact`, `ruler`), `modes_style` (`tiles`, `chips`, `full`), `modes` (`off`, `heat`, `cool`, `heat_cool`, `auto`, `dry`, `fan_only`), `show_presets`, `preset_style` (`full`, `chips`), `show_fan`, `fan_style` (`full`, `chips`), `when_off` (`all`, `essentials`) | — |
 | **Entities** | `custom:fluvy-entities-card` | Rows of entities: a switch for what toggles, the value for what is measured. | `title`, `subtitle`, `variant` (`rows`, `compact`), `show_count`, `rows` (a list: `entity`, `name`, `icon`, `secondary`, `tone`, `color`, `tap_action`) | `entities` → `rows` |
@@ -111,6 +178,7 @@ rows:
 | **To-do** | `custom:fluvy-todo-card` | A to-do list: check, add, hide the done. | `subtitle`, `show_completed`, `show_add`, `show_due` | `title` → `name`, `hide_completed` → `show_completed` |
 | **Timer** | `custom:fluvy-timer-card` | A timer counting down live, with pause and cancel. | `show_gauge`, `show_actions` | — |
 | **Updates** | `custom:fluvy-updates-card` | Pending updates with install buttons and progress. | `title`, `subtitle`, `show_up_to_date`, `toggle`, `toggle_secondary` | — |
+| **Automations** | `custom:fluvy-automations-card` | Every automation of the house: on or off, run, last and next run; schedules written as native automations, created and edited in a sheet. | `title`, `subtitle`, `variant` (`rows`, `compact`, `tiles`), `show` (`all`, `schedules`), `sort` (`name`, `next`, `last`), `show_add`, `show_switch`, `show_last`, `show_next`, `show_filters`, `max_rows`, `area`, `workday`, `time_step`, `domains` (`light`, `switch`, `input_boolean`, `fan`, `cover`, `climate`, `scene`, `script`, `valve`, `media_player`) | — |
 
 ## Energy
 
@@ -129,6 +197,7 @@ rows:
 | **Gauge** | `custom:fluvy-gauge-card` | A ring gauge for any numeric sensor with min, max and average, or centred on zero for a meter that runs both ways. | `subtitle`, `variant` (`ring`, `bar`, `signed`), `min`, `max`, `max_entity`, `label`, `badge`, `hours` | — |
 | **Stat tiles** | `custom:fluvy-stat-tiles-card` | A headline value and a grid of read-only stat tiles. | `title`, `subtitle`, `variant` (`full`, `compact`), `columns` (`auto`, `2`, `3`), `badge_entity`, `badge_label`, `tiles` (a list: `entity`, `name`, `icon`, `tone`, `highlight`), `rows` (a list: `entity`, `name`, `icon`, `secondary`, `tone`, `color`, `tap_action`) | — |
 | **Production** | `custom:fluvy-production-card` | Hourly production bars with the forecast behind, stacked per array when there are several. | `subtitle`, `forecast_entity`, `peak_entity`, `show_forecast`, `show_peak`, `variant` (`full`, `compact`), `arrays` (a list: `entity`, `name`) | `title` → `name` |
+| **History bars** | `custom:fluvy-history-bars-card` | A sensor’s last days, weeks or months as bars from its long-term statistics: the total and the average in the head, the value over each bar, and a strip of facts under them — the highest and lowest, or what it comes to in CO₂, trees, kilometres or money. | `subtitle`, `variant` (`full`, `compact`, `mini`), `days`, `period` (`day`, `week`, `month`), `stat` (`change`, `mean`, `max`, `min`), `date_format` (`date`, `weekday`, `short`), `decimals`, `unit`, `include_today`, `show_head`, `show_values`, `show_axis`, `show_grid`, `show_dates`, `show_facts`, `co2_factor`, `price`, `head` (a list: `kind`, `name`, `unit`, `decimals`, `factor`, `of`, `template`, `tap_action`), `facts` (a list: `kind`, `name`, `icon`, `color`, `unit`, `decimals`, `factor`, `of`, `template`, `tap_action`) | `title` → `name` |
 | **Bars** | `custom:fluvy-bars-card` | Rows with a bar each: plants, batteries, strings, levels. | `title`, `subtitle`, `variant` (`full`, `compact`), `badge_ok`, `badge_warn`, `rows` (a list: `entity`, `name`, `icon`, `secondary`, `sub_entity`, `tone`, `color`, `min`, `max`, `low`, `high`, `plain`, `tap_action`) | — |
 | **Distribution** | `custom:fluvy-distribution-card` | One stacked bar and a legend: who draws what. | `title`, `subtitle`, `max_rows`, `variant` (`stack`, `rows`), `total`, `entities` (a list: `entity`, `name`, `tone`, `color`) | — |
 | **Humidity** | `custom:fluvy-humidity-card` | Humidity on a comfort band, with dew point and trend. | `subtitle`, `low`, `high`, `temperature_entity`, `humidifier_entity`, `hours`, `show_trend` | `trend_hours` → `hours` |

@@ -3,6 +3,7 @@ import {
   isUsable,
   stateText,
   type FluvyCardConfig,
+  type HaFormSchemaItem,
   type LovelaceConfigForm,
   type LovelaceGridOptions,
   type MessageKey,
@@ -33,19 +34,27 @@ import {
   actionFields,
   boolField,
   colourFields,
+  editorLanguage,
   editorWord,
   entityField,
   fieldRow,
   formLabels,
-  idsOnly,
   nameIconFields,
-  orderedField,
   selectField,
+  textField,
 } from '../shared/form.js';
 import { rowsOf } from '../shared/heights.js';
 import { bulbHex, COLOURED, DIMMABLE, hexOf } from '../shared/light.js';
-import type { EditorDefaults } from '../shared/rows-editor.js';
-import type { HeldColour, SwatchEntry } from './colour.js';
+import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
+import type { HeldColour } from './colour.js';
+import {
+  CUSTOM,
+  defaultSwatches,
+  SWATCH_WORDS,
+  swatchEntry,
+  swatchItem,
+  type SwatchEntry,
+} from './swatches.js';
 
 /** How the card is drawn: the full dimmer, or the compact one (its level in the head, the ruler alone); `auto` picks by width. */
 export type LightVariant = 'auto' | 'full' | 'compact';
@@ -59,7 +68,10 @@ export interface LightCardConfig extends FluvyCardConfig {
   temperature_tint?: boolean;
   /** A colour bulb's hue ruler and quick colours (default). Off: the card of a white bulb. */
   show_color?: boolean;
-  /** The quick colours, in order: `warm`, `cool`, a Home Assistant colour name, `#rrggbb`, `[r, g, b]` or `picker`. */
+  /**
+   * The quick colours, in order, any number: `warm`, `cool`, a Home Assistant colour name, `#rrggbb`, `[r, g, b]`,
+   * `picker`, or any of those with a name (`{ color, name }`).
+   */
   colors?: readonly SwatchEntry[];
 }
 
@@ -67,19 +79,71 @@ export interface LightCardConfig extends FluvyCardConfig {
 type ColourModule = typeof import('./colour.js');
 let colourModule: Promise<ColourModule> | undefined;
 
-/** The quick colours the editor offers by word, the picker's round last; any `#rrggbb` can be typed beside them. */
-const SWATCH_WORDS = [
-  'warm',
-  'cool',
-  'red',
-  'orange',
-  'yellow',
-  'green',
-  'blue',
-  'purple',
-  'pink',
-  'picker',
-];
+/**
+ * The quick colour a row of the editor is: the words, the picker, or Custom colour — one of your own, picked in the
+ * well the row then shows (Home Assistant's select with a typed value says the value, not the word, so none is
+ * typed here: a name or a hex still reads from YAML). Worded when the editor
+ * first asks, in its language: this card is in every page's first chunk, which lands before a house's catalogue
+ * does, so a select worded at load would say its raw values ("warm", "custom") in a Spanish house.
+ */
+const swatchSelect = (): HaFormSchemaItem => ({
+  name: 'color',
+  selector: {
+    select: {
+      mode: 'dropdown',
+      options: [
+        ...SWATCH_WORDS.map((value) => ({
+          value,
+          label: editorWord(
+            (value === 'warm' || value === 'cool'
+              ? `light.${value}`
+              : `option.${value}`) as MessageKey,
+          ),
+        })),
+        { value: CUSTOM, label: editorWord('option.custom') },
+      ],
+    },
+  },
+});
+/** A Custom row's well: Home Assistant's own colour selector, `[r, g, b]`. */
+const RGB_FIELD: HaFormSchemaItem = { name: 'rgb', selector: { color_rgb: {} } };
+
+/** A row's fields in one language: the select and the name on one line, the well under them while the row is Custom. */
+interface SwatchFields {
+  readonly color: HaFormSchemaItem;
+  readonly word: readonly HaFormSchemaItem[];
+  readonly custom: readonly HaFormSchemaItem[];
+}
+const fieldsByLanguage = new Map<string, SwatchFields>();
+/** The row's fields for the editor's language, built once per language: the same arrays for the same answer. */
+const swatchFieldsFor = (): SwatchFields => {
+  const { language } = editorLanguage();
+  let fields = fieldsByLanguage.get(language);
+  if (!fields) {
+    const color = swatchSelect();
+    const word: readonly HaFormSchemaItem[] = [fieldRow(color, textField('name'))];
+    fields = { color, word, custom: [...word, RGB_FIELD] };
+    fieldsByLanguage.set(language, fields);
+  }
+  return fields;
+};
+
+/** The fields a row shows: the well only while the row is Custom; the same array for the same answer. */
+const swatchFields = (item: Readonly<Record<string, unknown>>): readonly HaFormSchemaItem[] =>
+  item['color'] === CUSTOM ? swatchFieldsFor().custom : swatchFieldsFor().word;
+
+/** The colour modes a config's bulb supports, as the house reports them; none where the editor has no house yet. */
+const modesOf = (
+  config: Readonly<Record<string, unknown>>,
+  hass: { states: Record<string, { attributes: Record<string, unknown> }> } | undefined,
+): readonly string[] => {
+  const entity = config['entity'];
+  const modes =
+    typeof entity === 'string'
+      ? hass?.states[entity]?.attributes['supported_color_modes']
+      : undefined;
+  return Array.isArray(modes) ? modes.filter((m): m is string => typeof m === 'string') : [];
+};
 
 /** Under this content width the full layout has no room for its value and stepper: the compact one takes over. */
 const COMPACT_BELOW = 260;
@@ -99,13 +163,14 @@ export class FluvyLightCard extends Card<LightCardConfig> {
   /**
    * The card's height at a 360 column, for the automatic dashboard's columns — from the config alone: the ruler
    * slot (a label, the ruler and its labels: 100) when a temperature or a hue ruler may show, and the quick colours
-   * (16 above, 44 rounds, six a row) when they may; a white bulb under the same config draws less.
+   * (16 above, 44 rounds, six a row, as many rows as the count takes; a named entry counts one) when they may; a
+   * white bulb under the same config draws less, and a list of none draws no row.
    */
   static override layoutHeight(config: LightCardConfig): number {
     if (config.variant === 'compact') return 188;
     const slot = config.show_temperature !== false || config.show_color !== false ? 100 : 0;
-    const swatches =
-      config.show_color !== false ? 8 + rowsOf(config.colors?.length ?? 6, 6) * 52 : 0;
+    const rows = config.show_color !== false ? rowsOf(config.colors?.length ?? 6, 6) : 0;
+    const swatches = rows ? 8 + rows * 52 : 0;
     return 268 + slot + swatches;
   }
 
@@ -164,13 +229,46 @@ export class FluvyLightCard extends Card<LightCardConfig> {
     'show_color',
     'colors',
   ]);
-  /** What the editor shows where the config says nothing: what the card does then. */
-  static override defaults: EditorDefaults = () => ({
+  /**
+   * The quick colours, edited row by row in their order, any number of them: each a colour (a word, the picker,
+   * or Custom with its well) and a name of its own. The bulb's default six show as rows until the list is touched.
+   */
+  static override lists: readonly RowsListSpec[] = [
+    {
+      key: 'colors',
+      title: 'editor.colors',
+      idKey: 'color',
+      get picker() {
+        return swatchFieldsFor().color;
+      },
+      keys: ['color', 'rgb', 'name'],
+      get schema() {
+        return swatchFieldsFor().custom;
+      },
+      schemaOf: swatchFields,
+      read: swatchItem,
+      write: swatchEntry,
+      // the well is Home Assistant's colour input, which paints its whole field: a floating label would sit on the
+      // colour, so the well carries no label and its word goes under it as the helper
+      computeLabel: (schema) => (schema.name === 'rgb' ? '' : undefined),
+      computeHelper: (schema) =>
+        schema.name === 'color'
+          ? editorWord('editor.color_help')
+          : schema.name === 'name'
+            ? editorWord('editor.swatch_name_help')
+            : schema.name === 'rgb'
+              ? editorWord('editor.rgb')
+              : undefined,
+    },
+  ];
+  /** What the editor shows where the config says nothing: what the card does then (the quick colours by the bulb). */
+  static override defaults: EditorDefaults = (config, hass) => ({
     live_update: false,
     variant: 'auto',
     show_temperature: true,
     show_color: true,
     temperature_tint: true,
+    colors: defaultSwatches(modesOf(config, hass)),
   });
   static override getConfigForm(): LovelaceConfigForm {
     return {
@@ -179,18 +277,8 @@ export class FluvyLightCard extends Card<LightCardConfig> {
         nameIconFields(),
         selectField('variant', ['auto', 'full', 'compact']),
         fieldRow(boolField('show_temperature'), boolField('show_color')),
-        orderedField(
-          'colors',
-          SWATCH_WORDS.map((value) => ({
-            value,
-            label: editorWord(
-              (value === 'warm' || value === 'cool'
-                ? `light.${value}`
-                : `option.${value}`) as MessageKey,
-            ),
-          })),
-          { custom: true },
-        ),
+        // the list is edited row by row (the rows editor takes the field out of the form)
+        { name: 'colors', selector: { object: {} } },
         boolField('temperature_tint'),
         boolField('live_update'),
         ...colourFields(),
@@ -203,8 +291,6 @@ export class FluvyLightCard extends Card<LightCardConfig> {
         temperature_tint: 'editor.temperature_tint',
         live_update: 'editor.live_update',
       }),
-      // a quick colour given as `[r, g, b]` is no word the select can hold: the list is edited as YAML
-      ...idsOnly('colors'),
     };
   }
 

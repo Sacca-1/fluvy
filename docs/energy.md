@@ -115,6 +115,10 @@ battery exported, then the rest ran the house — and adds the hours up. The fig
   Energy dashboard names a power sensor for every source.
 - **Energy devices** — rows can nest (`parent`), and a `total` meter shows what is not measured, at every level.
 - **Production** — `arrays` stacks each array's hourly bars.
+- **History bars** — a sensor's last `days` days (or weeks, or months: `period`) as bars from its long-term
+  statistics, the value over each bar, the total and the average beside the title, and a strip of facts under the
+  chart: the highest, the lowest and the average, or `co2`, `trees`, `km`, `money`, a `share` of another sensor and
+  a `template`, each named, iconed, coloured and tappable as you like (`head` and `facts` are lists in your order).
 - **Gauge** — `variant: signed` for a meter that can be negative: zero at the top, "1.8 kW out".
 
 ## A configuration each

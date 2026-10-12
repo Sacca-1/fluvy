@@ -1,5 +1,5 @@
 import type { LovelaceCardConfig } from '@fluvy/core';
-import { HEAD, listLength, ROW, ROW_BAR } from './shared/heights.js';
+import { HEAD, listLength, ROW, ROW_BAR, rowsOf } from './shared/heights.js';
 
 /**
  * The energy family, announced at start and defined when its chunk lands (`energy-cards.ts`): what the card picker
@@ -111,6 +111,106 @@ export function productionHeight(config: LovelaceCardConfig): number {
   const arrays = listLength(config, ['arrays']) > 0;
   if (config['variant'] === 'compact') return arrays ? 288 : 236;
   return arrays ? 368 : 344;
+}
+
+/* the history bars' pieces: the card's padding (20 above and below), the head (44), the readouts' own row (16 under
+   the head + 44), the chart 20 under what is above it — the values over the bars (16 + 4) or a 4 headroom, the plot
+   (120, 80 compact), the dates (8 + 16) — and the facts strip (24 above, 16 padding each side, 44 a row, 12 between) */
+const BARS_PADDING = 40;
+const BARS_HEAD = 44;
+const BARS_READOUTS = 44;
+const BARS_UNDER_HEAD = 16;
+const BARS_CHART_GAP = 20;
+const BARS_VALUES = 20;
+const BARS_HEADROOM = 4;
+const BARS_PLOT = 120;
+const BARS_PLOT_COMPACT = 80;
+const BARS_DATES = 24;
+const BARS_FACT_ROW = 44;
+const BARS_FACT_GAP = 12;
+const BARS_FACTS_FRAME = 24 + 32;
+/** The strip's inner width at a 360 column (320 less its padding), and the gap between its cells. */
+const BARS_STRIP = 320 - 32;
+const BARS_CELL_GAP = 24;
+/** A fact's circle and the gap after it. */
+const BARS_CIRCLE = 44 + 12;
+/**
+ * What a fact's caps label runs to, by its characters (11/600 with 0.06 em of tracking: about 7.4 px each), for
+ * the kinds' English words and a name of the person's own — the card lays the strip out by measure; this is the
+ * estimate the automatic dashboard plans with. A share names its sensor: a name is assumed.
+ */
+const BARS_CAPS = 7.4;
+const BARS_LABELS: Readonly<Record<string, number>> = {
+  total: 5,
+  average: 9,
+  highest: 7,
+  lowest: 6,
+  today: 5,
+  co2: 3,
+  trees: 13,
+  km: 13,
+  share: 16,
+  money: 12,
+  template: 0,
+};
+const factLabel = (fact: unknown): number => {
+  if (typeof fact === 'string') return BARS_LABELS[fact] ?? 8;
+  const item = (fact ?? {}) as Record<string, unknown>;
+  return typeof item['name'] === 'string'
+    ? item['name'].length
+    : (BARS_LABELS[String(item['kind'])] ?? 8);
+};
+/**
+ * The facts a strip holds in a row at a 360 column: three, two or one — the most whose cells hold a circle and the
+ * widest label (two for the defaults); the figures are assumed to fit.
+ */
+function factsPerRow(facts: readonly unknown[]): number {
+  const widest = Math.max(0, ...facts.map(factLabel)) * BARS_CAPS + BARS_CIRCLE;
+  for (const n of [3, 2]) if ((BARS_STRIP - BARS_CELL_GAP * (n - 1)) / n >= widest) return n;
+  return 1;
+}
+/** The mini layout's one row: two readouts and a sparkline, 48 tall. */
+const BARS_MINI_ROW = 48;
+
+/** How many items a list has, or what the card draws when the config names none: a list named empty is empty. */
+const listed = (config: LovelaceCardConfig, key: string, fallback: number): number => {
+  const value = config[key];
+  return Array.isArray(value) ? value.length : fallback;
+};
+
+/**
+ * The history bars at a 360 column: the head, its readouts on their own row (a 360 column never holds a title and
+ * two readouts beside the circle), the chart 20 under them — the values over the bars, the plot, the dates — and
+ * the facts strip 24 under it, two facts a row with their circles (three where the labels are short, one where one
+ * runs long). Compact is the head, its readouts, the bars and their dates; mini the head and one row of readouts
+ * and a sparkline. A head switched off gives its row to the readouts; a chart with nothing above it starts at the
+ * padding.
+ */
+export function historyBarsHeight(config: LovelaceCardConfig): number {
+  const variant = config['variant'];
+  const head = config['show_head'] !== false ? BARS_HEAD : 0;
+  const readouts = listed(config, 'head', 2) > 0 ? (head ? BARS_UNDER_HEAD : 0) + BARS_READOUTS : 0;
+  if (variant === 'mini') return BARS_PADDING + head + (head ? BARS_UNDER_HEAD : 0) + BARS_MINI_ROW;
+  const above = head + readouts;
+  const chart =
+    (above ? BARS_CHART_GAP : 0) +
+    (variant === 'compact' || config['show_values'] === false ? BARS_HEADROOM : BARS_VALUES) +
+    (variant === 'compact' ? BARS_PLOT_COMPACT : BARS_PLOT) +
+    (config['show_dates'] === false ? 0 : BARS_DATES);
+  if (variant === 'compact') return BARS_PADDING + above + chart;
+  const facts =
+    config['show_facts'] === false
+      ? []
+      : Array.isArray(config['facts'])
+        ? (config['facts'] as unknown[])
+        : ['highest', 'lowest', 'average'];
+  const rows = facts.length ? rowsOf(facts.length, factsPerRow(facts)) : 0;
+  return (
+    BARS_PADDING +
+    above +
+    chart +
+    (rows ? BARS_FACTS_FRAME + BARS_FACT_ROW * rows + BARS_FACT_GAP * (rows - 1) : 0)
+  );
 }
 
 /**
@@ -225,6 +325,12 @@ export const ENERGY_FAMILY: readonly FamilyEntry[] = [
     'Fluvy · Production',
     'Hourly production bars with the forecast behind, stacked per array when there are several.',
     productionHeight,
+  ],
+  [
+    'fluvy-history-bars-card',
+    'Fluvy · History bars',
+    'A sensor’s last days, weeks or months as bars from its long-term statistics: the total and the average in the head, the value over each bar, and a strip of facts under them — the highest and lowest, or what it comes to in CO₂, trees, kilometres or money.',
+    historyBarsHeight,
   ],
   [
     'fluvy-batteries-card',

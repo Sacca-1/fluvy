@@ -22,7 +22,7 @@
   <img src="https://raw.githubusercontent.com/acosta290/fluvy/main/docs/images/hero-light.png" width="960" alt="Four Fluvy cards: tiles, a thermostat, energy and a media player">
 </p>
 
-Fluvy brings one design to the whole of Home Assistant: a theme, fifty cards, five automatic dashboards, a
+Fluvy brings one design to the whole of Home Assistant: a theme, fifty-two cards, five automatic dashboards, a
 settings panel, the Activity and History pages, and Home Assistant's own pages restyled to match — all from one
 set of design tokens, installed as one integration through HACS. Every card is drawn on a 4 px grid, checked
 by an alignment measurer, and holds from a phone to a wall tablet, in light and dark, in eight languages.
@@ -42,7 +42,7 @@ one (as here), as pills, as icons, Home Assistant's own, or none at all.
   <img src="https://raw.githubusercontent.com/acosta290/fluvy/main/docs/images/app-tablet.png" width="640" alt="The same dashboard on a wall tablet">
 </p>
 
-## Fifty cards
+## Fifty-two cards
 
 Every card has an editor form and a live preview in the card picker; every option is documented in
 [the cards](docs/cards.md). Sliders and dials are precision controls: relative drag, slide away to slow down,
@@ -143,7 +143,7 @@ creates any of them with one tap. Every one is rebuilt every time it opens, so a
 ## What you get
 
 - **One theme, light and dark**, generated from the same tokens the cards are drawn with.
-- **Fifty cards** with editor forms, picker previews, and `unavailable`, `unknown` and missing states
+- **Fifty-two cards** with editor forms, picker previews, and `unavailable`, `unknown` and missing states
   drawn on purpose.
 - **Energy as your meters read it**: a house that imports and exports at once shows both, per phase; with nothing
   configured the cards read the Energy dashboard, and a day, a week or a month add up to its own figures.

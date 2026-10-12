@@ -400,6 +400,17 @@ exports[`custom:fluvy-home strategy > generates the same dashboard for the demo 
               },
               "type": "custom:fluvy-production-card",
             },
+            {
+              "entities": [
+                "sensor.washing_machine_power",
+                "sensor.heat_pump_power",
+              ],
+              "grid_options": {
+                "columns": 12,
+              },
+              "title": "Consumption",
+              "type": "custom:fluvy-distribution-card",
+            },
           ],
           "type": "grid",
         },
@@ -430,32 +441,12 @@ exports[`custom:fluvy-home strategy > generates the same dashboard for the demo 
               "type": "custom:fluvy-energy-card",
             },
             {
-              "entities": [
-                "sensor.washing_machine_power",
-                "sensor.heat_pump_power",
-              ],
+              "color": "amber",
+              "entity": "sensor.solar_inverter_daily_yield",
               "grid_options": {
                 "columns": 12,
               },
-              "title": "Consumption",
-              "type": "custom:fluvy-distribution-card",
-            },
-            {
-              "grid_options": {
-                "columns": 12,
-              },
-              "rows": [
-                {
-                  "entity": "sensor.washing_machine_energy_today",
-                  "name": "washing_machine_energy_today",
-                },
-                {
-                  "entity": "sensor.heat_pump_energy_today",
-                  "name": "heat_pump_energy_today",
-                },
-              ],
-              "title": "Appliances",
-              "type": "custom:fluvy-energy-devices-card",
+              "type": "custom:fluvy-history-bars-card",
             },
           ],
           "type": "grid",
@@ -484,6 +475,23 @@ exports[`custom:fluvy-home strategy > generates the same dashboard for the demo 
                 "columns": 12,
               },
               "type": "custom:fluvy-gauge-card",
+            },
+            {
+              "grid_options": {
+                "columns": 12,
+              },
+              "rows": [
+                {
+                  "entity": "sensor.washing_machine_energy_today",
+                  "name": "washing_machine_energy_today",
+                },
+                {
+                  "entity": "sensor.heat_pump_energy_today",
+                  "name": "heat_pump_energy_today",
+                },
+              ],
+              "title": "Appliances",
+              "type": "custom:fluvy-energy-devices-card",
             },
           ],
           "type": "grid",

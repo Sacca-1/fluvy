@@ -74,6 +74,7 @@ const SECTIONS: ReadonlyArray<readonly [title: string, tags: readonly string[]]>
       'fluvy-todo-card',
       'fluvy-timer-card',
       'fluvy-updates-card',
+      'fluvy-automations-card',
     ],
   ],
   [
@@ -92,6 +93,7 @@ const SECTIONS: ReadonlyArray<readonly [title: string, tags: readonly string[]]>
       'fluvy-gauge-card',
       'fluvy-stat-tiles-card',
       'fluvy-production-card',
+      'fluvy-history-bars-card',
       'fluvy-bars-card',
       'fluvy-distribution-card',
       'fluvy-humidity-card',

@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   FluvyRowsEditor,
   compact,
+  entryOf,
+  itemOf,
   itemsOf,
   moved,
   toItem,
@@ -13,6 +15,25 @@ import {
   type RowsListSpec,
 } from './rows-editor.js';
 import { inverted } from './config.js';
+
+/** A list with a grammar of its own: a word or a hex alone, or `{ color, name }`; a hex is edited as Custom. */
+const colours: RowsListSpec = {
+  key: 'colors',
+  idKey: 'color',
+  title: 'editor.colors',
+  schema: [{ name: 'color', selector: { text: {} } }],
+  read: (raw) => {
+    if (typeof raw === 'string')
+      return raw ? { color: raw.startsWith('#') ? 'custom' : raw } : null;
+    const { color, name } = (raw ?? {}) as { color?: unknown; name?: unknown };
+    return typeof color === 'string' && color ? { color, ...(name ? { name } : {}) } : null;
+  },
+  write: (item) => {
+    const color = item['color'] === 'custom' ? '#ff9800' : item['color'];
+    if (typeof color !== 'string' || !color) return null;
+    return item['name'] ? { color, name: item['name'] } : color;
+  },
+};
 
 const rows: RowsListSpec = {
   key: 'rows',
@@ -92,6 +113,97 @@ describe('rows editor lists', () => {
     expect(moved(['a', 'b', 'c', 'd'], 0, 2)).toEqual(['b', 'c', 'a', 'd']);
     expect(moved(['a', 'b', 'c'], 2, 0)).toEqual(['c', 'a', 'b']);
     expect(moved(['a', 'b'], 1, 1)).toEqual(['a', 'b']);
+  });
+
+  it('reads and writes a list by its own grammar when it has one, by the id rule otherwise', () => {
+    expect(itemOf('sensor.a', rows)).toEqual({ entity: 'sensor.a' });
+    expect(entryOf({ entity: 'sensor.a', name: '' }, rows)).toBe('sensor.a');
+    expect(itemOf('#ff2d55', colours)).toEqual({ color: 'custom' });
+    expect(itemOf({ color: 'amber', name: 'Honey' }, colours)).toEqual({
+      color: 'amber',
+      name: 'Honey',
+    });
+    expect(itemOf({ name: 'Nameless' }, colours)).toBeNull();
+    expect(entryOf({ color: 'custom' }, colours)).toBe('#ff9800');
+    expect(entryOf({ color: 'warm', name: 'Evening' }, colours)).toEqual({
+      color: 'warm',
+      name: 'Evening',
+    });
+    expect(entryOf({ color: '' }, colours)).toBeNull();
+    expect(itemsOf({ type: 't', colors: ['warm', '#ff2d55', 7, { name: 'x' }] }, colours)).toEqual([
+      { color: 'warm' },
+      { color: 'custom' },
+    ]);
+  });
+
+  it('shows a list’s default as rows only while the config names neither the key nor the alias', () => {
+    const fallback = ['warm', 'cool'];
+    expect(itemsOf({ type: 't' }, colours, fallback)).toEqual([
+      { color: 'warm' },
+      { color: 'cool' },
+    ]);
+    expect(itemsOf({ type: 't', colors: [] }, colours, fallback)).toEqual([]); // named empty: empty
+    expect(itemsOf({ type: 't', colors: ['red'] }, colours, fallback)).toEqual([{ color: 'red' }]);
+    expect(itemsOf({ type: 't' }, colours)).toEqual([]);
+    expect(itemsOf({ type: 't', entities: ['sensor.a'] }, rows, ['sensor.z'])).toEqual([
+      { entity: 'sensor.a' },
+    ]);
+    expect(itemsOf({ type: 't', rows: [] }, rows, ['sensor.z'])).toEqual([]);
+  });
+});
+
+describe('an editor with a list default', () => {
+  const editor = (config: Record<string, unknown>): FluvyRowsEditor => {
+    const element = listsEditor({ schema: [] }, [colours], () => ({
+      colors: ['warm', 'cool'],
+    })) as FluvyRowsEditor;
+    element.setConfig({ type: 'custom:x', ...config });
+    return element;
+  };
+  const written = (element: FluvyRowsEditor): Promise<Record<string, unknown>> =>
+    new Promise((resolve) =>
+      element.addEventListener('config-changed', (event) =>
+        resolve((event as CustomEvent<{ config: Record<string, unknown> }>).detail.config),
+      ),
+    );
+  type Private = {
+    onAdd(list: RowsListSpec, event: CustomEvent<{ value: Record<string, unknown> }>): void;
+    onItem(
+      list: RowsListSpec,
+      index: number,
+      event: CustomEvent<{ value: Record<string, unknown> }>,
+    ): void;
+  };
+  const change = (value: Record<string, unknown>) =>
+    new CustomEvent('value-changed', { detail: { value } });
+
+  it('writes the default rows with the first addition, never before', async () => {
+    const element = editor({});
+    expect(element.config).toEqual({ type: 'custom:x' });
+    const next = written(element);
+    (element as unknown as Private).onAdd(colours, change({ color: 'custom' }));
+    expect(await next).toEqual({ type: 'custom:x', colors: ['warm', 'cool', '#ff9800'] });
+  });
+
+  it('edits a default row in place once touched, and drops a row that says nothing any more', async () => {
+    const element = editor({});
+    const next = written(element);
+    (element as unknown as Private).onItem(colours, 1, change({ color: 'cool', name: 'Day' }));
+    expect(await next).toEqual({
+      type: 'custom:x',
+      colors: ['warm', { color: 'cool', name: 'Day' }],
+    });
+    const cleared = editor({ colors: ['warm', 'cool'] });
+    const after = written(cleared);
+    (cleared as unknown as Private).onItem(colours, 0, change({ color: '' }));
+    expect(await after).toEqual({ type: 'custom:x', colors: ['cool'] });
+  });
+
+  it('leaves a list the config names empty alone', async () => {
+    const element = editor({ colors: [] });
+    const next = written(element);
+    (element as unknown as Private).onAdd(colours, change({ color: 'pink' }));
+    expect(await next).toEqual({ type: 'custom:x', colors: ['pink'] });
   });
 });
 
