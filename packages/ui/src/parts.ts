@@ -670,10 +670,13 @@ export function fitPills(root: ParentNode, force = false): void {
     // whose next fitting filled it again (the row flickered between the two every time a font settled)
     const range = document.createRange();
     range.selectNodeContents(box);
+    // a range's rect is visual pixels: under a zoomed view it is divided back into the element's own — by the
+    // element's own two widths, both fractional (a rounded `offsetWidth` would put a pixel on a pill at 1×)
+    const visual = el.getBoundingClientRect().width;
+    const local = parseFloat(getComputedStyle(el).width);
+    const zoom = visual > 0 && local > 0 ? visual / local : 1;
     const natural = Math.ceil(
-      range.getBoundingClientRect().width ||
-        parseFloat(getComputedStyle(el).width) ||
-        el.offsetWidth,
+      range.getBoundingClientRect().width / zoom || local || el.offsetWidth,
     );
     const width = up4(natural + pad);
     const next = `${width}px`;
