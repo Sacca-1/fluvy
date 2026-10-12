@@ -44,6 +44,7 @@ export const sheet: SheetSpec = {
     ],
     ['light.co_hall', 'off', { friendly_name: 'Hall', supported_color_modes: ['brightness'] }],
     ['light.co_porch', 'off', { friendly_name: 'Porch', supported_color_modes: ['onoff'] }],
+    ['light.co_gone', 'unavailable', { friendly_name: 'Attic' }],
     ['switch.co_kettle', 'off', { friendly_name: 'Kettle' }],
     ['scene.co_evening', '2026-09-17T19:40:00+00:00', { friendly_name: 'Evening' }],
     ['scene.co_cinema', '2026-09-16T21:00:00+00:00', { friendly_name: 'Cinema' }],
@@ -216,6 +217,58 @@ export const sheet: SheetSpec = {
       title: 'Plain tiles',
       cards: [{ type: 'custom:fluvy-tiles-card', tiles: ['light.co_lamp', 'fan.co_fan'] }],
     },
+    // a colour for the whole card (issue #34): the surface a quiet wash of it, the edge and the dividers in it; the
+    // items inside keep their own fills, a status card without one keeps the palette's card
+    {
+      title: 'Colour per card',
+      cards: [
+        {
+          type: 'custom:fluvy-tiles-card',
+          card_color: 'amber',
+          tiles: ['light.co_lamp', 'light.co_hall', 'light.co_porch'],
+        },
+        {
+          type: 'custom:fluvy-sensor-card',
+          entity: 'sensor.co_water',
+          variant: 'chart',
+          hours: 6,
+          card_color: 'blue',
+          color: 'teal',
+        },
+        { type: 'custom:fluvy-tiles-card', tiles: ['binary_sensor.co_window', 'fan.co_fan'] },
+      ],
+    },
+    // the inner tiles keep the page's ground: a lit light differs from the wash, an off one from the card
+    {
+      title: 'Colour per card · tiles inside',
+      cards: [
+        {
+          type: 'custom:fluvy-tiles-card',
+          size: 'compact',
+          card_color: 'teal',
+          tint: 'always',
+          tiles: [
+            { entity: 'light.co_lamp', color: 'red' },
+            'fan.co_fan',
+            { entity: 'light.co_hall', color: 'blue' },
+          ],
+        },
+      ],
+    },
+    // a card that cannot be read keeps the neutral skin: a state is never covered
+    {
+      title: 'Colour per card · unavailable',
+      measure: false,
+      cards: [
+        { type: 'custom:fluvy-light-card', entity: 'light.co_gone', card_color: 'purple' },
+        {
+          type: 'custom:fluvy-gauge-card',
+          entity: 'sensor.co_power',
+          max: 3000,
+          card_color: 'indigo',
+        },
+      ],
+    },
     // a gauge's ring is drawn in the accent: an indigo card's is indigo
     {
       title: 'Indigo gauge',
@@ -223,8 +276,10 @@ export const sheet: SheetSpec = {
         { type: 'custom:fluvy-gauge-card', entity: 'sensor.co_power', max: 3000, color: 'indigo' },
       ],
     },
+    // (a dimmer alone: the light card's declared height reserves its colour controls, config only)
     {
       title: 'Red light',
+      measure: false,
       cards: [{ type: 'custom:fluvy-light-card', entity: 'light.co_lamp', color: 'red' }],
     },
     {

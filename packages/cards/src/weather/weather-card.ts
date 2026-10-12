@@ -217,6 +217,7 @@ export class FluvyWeatherCard extends Card<WeatherCardConfig> {
     'name',
     'icon',
     'color',
+    'card_color',
     'tap_action',
     'hold_action',
   ];
@@ -253,6 +254,7 @@ export class FluvyWeatherCard extends Card<WeatherCardConfig> {
         ),
         fieldRow(numberField('days', 1, 10), boolField('show_forecast')),
         accentField(),
+        accentField('card_color', { none: true }),
         actionFields(),
       ],
       ...editorLabels(
@@ -705,7 +707,8 @@ export class FluvyWeatherCard extends Card<WeatherCardConfig> {
         ${days ? this.renderDayColumns(this.forecasts_.daily) : nothing}
       </article>`;
 
-    const context = usable ? this.contextLine() : '';
+    // "Feels 16° · Wind 12 km/h NW": the wind goes first where the line would not hold both (a 211 column)
+    const context = usable ? this.head.fitSub(this.contextLine(), this.contentWidth) : '';
     // the label is 11/600 uppercase at 0.06 em; the name keeps its place while at least 64 px of it would show
     const font = `600 11px ${getComputedStyle(this).fontFamily}`;
     const labelWidth = (text: string): number =>

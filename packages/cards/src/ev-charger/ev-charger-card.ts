@@ -133,7 +133,7 @@ export class FluvyEvChargerCard extends Card<EvChargerCardConfig> {
           entityField(['sensor'], 'solar_share', false),
         ),
         fieldRow(textField('vehicle'), entityField(['select', 'input_select'], 'mode', false)),
-        colourFields(),
+        ...colourFields(),
         actionFields(),
       ],
       ...editorLabels(s, {

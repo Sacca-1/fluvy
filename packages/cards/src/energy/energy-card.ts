@@ -61,6 +61,7 @@ import {
 } from '../shared/form.js';
 
 import { HeadFit } from './head.js';
+import { axisHolds } from '../shared/axis.js';
 
 import { legendReadouts } from './legend.js';
 
@@ -371,7 +372,7 @@ export class FluvyEnergyCard extends Card<EnergyCardConfig> {
         entityField(['sensor']),
         fieldRow(textField('name'), textField('subtitle')),
         iconField(),
-        colourFields(),
+        ...colourFields(),
         fieldRow(
           numberField('hours', 1, 168),
           selectField('variant', ['full', 'compact', 'sources', 'overview']),
@@ -701,11 +702,13 @@ export class FluvyEnergyCard extends Card<EnergyCardConfig> {
       s(this.hass, days ? 'days_ago' : 'hours_ago', {
         count: formatNumber(this.hass, days ? h / 24 : h, { digits: 1 }),
       });
-    return [
+    // three where they stand apart, else the two ends (fr's "Maintenant" on a narrow column)
+    const three = [
       [0, back(hours)],
       [0.5, back(hours / 2)],
       [1, this.t('common.now')],
-    ];
+    ] as const;
+    return axisHolds(this.head.ruler, this.contentWidth, three) ? three : [three[0], three[2]];
   }
 
   /** The point under the pointer: where the cursor goes, what it reads and when that was. */
@@ -1091,10 +1094,14 @@ export class FluvyEnergyCard extends Card<EnergyCardConfig> {
           ...(levelNow !== null ? [{ at: nowAt, level: levelNow }] : []),
         ]
       : [];
-    // the recorder's last five minutes arrive late: a reading up to a quarter of an hour from the next is joined
+    // the recorder's last five minutes arrive late: a reading up to a quarter of an hour from the next is joined.
+    // The charge keeps to the positive half: 100 % on the tag's line, 0 % on the kW zero line (the foot when nothing
+    // left the house), so a low battery never reads as an outflow (issue #28)
     const chargeStep = 10 / DAY_MINUTES;
     const soc =
-      shape && charge.length > 1 ? chargeLine(charge, w, OVERVIEW_TOP, H, chargeStep) : null;
+      shape && charge.length > 1
+        ? chargeLine(charge, w, OVERVIEW_TOP, shape.zero, chargeStep)
+        : null;
 
     // the cursor: where the pointer reads, else now; nothing is read across a gap
     const fraction = this.scrubber.value;

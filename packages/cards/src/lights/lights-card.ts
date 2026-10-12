@@ -46,6 +46,7 @@ import {
   tintField,
 } from '../shared/form.js';
 import { rowsOf } from '../shared/heights.js';
+import { bulbHex, DIMMABLE } from '../shared/light.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 import { FluvyTileCard } from '../tile/tile-card.js';
 import { fittedColumns } from '../shared/chips.js';
@@ -86,9 +87,6 @@ export interface LightsCardConfig extends FluvyCardConfig {
   light_colors?: boolean;
 }
 
-/** Home Assistant's colour modes that carry a colour of their own (a white or a dimmed lamp does not). */
-const COLOURED = new Set(['hs', 'rgb', 'rgbw', 'rgbww', 'xy']);
-const DIMMABLE = new Set(['brightness', 'color_temp', 'hs', 'xy', 'rgb', 'rgbw', 'rgbww', 'white']);
 /** A round and the gap between rounds. */
 const ROUND = 44;
 const ROUND_GAP = 8;
@@ -124,16 +122,6 @@ interface Lamp {
 const itemOf = (raw: string | LightItem): LightItem =>
   typeof raw === 'string' ? { entity: raw } : raw;
 
-const hex = (rgb: readonly number[]): string =>
-  `#${rgb
-    .slice(0, 3)
-    .map((v) =>
-      Math.max(0, Math.min(255, Math.round(v)))
-        .toString(16)
-        .padStart(2, '0'),
-    )
-    .join('')}`;
-
 /**
  * A room's lights on one card: the whole room is one tap (on when every light is off, off when any is on), and each
  * light is its own control — a round on the room's line, a chip with its name, or a compact tile — that a tap turns
@@ -167,6 +155,7 @@ export class FluvyLightsCard extends FluvyTileCard {
     'icon',
     'tone',
     'color',
+    'card_color',
     'tap_action',
     'hold_action',
   ];
@@ -209,7 +198,7 @@ export class FluvyLightsCard extends FluvyTileCard {
         fieldRow(selectField('variant', LIGHTS_VARIANTS), boolField('show_brightness')),
         fieldRow(boolField('show_count'), boolField('show_level')),
         boolField('light_colors'),
-        colourFields(),
+        ...colourFields(),
         tintField(),
         actionFields(),
       ],
@@ -283,13 +272,8 @@ export class FluvyLightsCard extends FluvyTileCard {
       const dims = modes.some((m) => DIMMABLE.has(m));
       const level =
         on && dims && typeof raw === 'number' ? Math.max(1, Math.round((raw / 255) * 100)) : null;
-      const rgb = view.attr<number[] | null>('rgb_color');
-      const mode = view.attr<string | null>('color_mode') ?? '';
       // its own colour, else its bulb's (a coloured bulb, not a white one), else the palette's light
-      const bulb =
-        colours && on && COLOURED.has(mode) && Array.isArray(rgb) && rgb.length >= 3
-          ? hex(rgb)
-          : undefined;
+      const bulb = colours ? bulbHex(view, on) : undefined;
       const accent = this.accents.item(item.color || bulb);
       return {
         item,

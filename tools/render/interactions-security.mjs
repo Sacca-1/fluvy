@@ -478,6 +478,68 @@ const open = (sheet, options) => suite.sheet(sheet, options);
     live.stream && live.stills === 0 && live.time === 0,
     JSON.stringify(live),
   );
+
+  // issue #28: one stream session for the card's life — not one per scroll, nor one per tab switch
+  const liveCard = frame(page, 'Camera · live').locator('fluvy-camera-card');
+  const sessions = () => page.evaluate(() => ({ ...window.pgStreams }));
+  const node = () =>
+    liveCard.evaluate((el) => {
+      const stream = el.shadowRoot.querySelector('ha-camera-stream');
+      if (stream && !stream.dataset.pg) stream.dataset.pg = String(Date.now());
+      return stream?.dataset.pg ?? null;
+    });
+  const tagged = await node();
+  const opened = (await sessions()).connected;
+  await page.evaluate(() => window.scrollTo(0, 0)); // the live card sits at the foot: the top of the page is away from it
+  await page.waitForTimeout(1200);
+  const away = await liveCard.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return r.bottom < 0 || r.top > innerHeight;
+  });
+  const whileAway = await node();
+  await liveCard.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await page.waitForTimeout(800);
+  check(
+    'camera: scrolled away and back, the stream is the same element and no new session was opened',
+    away &&
+      tagged !== null &&
+      whileAway === tagged &&
+      (await node()) === tagged &&
+      (await sessions()).connected === opened,
+    JSON.stringify([tagged, whileAway, await node(), opened, await sessions()]),
+  );
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await page.waitForTimeout(600);
+  const hidden = await node();
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await page.waitForTimeout(300);
+  check(
+    'camera: a hidden tab is left to Home Assistant’s players: the element stays put',
+    hidden === tagged && (await sessions()).connected === opened,
+    JSON.stringify([hidden, await sessions()]),
+  );
+  const closed = (await sessions()).disconnected;
+  await liveCard.evaluate((el) => el.setConfig({ ...el.config, camera_view: 'auto' }));
+  await page.waitForTimeout(600);
+  check(
+    'camera: back to stills, the stream element is gone and its session closed',
+    (await liveCard.locator('ha-camera-stream').count()) === 0 &&
+      (await sessions()).disconnected === closed + 1 &&
+      (await liveCard.locator('.fv-plate__img').count()) === 2,
+    JSON.stringify(await sessions()),
+  );
+  const failed = await plate('Camera · live, no stream');
+  check(
+    'camera: a stream that cannot play gives way to the stills, with no stream element left in the plate',
+    !failed.stream && failed.stills === 2 && failed.time === 1,
+    JSON.stringify(failed),
+  );
   const asked = await frame(page, 'Camera')
     .locator('fluvy-camera-card')
     .first()

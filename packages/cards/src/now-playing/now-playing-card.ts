@@ -216,7 +216,7 @@ export class FluvyNowPlayingCard extends Card<NowPlayingCardConfig> {
         nameIconFields(),
         fieldRow(boolField('show_volume'), boolField('show_power')),
         controlsField(),
-        colourFields(),
+        ...colourFields(),
         actionFields(),
       ],
       ...formLabels({}),

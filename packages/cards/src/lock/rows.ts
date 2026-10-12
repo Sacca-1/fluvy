@@ -24,11 +24,13 @@ import { type Secondary } from '../shared/config.js';
 import { secondaryText } from '../shared/secondary.js';
 import { TemplateTexts } from '../shared/templates.js';
 import {
+  accentField,
   actionField,
-  colourFields,
   entityField,
+  fieldRow,
   nameIconFields,
   selectField,
+  toneField,
 } from '../shared/form.js';
 
 export interface RowConfig {
@@ -58,7 +60,7 @@ export const rowSchema = (domains?: readonly string[]): HaFormSchemaItem[] => [
   entityField(domains),
   nameIconFields(),
   selectField('secondary', ['area', 'last-changed', 'state', 'none'], { custom: true }),
-  colourFields(),
+  fieldRow(toneField(), accentField()),
   actionField(),
 ];
 
@@ -285,7 +287,12 @@ export abstract class RowsCard<C extends RowsCardConfig = RowsCardConfig> extend
       title: p.title,
       name: true,
       sub: p.age && short ? this.shortAge(view) : word ? '' : p.words,
-      ...(word ? { label: `${p.title} · ${word}` } : {}),
+      // a short age ("21 d") is read in full; a word the row could not hold is read too
+      ...(word
+        ? { label: `${p.title} · ${word}` }
+        : p.age && short
+          ? { label: `${p.title} · ${p.words}` }
+          : {}),
       trailing,
       on,
       switchTone: tone === 'warning' ? 'accent' : tone,

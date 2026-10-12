@@ -61,6 +61,18 @@ tiles:
     color: '#e17055'
 ```
 
+**A colour for the whole card** (1.7): `card_color` tints the card's own surface — a quiet wash of the colour as its
+fill, its edge and dividers in the colour — so cards can be told apart at a glance: every light warm, every cover blue.
+It is independent of `color`, so a warm card can still hold a teal item. The wash is as strong as the words on it
+allow (they keep their full contrast), what is on inside keeps its own fill, and a card that is off or unavailable
+goes back to the neutral surface: a state is never covered.
+
+```yaml
+type: custom:fluvy-lights-card
+area: living_room
+card_color: amber
+```
+
 A colour name is Home Assistant's tone for it on your palette — amber, for one, is the colour of a lit light, which a
 palette may move aside to keep its own accent clear — so the whole dashboard stays in harmony. A `#rrggbb` is exactly
 that colour. Because names follow the palette, two of them can land on one colour or close to it:

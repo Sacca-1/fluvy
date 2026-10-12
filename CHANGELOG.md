@@ -5,6 +5,74 @@ and the versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-10-12
+
+### Added
+
+- **The sensor card's own readout can be named** (#28): `label` names the card's own sensor under its readout when
+  others share the chart, as an entry's `name` does. Left empty, a readout takes its measure's word ("Temperature",
+  "Humidity") when no other sensor on the chart measures the same, else its name beyond the title: a room's
+  "Office climate temperature" and "Office climate humidity" read "Temperature" and "Humidity" with nothing set. The
+  editor says so under both fields.
+- **Colour on the light card** (#32): a colour bulb gets a row of quick colours under its ruler — two whites first
+  where it has a temperature, then red, orange, green and blue, or the house's own list (`colors`: `warm`, `cool`, a
+  Home Assistant colour name, `#rrggbb`, `[r, g, b]`, or `picker`, a round that opens the browser's colour picker and
+  holds a colour of your own) — and a hue ruler in the temperature ruler's slot while it glows a colour; a white
+  swatch brings the temperature ruler back. The card wears the bulb's colour: its icon, its
+  switch and its brightness ruler take it. `show_color` turns it off; a white bulb's card is unchanged.
+- **A colour for the whole card** (#34): `card_color` tints a card's own surface — a quiet wash of the colour as its
+  fill, its edge and dividers in the colour — on every card that takes a `color`, so cards can be grouped at a
+  glance (every light warm, every cover blue). It is independent of `color`, keeps the words at full contrast on every
+  palette in light and dark, and never covers a card that is off or unavailable.
+- **The essentials while off** (#31): the thermostat's and the fan's `when_off: essentials` keep the head, the value
+  and what wakes the device — the mode tiles, or the fan's switch and speed ruler — and hide presets and fan speeds
+  (presets, oscillation and direction on the fan) while it is off; they come back the moment a mode or the switch is
+  tapped, below it, before Home Assistant answers. The default, `all`, shows everything as before.
+- **Nine printer integrations** (#29, #30): the printer card now knows Creality (`ha_creality_ws`, with the CFS's
+  trays), Elegoo (its durations in milliseconds, its chamber a box, its filament a colour), Anycubic's local
+  integration (with the ACE's slots and the external spool), the Snapmaker U1 and the older Snapmaker line (fixed
+  names, "HH:MM:SS" durations, read-only) and FlashForge (its LED, its error code, the job's thumbnail over the IFS's
+  pictures) by their own words, beside OctoPrint, PrusaLink, Bambu Lab and Moonraker. The job's file and a failure's
+  code are read from the status's own attributes where a printer has no sensor for them (Creality's). Every phase the
+  new integrations report folds into the card's — Elegoo's self-tests, homing and levelling as preparing, Creality's
+  "off" as offline, "completed" as finished. Elegoo's Canvas slots and FlashForge's IFS are not shown as trays.
+
+### Changed
+
+- **The camera's live stream stays put** (#28): scrolling the card off the screen no longer ends the stream and
+  scrolling back no longer starts another; the element is kept for 45 s off screen and a hidden tab is left to Home
+  Assistant's own players. A stream that cannot play gives way to the stills and is tried again a minute later, then
+  less often. In full screen the stream shows the whole picture and a still is asked at the screen's width.
+- **A printer is known by what it has**: a device of an integration the card does not know is a printer when it
+  carries a status (or a printing sensor), a nozzle or a bed, and a job's measure together — a washer with a progress
+  and a time left is never one — and the card reads its roles by the words the integrations share. The entity known
+  most surely to play a role plays it: a "print status" over a "wifi status", the job's thumbnail over a spool's
+  picture, whichever the registry lists first. A printer of any integration still works given its `device` and
+  `roles`.
+
+### Fixed
+
+- **A sensor's own colour on the chart** (#28): an entry's `color` ("Also on the chart") now paints its readout's key
+  and its curve; it used to fall back to the card's accent.
+- **The overview's state of charge** (#28): the battery's dashed line now keeps to the positive half of the chart,
+  0 % on the kW zero line and 100 % on the tag's line, so a low battery on a day of heavy export or charging no
+  longer reads as an outflow.
+- **Narrow columns** (the 1.6.1 list): at the widths a phone's zoom makes, an alarm's, a thermostat's and a water
+  heater's mode tiles give way to chips rather than cut a word; a tile's foot shows one readout where two labels
+  would overlap; the sensor's statistics take fewer columns where a label would not fit; the flow's dead-source line,
+  the weather's context and the keypad's line give way in segments; the lock's slide hint hides where it would not
+  fit; the camera's off text takes two lines; a scene tile's line is dropped, never cut; a room's head line and a
+  map row's word fit their own room; the keypad's keys give way to 56; the energy card's rolling axis keeps its
+  middle label only where it stands apart; a long panel tab keeps its words; the meter's note ends in an ellipsis
+  rather than leave the card; a fold that hides an alert says so in the warning ink in every layout; a short age is
+  read in full; the flow's comets no longer fade along a re-laid-out layer's old lanes; the Spanish camera pill says
+  "En directo"; a compact alarm's glyph chips are never under 44 (two rows rather than narrower chips); an option
+  tile's value is dropped rather than cut where a word of it would not fit its cell (the thermostat's "Standby" under
+  Off, the alarm's and a charger's mode descriptions); the grid card's readouts and the map's zones take fewer
+  columns where a label would not fit; a tile's foot keeps its two cells and judges its labels against them.
+- A new printer card's first choice could land on a Bambu Lab AMS (a device with trays and no job): it now takes the
+  house's first printer.
+
 ## [1.6.0] — 2026-10-08
 
 ### Added

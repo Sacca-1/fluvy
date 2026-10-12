@@ -273,6 +273,49 @@ describe('the whole house', () => {
     for (const run of line.runs) expect((run.dashes - 4) % 8).toBe(0);
   });
 
+  it('keeps the charge above the kW zero line, however deep the export runs (issue #28)', () => {
+    const points = flowsOf(
+      [
+        bucket(720, { solar: 6, toBattery: 0.5, toGrid: 4.5 }),
+        bucket(725, { solar: 6, toBattery: 0.5, toGrid: 4.5 }),
+      ],
+      DAY,
+      5,
+      'kW',
+    );
+    const shape = flowShape(points, 320, 184, 28);
+    expect(shape.zero).toBeGreaterThan(28);
+    expect(shape.zero).toBeLessThan(183 - 28); // the export took more than the tag's room under the line
+    const charge = [
+      { at: 0.5, level: 30 },
+      { at: 0.5 + 5 / 1440, level: 31 },
+    ];
+    const line = chargeLine(charge, 320, 28, shape.zero);
+    expect(line.y(0)).toBe(shape.zero);
+    expect(line.y(100)).toBe(28);
+    expect(line.y(30)).toBeGreaterThan(28);
+    expect(line.y(30)).toBeLessThan(shape.zero);
+    // a 30 % battery on the chart's full height would have sat in the export's area
+    expect(184 - 0.3 * (184 - 28)).toBeGreaterThan(shape.zero);
+  });
+
+  it('puts 0 % on the foot when nothing left the house: the zero line is the foot', () => {
+    const points = flowsOf([bucket(720, { solar: 2 }), bucket(725, { solar: 2 })], DAY, 5, 'kW');
+    const shape = flowShape(points, 320, 184, 28);
+    expect(shape.zero).toBe(183);
+    expect(
+      chargeLine(
+        [
+          { at: 0.5, level: 0 },
+          { at: 0.51, level: 0 },
+        ],
+        320,
+        28,
+        shape.zero,
+      ).y(0),
+    ).toBe(183);
+  });
+
   it('knows whether the charge runs through a tag’s box, between its points too', () => {
     const line = chargeLine(
       [

@@ -124,6 +124,9 @@ export function columnsOf(raw: unknown, fallback: Columns): Columns {
 /** A row of short choices: chips that fill the row (the default) or content-sized ones. */
 export type RowStyle = 'full' | 'chips';
 
+/** What a device card shows while the device is off: everything (the default), or the essentials — what wakes it. */
+export type WhenOff = 'all' | 'essentials';
+
 /** What a row says under its name: the area, when it last changed, its state, nothing — or an attribute by name. */
 export type Secondary = 'area' | 'last-changed' | 'state' | 'none' | (string & {});
 

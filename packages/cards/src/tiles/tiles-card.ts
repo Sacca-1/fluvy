@@ -9,6 +9,7 @@ import {
 } from '../tile/tile-card.js';
 
 import {
+  accentField,
   actionFields,
   colourFields,
   entitiesField,
@@ -18,6 +19,7 @@ import {
   nameIconFields,
   selectField,
   tintField,
+  toneField,
 } from '../shared/form.js';
 import type { BaseKey } from '../shared/base.js';
 import {
@@ -80,7 +82,7 @@ export class FluvyTilesCard extends FluvyTileCard {
   ];
 
   /** The group has no entity of its own: its tone and colour are its tiles' default. */
-  static override base: readonly BaseKey[] = ['entities', 'tone', 'color'];
+  static override base: readonly BaseKey[] = ['entities', 'tone', 'color', 'card_color'];
   static override keys = configKeys<TilesCardConfig>()([
     'size',
     'readouts',
@@ -97,7 +99,7 @@ export class FluvyTilesCard extends FluvyTileCard {
       schema: [
         entityField(),
         nameIconFields(),
-        colourFields(),
+        fieldRow(toneField(), accentField()),
         entitiesField('readouts', ['sensor']),
         actionFields(),
       ],
@@ -115,7 +117,7 @@ export class FluvyTilesCard extends FluvyTileCard {
       schema: [
         entitiesField('entities', undefined, true),
         fieldRow(selectField('size', SIZES), selectField('columns', COLUMNS)),
-        colourFields(),
+        ...colourFields(),
         tintField(),
         entitiesField('readouts', ['sensor']),
       ],

@@ -61,6 +61,23 @@ export const sheet: SheetSpec = {
         hvac_action: 'off',
       },
     ],
+    // the device of #31: off, with presets and seven fan speeds that would otherwise fill the card
+    [
+      'climate.standby',
+      'off',
+      {
+        friendly_name: 'Thermostat',
+        ...THERMO,
+        hvac_modes: ['off', 'heat', 'cool'],
+        temperature: 22,
+        current_temperature: 19.6,
+        hvac_action: 'off',
+        preset_modes: ['none', 'away', 'eco', 'boost'],
+        preset_mode: 'none',
+        fan_modes: ['auto', 'silence', '1', '2', '3', '4', '5'],
+        fan_mode: 'auto',
+      },
+    ],
     [
       'water_heater.tank',
       'eco',
@@ -143,6 +160,25 @@ export const sheet: SheetSpec = {
     {
       title: 'Compact · off',
       cards: [{ type: 'custom:fluvy-thermostat-card', entity: 'climate.off', variant: 'compact' }],
+    },
+    // off: everything (the default) against the essentials; on, `when_off` changes nothing
+    {
+      title: 'Off · presets and fan',
+      measure: false,
+      cards: [{ type: 'custom:fluvy-thermostat-card', entity: 'climate.standby' }],
+    },
+    {
+      title: 'Off · essentials',
+      measure: false,
+      cards: [
+        { type: 'custom:fluvy-thermostat-card', entity: 'climate.standby', when_off: 'essentials' },
+      ],
+    },
+    {
+      title: 'Heat · essentials',
+      cards: [
+        { type: 'custom:fluvy-thermostat-card', entity: 'climate.living', when_off: 'essentials' },
+      ],
     },
   ],
 };

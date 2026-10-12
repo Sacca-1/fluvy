@@ -128,6 +128,7 @@ export class FluvyMapCard extends Card<MapCardConfig> {
     'icon',
     'tone',
     'color',
+    'card_color',
     'tap_action',
     'hold_action',
   ];
@@ -173,7 +174,7 @@ export class FluvyMapCard extends Card<MapCardConfig> {
         fieldRow(numberField('hours_to_show', 0, 168), numberField('default_zoom', 1, 20)),
         fieldRow(boolField('fit_zones'), boolField('show_empty')),
         fieldRow(boolField('show_distance'), textField('map_path')),
-        colourFields(),
+        ...colourFields(),
         actionFields(),
       ],
       ...formLabels({ hours_to_show: 'editor.hours', map_path: 'editor.map_path' }),
@@ -259,7 +260,7 @@ export class FluvyMapCard extends Card<MapCardConfig> {
   }
 
   /** Where someone is, in words: the zone's name, "Away", "Unknown"; with the distance when asked. */
-  private wordFor(person: Placed): string {
+  private wordFor(person: Placed, withDistance = this.config?.show_distance ?? false): string {
     const word =
       person.where === 'home'
         ? this.t('person.home')
@@ -268,7 +269,7 @@ export class FluvyMapCard extends Card<MapCardConfig> {
           : person.where === 'zone'
             ? this.zoneName(person.zone ?? '')
             : this.t('person.away');
-    if (!this.config?.show_distance) return word;
+    if (!withDistance) return word;
     const distance = distanceFromHome(
       this.hass,
       person,
@@ -343,6 +344,17 @@ export class FluvyMapCard extends Card<MapCardConfig> {
 
   /* ---------- render ---------- */
 
+  /** A zone's word: home, away, unknown, or the zone's own name. */
+  private zoneLabel(group: { where: string; key: string }): string {
+    return group.where === 'home'
+      ? this.t('person.home')
+      : group.where === 'away'
+        ? this.t('person.away')
+        : group.where === 'unknown'
+          ? s(this.hass, 'unknown')
+          : this.zoneName(group.key);
+  }
+
   private renderZones(people: readonly Placed[]): TemplateResult {
     const groups = groupByZone(
       people,
@@ -350,16 +362,27 @@ export class FluvyMapCard extends Card<MapCardConfig> {
       this.zoneSpecs(),
       this.config?.show_empty ?? false,
     );
-    const columns = Math.max(1, Math.min(4, Math.floor(this.contentWidth / COLUMN), groups.length));
-    // whole-pixel columns on the 4 grid, the remainder as the gaps between them (320: 4 × 80, 3 × 104 + 2 × 4)
-    const width = Math.floor(this.contentWidth / columns / 4) * 4;
+    const labels = groups.map((group) => this.zoneLabel(group));
+    // as many columns as the width holds (80 each, four at most), one fewer while a zone's word would leave its
+    // column (es "Desconocido" at 1400): whole-pixel columns on the 4 grid, the remainder as the gaps between them
+    // (320: 4 × 80, 3 × 104 + 2 × 4)
+    let columns = Math.max(1, Math.min(4, Math.floor(this.contentWidth / COLUMN), groups.length));
+    const columnWidth = (n: number): number => Math.floor(this.contentWidth / n / 4) * 4;
+    while (
+      columns > 1 &&
+      labels.some(
+        (label) => this.head.ruler.width('mp-zone__label', label) > columnWidth(columns) - 8,
+      )
+    )
+      columns -= 1;
+    const width = columnWidth(columns);
     const gap = columns > 1 ? (this.contentWidth - columns * width) / (columns - 1) : 0;
     return html`<div
       class="mp-zones"
       data-align="center"
       style="--mp-zones:${columns};--mp-col:${width}px;--mp-gap:${gap}px"
     >
-      ${groups.map((group) => {
+      ${groups.map((group, index) => {
         const glyph =
           group.where === 'home'
             ? 'home'
@@ -370,14 +393,7 @@ export class FluvyMapCard extends Card<MapCardConfig> {
                 : (this.zoneSpecs().find((zone) => zone.entity === group.key)?.icon ??
                   group.zone?.attr<string | null>('icon') ??
                   'pin');
-        const label =
-          group.where === 'home'
-            ? this.t('person.home')
-            : group.where === 'away'
-              ? this.t('person.away')
-              : group.where === 'unknown'
-                ? s(this.hass, 'unknown')
-                : this.zoneName(group.key);
+        const label = labels[index] ?? '';
         const shown = group.people.slice(0, group.people.length > FACES ? 1 : FACES);
         const rest = group.people.length - shown.length;
         return html`<div class="mp-zone" data-target>
@@ -394,6 +410,14 @@ export class FluvyMapCard extends Card<MapCardConfig> {
         </div>`;
       })}
     </div>`;
+  }
+
+  /** A row's word with its distance while both hold their 55 % of the row ("Abwesend · 26 km" in a 211 column does not). */
+  private rowWord(person: Placed): string {
+    const full = this.wordFor(person);
+    return this.head.ruler.width('fv-row__value', full) <= this.contentWidth * 0.55
+      ? full
+      : this.wordFor(person, false);
   }
 
   private renderRows(people: readonly Placed[]): TemplateResult {
@@ -417,7 +441,7 @@ export class FluvyMapCard extends Card<MapCardConfig> {
             ><span class="fv-row__title" data-name>${person.view.name}</span></span
           >
           <span class="fv-row__value ${person.where === 'home' ? '' : 'fv-row__value--quiet'}"
-            >${this.wordFor(person)}</span
+            >${this.rowWord(person)}</span
           >
         </div>`;
       })}

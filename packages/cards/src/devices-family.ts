@@ -96,7 +96,7 @@ export const DEVICES_FAMILY: readonly FamilyEntry[] = [
   [
     'fluvy-printer-card',
     'Fluvy · 3D printer',
-    'A 3D printer’s job: progress, time left, heaters, layers, filament and the camera; pause, resume and stop. OctoPrint, PrusaLink, Bambu Lab, Moonraker.',
+    'A 3D printer’s job: progress, time left, heaters, layers, filament and the camera; pause, resume and stop. OctoPrint, PrusaLink, Bambu Lab, Moonraker, Creality, Elegoo, Anycubic, Snapmaker and FlashForge.',
     printerHeight,
   ],
 ];

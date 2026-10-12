@@ -1,4 +1,5 @@
 .local/
+.claude/
 **/dist/
 custom_components/fluvy/frontend/
 custom_components/fluvy/themes/

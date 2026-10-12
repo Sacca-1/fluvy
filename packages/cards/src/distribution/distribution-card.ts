@@ -20,6 +20,7 @@ import { baseOf, figureText, scaleFor } from '../gauge/units.js';
 import { Card, type BaseKey } from '../shared/base.js';
 
 import {
+  accentField,
   actionFields,
   colourFields,
   editorLabels,
@@ -32,6 +33,7 @@ import {
   selectField,
   textField,
   titleFields,
+  toneField,
 } from '../shared/form.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 import { configKeys, ITEM_ALIASES, type AliasSpec } from '../shared/config.js';
@@ -125,6 +127,7 @@ export class FluvyDistributionCard extends Card<DistributionCardConfig> {
     'icon',
     'tone',
     'color',
+    'card_color',
     'tap_action',
     'hold_action',
   ];
@@ -141,7 +144,7 @@ export class FluvyDistributionCard extends Card<DistributionCardConfig> {
       title: 'editor.entities',
       domains: ['sensor'],
       keys: ['entity', 'name', 'tone', 'color'],
-      schema: [entityField(['sensor']), textField('name'), colourFields()],
+      schema: [entityField(['sensor']), textField('name'), fieldRow(toneField(), accentField())],
     },
   ];
   static override aliases: AliasSpec = { items: { entities: ITEM_ALIASES } };
@@ -152,7 +155,7 @@ export class FluvyDistributionCard extends Card<DistributionCardConfig> {
       schema: [
         titleFields(),
         iconField(),
-        colourFields(),
+        ...colourFields(),
         entitiesField('entities', ['sensor'], true),
         fieldRow(numberField('max_rows', 2, 10), selectField('variant', ['stack', 'rows'])),
         entityField(['sensor'], 'total', false),

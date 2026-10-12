@@ -507,7 +507,8 @@ function audit(opts) {
           : el.hasAttribute('data-fit')
             ? Number(el.getAttribute('data-fit'))
             : 28; // 28 = 14 px sides; tab rows declare 32
-        if (pad < expected - 0.5 || pad > expected + 3.5)
+        // the pill lands on the 4 grid: its sides carry the remainder, under 4 (a text 72.23 wide gets 31.77)
+        if (pad < expected - 0.5 || pad > expected + 3.99)
           add(
             'pill-sides',
             el,

@@ -176,7 +176,7 @@ export class FluvyClockCard extends Card<ClockCardConfig> {
   }
 
   /** A clock has no entity: it honours a tap and the card's colour (the face's accent). */
-  static override base: readonly BaseKey[] = ['tap_action', 'color'];
+  static override base: readonly BaseKey[] = ['tap_action', 'color', 'card_color'];
   static override keys = configKeys<ClockCardConfig>()([
     'face',
     'variant',
@@ -240,6 +240,7 @@ export class FluvyClockCard extends Card<ClockCardConfig> {
         boolField('show_forecast'),
         textField('time_zone'),
         accentField(),
+        accentField('card_color', { none: true }),
         actionField(),
       ],
       computeLabel: (schema, localize) =>

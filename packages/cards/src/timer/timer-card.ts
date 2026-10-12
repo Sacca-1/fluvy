@@ -94,7 +94,7 @@ export class FluvyTimerCard extends Card<TimerCardConfig> {
       schema: [
         entityField(['timer']),
         nameIconFields(),
-        colourFields(),
+        ...colourFields(),
         fieldRow(boolField('show_gauge'), boolField('show_actions')),
         actionFields(),
       ],

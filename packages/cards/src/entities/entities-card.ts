@@ -77,7 +77,7 @@ export class FluvyEntitiesCard extends Card<EntitiesCardConfig> {
   ];
 
   /** A card of rows has no entity of its own: its icon, tone and colour are the head's and the rows' default. */
-  static override base: readonly BaseKey[] = ['entities', 'icon', 'tone', 'color'];
+  static override base: readonly BaseKey[] = ['entities', 'icon', 'tone', 'color', 'card_color'];
   static override keys = configKeys<EntitiesCardConfig>()([
     'title',
     'subtitle',
@@ -100,7 +100,7 @@ export class FluvyEntitiesCard extends Card<EntitiesCardConfig> {
       schema: [
         titleFields(),
         fieldRow(iconField(), selectField('variant', ['rows', 'compact'])),
-        colourFields(),
+        ...colourFields(),
         entitiesField('entities', undefined, true),
         boolField('show_count'),
       ],

@@ -396,7 +396,10 @@ export class HomeRegistry {
   get cameras(): readonly string[] {
     return this.domain('camera');
   }
-  /** The house's 3D printers: the devices of a printer integration (OctoPrint, PrusaLink, Bambu Lab, Moonraker). */
+  /**
+   * The house's 3D printers: the devices of a printer integration (OctoPrint, PrusaLink, Bambu Lab, Moonraker,
+   * Creality, Elegoo, Anycubic, Snapmaker, FlashForge), and any other device with a printer's signature.
+   */
   get printers(): readonly string[] {
     return this.memo('printers', () => printerDevices(this.hass));
   }

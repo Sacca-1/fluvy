@@ -50,7 +50,7 @@ names and heights — and defined as `src/energy-cards.ts` and its siblings land
 the moment its tag is defined), the cards' visual editor (when a card is edited)
 and a language's catalogue (English ships in core). Lit is bundled, pinned to Home Assistant's version. `finish.mjs` writes
 `manifest.json` with every file's size and hash and a **build stamp**, and fails the build when the initial set goes
-over **220 KB gzip**; `tools/release/check.mjs --release` holds every chunk to its own budget.
+over **222 KB gzip**; `tools/release/check.mjs --release` holds every chunk to its own budget.
 
 ## How it reaches Home Assistant
 

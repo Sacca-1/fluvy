@@ -93,21 +93,46 @@ const WIDE = `data:image/svg+xml,${encodeURIComponent(
   </svg>`,
 )}`;
 
+/** How many stream sessions the page opened and closed: a session starts when the element connects, as Home Assistant's players do. */
+const sessions = (): { connected: number; disconnected: number } =>
+  ((window as unknown as { pgStreams?: { connected: number; disconnected: number } }).pgStreams ??=
+    {
+      connected: 0,
+      disconnected: 0,
+    });
+
 /**
  * Home Assistant's stream element, as the camera card sets it (`stateObj`, `fitMode`, `aspectRatio`): here, the
- * camera's still in the plate with a moving band, so a live frame reads as one.
+ * camera's still in the plate with a moving band, so a live frame reads as one. A camera marked `pg_stream: fails`
+ * does what Home Assistant's players do when nothing plays: an alert where the video would be, and a `streams` event
+ * with no video in it.
  */
 class MockCameraStream extends HTMLElement {
-  stateObj?: { attributes?: { entity_picture?: string } };
+  stateObj?: { attributes?: { entity_picture?: string; pg_stream?: string } };
   fitMode = 'cover';
   aspectRatio?: number;
   connectedCallback(): void {
+    sessions().connected += 1;
     const root = this.shadowRoot ?? this.attachShadow({ mode: 'open' });
+    if (this.stateObj?.attributes?.pg_stream === 'fails') {
+      root.innerHTML = `<ha-alert alert-type="error">Stream failed to start</ha-alert>`;
+      this.dispatchEvent(
+        new CustomEvent('streams', {
+          detail: { hasAudio: false, hasVideo: false },
+          bubbles: true,
+          composed: true,
+        }),
+      );
+      return;
+    }
     root.innerHTML = `<style>
         :host { display: block; overflow: hidden; }
         img { width: 100%; height: 100%; object-fit: ${this.fitMode}; display: block; }
       </style><img alt="" src="${this.stateObj?.attributes?.entity_picture ?? ''}">`;
     this.dataset['live'] = '1';
+  }
+  disconnectedCallback(): void {
+    sessions().disconnected += 1;
   }
 }
 define('ha-camera-stream', MockCameraStream);
@@ -217,6 +242,17 @@ export const sheet: SheetSpec = {
       'camera.garden_180',
       'streaming',
       { friendly_name: 'Garden · 180°', entity_picture: WIDE, supported_features: 2 },
+    ],
+    // a camera whose stream never plays (the mock's own mark): stills again, tried again later
+    [
+      'camera.side_gate',
+      'streaming',
+      {
+        friendly_name: 'Side gate',
+        entity_picture: STILL,
+        supported_features: 2,
+        pg_stream: 'fails',
+      },
     ],
   ],
   // as a real house has them: the rows' entities in areas (their line still says when they changed)
@@ -408,6 +444,12 @@ export const sheet: SheetSpec = {
     {
       title: 'Camera · live',
       cards: [{ type: 'custom:fluvy-camera-card', entity: 'camera.driveway', camera_view: 'live' }],
+    },
+    {
+      title: 'Camera · live, no stream',
+      cards: [
+        { type: 'custom:fluvy-camera-card', entity: 'camera.side_gate', camera_view: 'live' },
+      ],
     },
   ],
 };

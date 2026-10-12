@@ -223,7 +223,7 @@ export class FluvyCoverCard extends Card<CoverCardConfig> {
         ),
         fieldRow(boolField('show_tilt'), boolField('show_favorites')),
         { name: 'favorites', selector: { object: {} } },
-        colourFields(),
+        ...colourFields(),
         actionFields(),
       ],
       ...editorLabels(coverStrings, { tilt_angle: 'tilt_angle' }, {}),

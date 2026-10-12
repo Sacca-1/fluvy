@@ -11,6 +11,63 @@ import { renderTemplate } from './template.js';
 
 /** A sample of Home Assistant's Spanish state words (its `es` translations), by domain, device class and state. */
 /** Home Assistant's own words for an opening and for motion (its 2025.1 translations): [on, off]. */
+/**
+ * Home Assistant's words for a sensor's measure (`component.sensor.entity_component.<class>.name`), for the classes the
+ * sheets chart: a readout under a shared chart is called by its measure where nothing names it.
+ */
+const MEASURE_WORDS: Record<string, Record<string, string>> = {
+  en: {
+    temperature: 'Temperature',
+    humidity: 'Humidity',
+    power: 'Power',
+    atmospheric_pressure: 'Atmospheric pressure',
+  },
+  es: {
+    temperature: 'Temperatura',
+    humidity: 'Humedad',
+    power: 'Potencia',
+    atmospheric_pressure: 'Presión atmosférica',
+  },
+  de: {
+    temperature: 'Temperatur',
+    humidity: 'Luftfeuchtigkeit',
+    power: 'Leistung',
+    atmospheric_pressure: 'Luftdruck',
+  },
+  fr: {
+    temperature: 'Température',
+    humidity: 'Humidité',
+    power: 'Puissance',
+    atmospheric_pressure: 'Pression atmosphérique',
+  },
+  it: {
+    temperature: 'Temperatura',
+    humidity: 'Umidità',
+    power: 'Potenza',
+    atmospheric_pressure: 'Pressione atmosferica',
+  },
+  nl: {
+    temperature: 'Temperatuur',
+    humidity: 'Luchtvochtigheid',
+    power: 'Vermogen',
+    atmospheric_pressure: 'Luchtdruk',
+  },
+  'pt-BR': {
+    temperature: 'Temperatura',
+    humidity: 'Umidade',
+    power: 'Potência',
+    atmospheric_pressure: 'Pressão atmosférica',
+  },
+  tr: {
+    temperature: 'Sıcaklık',
+    humidity: 'Nem',
+    power: 'Güç',
+    atmospheric_pressure: 'Atmosfer basıncı',
+  },
+};
+const MEASURE_KEY = /^component\.sensor\.entity_component\.([a-z_]+)\.name$/;
+
+/** Home Assistant's words for an opening, open and closed, in every language the sheets speak: a state a row must hold. */
 const OPENING_WORDS: Record<string, readonly [string, string]> = {
   en: ['Open', 'Closed'],
   de: ['Geöffnet', 'Geschlossen'],
@@ -21,6 +78,7 @@ const OPENING_WORDS: Record<string, readonly [string, string]> = {
   'pt-BR': ['Aberto', 'Fechado'],
   tr: ['Açık', 'Kapalı'],
 };
+/** Home Assistant's words for motion, detected and clear, in the same languages. */
 const MOTION_WORDS: Record<string, readonly [string, string]> = {
   en: ['Detected', 'Clear'],
   de: ['Erkannt', 'Keine'],
@@ -32,6 +90,7 @@ const MOTION_WORDS: Record<string, readonly [string, string]> = {
   tr: ['Algılandı', 'Temiz'],
 };
 
+/** Home Assistant's own Spanish state words, by domain, device class and state: the longest of them are what a pill has to hold. */
 const SPANISH: Record<string, string> = {
   on: 'Encendido',
   off: 'Apagado',
@@ -250,7 +309,10 @@ export function createHass(
       callApi: async <T>(method: string, path: string): Promise<T> =>
         options.api ? (options.api(method, path) as T) : ([] as unknown as T),
       hassUrl: (path = '') => path,
-      localize: (key) => key,
+      localize: (key) => {
+        const measure = MEASURE_KEY.exec(key)?.[1];
+        return (measure && MEASURE_WORDS[options.language ?? 'en']?.[measure]) || key;
+      },
       formatEntityState: (stateObj) => {
         const raw = stateObj.state;
         const unit = stateObj.attributes.unit_of_measurement;

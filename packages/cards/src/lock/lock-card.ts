@@ -134,6 +134,9 @@ export class FluvyLockCard extends RowsCard<LockCardConfig> {
         white-space: nowrap;
         text-overflow: ellipsis;
       }
+      .dv-slide__hint.is-hidden {
+        display: none;
+      }
       .dv-slide.is-moving .dv-slide__hint {
         animation: fv-shimmer 1200ms ease-in-out infinite;
       }
@@ -206,7 +209,7 @@ export class FluvyLockCard extends RowsCard<LockCardConfig> {
         fieldRow(textField('subtitle'), selectField('variant', ['full', 'compact'])),
         boolField('show_rows'),
         entitiesField('rows'),
-        colourFields(),
+        ...colourFields(),
         actionFields(),
       ],
       ...formLabels({}),
@@ -540,6 +543,10 @@ export class FluvyLockCard extends RowsCard<LockCardConfig> {
       : this.confirming_
         ? s(this.hass, atStart ? 'press_again_unlock' : 'press_again_lock')
         : this.t(atStart ? 'lock.slide_unlock' : 'lock.slide_lock');
+    // the hint sits between the knob and the end ring: where it would not (a 211 column in German), the track says
+    // nothing in words — the glyphs say it, and the status line reads it out
+    const hintShown =
+      this.headFit.ruler.width('dv-slide__hint', hint) <= this.contentWidth - 2 * KNOB_BOX - 16;
 
     // the head gives way in its order: the badge first (the circle's glyph says locked or open too), then the sub
     const fitted = this.headFit.fit({
@@ -580,7 +587,7 @@ export class FluvyLockCard extends RowsCard<LockCardConfig> {
             data-measure="value"
             style="left:4px;top:4px;width:36px;height:36px"
           ></span>
-          <span class="dv-slide__hint">${hint}</span>
+          <span class="dv-slide__hint ${hintShown ? '' : 'is-hidden'}">${hint}</span>
           ${keyed(atStart, html`<span class="dv-slide__end">${glyph(atStart ? 'unlock' : 'lock')}</span>`)}
         </div>
         <span class="fv-sr" role="status" data-measure="skip">${this.confirming_ ? hint : ''}</span>

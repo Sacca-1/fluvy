@@ -25,6 +25,7 @@ import { Card, type BaseKey } from '../shared/base.js';
 import { glyphFor, stateWord } from '../shared/domain.js';
 
 import {
+  accentField,
   actionField,
   actionFields,
   boolField,
@@ -40,6 +41,7 @@ import {
   selectField,
   textField,
   titleFields,
+  toneField,
 } from '../shared/form.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 import { configKeys, ITEM_ALIASES, type AliasSpec } from '../shared/config.js';
@@ -152,7 +154,14 @@ export class FluvyBarsCard extends Card<BarsCardConfig> {
   private readonly texts = new TemplateTexts(this);
 
   /** A list of many sensors has no entity of its own: its head's icon, tone and colour, and its actions on the head. */
-  static override base: readonly BaseKey[] = ['icon', 'tone', 'color', 'tap_action', 'hold_action'];
+  static override base: readonly BaseKey[] = [
+    'icon',
+    'tone',
+    'color',
+    'card_color',
+    'tap_action',
+    'hold_action',
+  ];
   static override keys = configKeys<BarsCardConfig>()([
     'title',
     'subtitle',
@@ -185,7 +194,7 @@ export class FluvyBarsCard extends Card<BarsCardConfig> {
         nameIconFields(),
         textField('secondary'),
         entitiesField('sub_entity'),
-        colourFields(),
+        fieldRow(toneField(), accentField()),
         fieldRow(anyNumber('min'), anyNumber('max')),
         fieldRow(anyNumber('low'), anyNumber('high')),
         fieldRow(boolField('plain'), actionField()),
@@ -200,7 +209,7 @@ export class FluvyBarsCard extends Card<BarsCardConfig> {
       schema: [
         titleFields(),
         fieldRow(iconField(), selectField('variant', VARIANTS)),
-        colourFields(),
+        ...colourFields(),
         entitiesField('rows', undefined, true),
         fieldRow(textField('badge_ok'), textField('badge_warn')),
         actionFields(),

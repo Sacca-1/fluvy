@@ -5,6 +5,7 @@ import {
   type FluvyCardConfig,
   type LovelaceConfigForm,
   type LovelaceGridOptions,
+  type MessageKey,
 } from '@fluvy/core';
 
 import {
@@ -32,13 +33,19 @@ import {
   actionFields,
   boolField,
   colourFields,
+  editorWord,
   entityField,
   fieldRow,
   formLabels,
+  idsOnly,
   nameIconFields,
+  orderedField,
   selectField,
 } from '../shared/form.js';
+import { rowsOf } from '../shared/heights.js';
+import { bulbHex, COLOURED, DIMMABLE, hexOf } from '../shared/light.js';
 import type { EditorDefaults } from '../shared/rows-editor.js';
+import type { HeldColour, SwatchEntry } from './colour.js';
 
 /** How the card is drawn: the full dimmer, or the compact one (its level in the head, the ruler alone); `auto` picks by width. */
 export type LightVariant = 'auto' | 'full' | 'compact';
@@ -50,27 +57,56 @@ export interface LightCardConfig extends FluvyCardConfig {
   show_temperature?: boolean;
   /** The colour-temperature ruler's ticks take a faint warm → cool tint (default). Off = neutral ticks like the brightness ruler. */
   temperature_tint?: boolean;
+  /** A colour bulb's hue ruler and quick colours (default). Off: the card of a white bulb. */
+  show_color?: boolean;
+  /** The quick colours, in order: `warm`, `cool`, a Home Assistant colour name, `#rrggbb`, `[r, g, b]` or `picker`. */
+  colors?: readonly SwatchEntry[];
 }
 
-const DIMMABLE = new Set(['brightness', 'color_temp', 'hs', 'xy', 'rgb', 'rgbw', 'rgbww', 'white']);
+/** The colour controls' module: fetched the first time a colour bulb is drawn, once for every light card. */
+type ColourModule = typeof import('./colour.js');
+let colourModule: Promise<ColourModule> | undefined;
+
+/** The quick colours the editor offers by word, the picker's round last; any `#rrggbb` can be typed beside them. */
+const SWATCH_WORDS = [
+  'warm',
+  'cool',
+  'red',
+  'orange',
+  'yellow',
+  'green',
+  'blue',
+  'purple',
+  'pink',
+  'picker',
+];
 
 /** Under this content width the full layout has no room for its value and stepper: the compact one takes over. */
 const COMPACT_BELOW = 260;
 
 /**
  * The precision dimmer: a big tabular value with its stepper, the ruler underneath (relative drag,
- * slide away to slow down, hold for the 1 % scale), and a second ruler for colour temperature. Half a section wide
- * (or `variant: compact`) it keeps the head, with the level in its state line, and the brightness ruler alone: two
- * lamps share a line. The switch is never what a narrow column costs: the head is fitted round it (the sub steps
- * aside, then the icon circle), as the fan's is.
+ * slide away to slow down, hold for the 1 % scale), and a second ruler for colour temperature. A colour bulb gets a
+ * row of quick colours under that ruler's slot, and the slot holds a hue ruler while the bulb is in a colour; the
+ * card wears the bulb's colour as its accent. Half a section wide (or `variant: compact`) it keeps the head, with
+ * the level in its state line, and the brightness ruler alone: two lamps share a line. The switch is never what a
+ * narrow column costs: the head is fitted round it (the sub steps aside, then the icon circle), as the fan's is.
  */
 export class FluvyLightCard extends Card<LightCardConfig> {
   /** The head, measured: what gives way in a narrow column is the sub, then the icon — never the switch. */
   private readonly head = new HeadFit(this);
 
-  /** The card's height at a 360 column, for the automatic dashboard's columns. */
+  /**
+   * The card's height at a 360 column, for the automatic dashboard's columns — from the config alone: the ruler
+   * slot (a label, the ruler and its labels: 100) when a temperature or a hue ruler may show, and the quick colours
+   * (16 above, 44 rounds, six a row) when they may; a white bulb under the same config draws less.
+   */
   static override layoutHeight(config: LightCardConfig): number {
-    return config.variant === 'compact' ? 188 : 268;
+    if (config.variant === 'compact') return 188;
+    const slot = config.show_temperature !== false || config.show_color !== false ? 100 : 0;
+    const swatches =
+      config.show_color !== false ? 8 + rowsOf(config.colors?.length ?? 6, 6) * 52 : 0;
+    return 268 + slot + swatches;
   }
 
   static override styles: CSSResultGroup = [
@@ -107,6 +143,12 @@ export class FluvyLightCard extends Card<LightCardConfig> {
   private sendTimer = 0;
   /** The level on screen right now; the stepper counts from here, never from a value captured at render time. */
   private level = 0;
+  /** The colour the finger chose, shown (the check, the ruler, the accent) until the bulb reports it or 5 s pass. */
+  private heldColour: { choice: HeldColour; expires: number } | null = null;
+  private colourTimer = 0;
+  /** The colour controls, once their module has landed; asked for on the first render of a colour bulb. */
+  private colour: ColourModule | undefined;
+  private colourAsked = false;
 
   constructor() {
     super();
@@ -119,12 +161,15 @@ export class FluvyLightCard extends Card<LightCardConfig> {
     'live_update',
     'show_temperature',
     'temperature_tint',
+    'show_color',
+    'colors',
   ]);
   /** What the editor shows where the config says nothing: what the card does then. */
   static override defaults: EditorDefaults = () => ({
     live_update: false,
     variant: 'auto',
     show_temperature: true,
+    show_color: true,
     temperature_tint: true,
   });
   static override getConfigForm(): LovelaceConfigForm {
@@ -132,20 +177,34 @@ export class FluvyLightCard extends Card<LightCardConfig> {
       schema: [
         entityField(['light']),
         nameIconFields(),
-        fieldRow(
-          selectField('variant', ['auto', 'full', 'compact']),
-          boolField('show_temperature'),
+        selectField('variant', ['auto', 'full', 'compact']),
+        fieldRow(boolField('show_temperature'), boolField('show_color')),
+        orderedField(
+          'colors',
+          SWATCH_WORDS.map((value) => ({
+            value,
+            label: editorWord(
+              (value === 'warm' || value === 'cool'
+                ? `light.${value}`
+                : `option.${value}`) as MessageKey,
+            ),
+          })),
+          { custom: true },
         ),
         boolField('temperature_tint'),
         boolField('live_update'),
-        colourFields(),
+        ...colourFields(),
         actionFields(),
       ],
       ...formLabels({
         show_temperature: 'light.temperature',
+        show_color: 'editor.show_color',
+        colors: 'editor.colors',
         temperature_tint: 'editor.temperature_tint',
         live_update: 'editor.live_update',
       }),
+      // a quick colour given as `[r, g, b]` is no word the select can hold: the list is edited as YAML
+      ...idsOnly('colors'),
     };
   }
 
@@ -162,6 +221,7 @@ export class FluvyLightCard extends Card<LightCardConfig> {
       ...config,
       variant: config.variant ?? 'auto',
       show_temperature: config.show_temperature ?? true,
+      show_color: config.show_color ?? true,
       temperature_tint: config.temperature_tint ?? true,
       live_update: config.live_update ?? false,
     };
@@ -208,10 +268,34 @@ export class FluvyLightCard extends Card<LightCardConfig> {
     this.sendTimer = window.setTimeout(() => this.send(next), 650); // longer than the 530 ms before a held button starts repeating
   }
 
+  /** A swatch or the hue ruler: the colour is held for five seconds, as a level is, and the bulb wakes to it. */
+  private pickColour(choice: HeldColour, data: Record<string, unknown>): void {
+    this.heldColour = { choice, expires: Date.now() + 5000 };
+    clearTimeout(this.colourTimer);
+    this.colourTimer = window.setTimeout(() => {
+      this.heldColour = null;
+      this.requestUpdate();
+    }, 5000);
+    this.expect(this.config?.entity ?? '', 'on');
+    this.call('light', 'turn_on', data);
+  }
+
+  /** The colour controls' module, fetched once; its sheet adopted as it lands, and the card drawn again. */
+  private loadColour(): void {
+    if (this.colourAsked) return;
+    this.colourAsked = true;
+    void (colourModule ??= import('./colour.js')).then((module) => {
+      if (this.renderRoot instanceof ShadowRoot) module.adopt(this.renderRoot);
+      this.colour = module;
+      this.requestUpdate();
+    });
+  }
+
   override disconnectedCallback(): void {
     super.disconnectedCallback();
     clearTimeout(this.heldTimer);
     clearTimeout(this.sendTimer);
+    clearTimeout(this.colourTimer);
   }
 
   private onInput(value: number): void {
@@ -222,6 +306,38 @@ export class FluvyLightCard extends Card<LightCardConfig> {
       this.lastSend = now;
       this.setBrightness(value);
     }
+  }
+
+  /** The colour-temperature ruler under its label, warm to cool, inactive while the lamp is off. */
+  private temperatureRuler(
+    name: string,
+    width: number,
+    on: boolean,
+    kelvin: number,
+    minK: number,
+    maxK: number,
+  ): TemplateResult {
+    return html`${label(this.t('light.temperature'))}
+      <fluvy-ruler
+        .value=${kelvin}
+        .min=${minK}
+        .max=${maxK}
+        .step=${50}
+        .length=${width}
+        tone="accent"
+        .minor=${0.1}
+        .major=${0.5}
+        ?inactive=${!on}
+        .tint=${this.config?.temperature_tint === false ? '' : 'warm-cool'}
+        unit="K"
+        .label=${`${name} · ${this.t('light.temperature')}`}
+        .format=${(v: number) => formatNumber(this.hass, v, { digits: 0 })}
+        @fluvy-change=${(e: CustomEvent<RulerChangeDetail>) => this.call('light', 'turn_on', { color_temp_kelvin: e.detail.value })}
+      ></fluvy-ruler>
+      ${rulerLabels([
+        [0, this.t('light.warm')],
+        [1, this.t('light.cool')],
+      ])}`;
   }
 
   protected renderCard(): TemplateResult {
@@ -276,6 +392,26 @@ export class FluvyLightCard extends Card<LightCardConfig> {
     const minK = view.attr<number>('min_color_temp_kelvin') ?? 2000;
     const maxK = view.attr<number>('max_color_temp_kelvin') ?? 6500;
     const hasTemp = modes.includes('color_temp') && this.config?.show_temperature !== false;
+    const temperature = hasTemp
+      ? () => this.temperatureRuler(name, w, on, kelvin ?? minK, minK, maxK)
+      : undefined;
+
+    // a colour bulb: its controls come with their module (the first colour bulb fetches it); until then, the white bulb's card
+    const coloured = modes.some((m) => COLOURED.has(m)) && this.config?.show_color !== false;
+    if (coloured && !this.colour) this.loadColour();
+    const colour = coloured ? this.colour : undefined;
+    // the held colour lets go when the bulb reports it, or when its time is up
+    if (
+      this.heldColour &&
+      (Date.now() > this.heldColour.expires ||
+        this.colour?.reported(view, this.heldColour.choice, maxK - minK))
+    )
+      this.heldColour = null;
+    const choice = this.heldColour?.choice ?? null;
+    // the card wears the bulb's colour (the finger's while held) where the config gives it none: the icon, the
+    // switch and the brightness ruler take it through the light-active family the accent remaps
+    const bulb = choice ? ('rgb' in choice ? hexOf(choice.rgb) : undefined) : bulbHex(view, on);
+    const accent = this.config?.color ? undefined : this.accents.item(bulb);
 
     // the head fitted to its column round its switch: the sub steps aside, then the icon — never the switch (half
     // a phone's section leaves 136: the name and the switch, and the ruler under them)
@@ -289,6 +425,7 @@ export class FluvyLightCard extends Card<LightCardConfig> {
     return html`<article
       class="fv-card sl-card ${unusable ? 'is-unavailable is-off' : ''} ${compact ? 'sl-card--compact' : ''}"
       data-card
+      data-accent=${accent ?? nothing}
     >
       ${head({
         icon: fitted.icon ? (this.config?.icon ?? glyphFor(view)) : null,
@@ -348,29 +485,24 @@ export class FluvyLightCard extends Card<LightCardConfig> {
           : nothing
       }
       ${
-        hasTemp && !unusable && !compact
-          ? html` ${label(this.t('light.temperature'))}
-              <fluvy-ruler
-                .value=${kelvin ?? minK}
-                .min=${minK}
-                .max=${maxK}
-                .step=${50}
-                .length=${w}
-                tone="accent"
-                .minor=${0.1}
-                .major=${0.5}
-                ?inactive=${!on}
-                .tint=${this.config?.temperature_tint === false ? '' : 'warm-cool'}
-                unit="K"
-                .label=${`${name} · ${this.t('light.temperature')}`}
-                .format=${(v: number) => formatNumber(this.hass, v, { digits: 0 })}
-                @fluvy-change=${(e: CustomEvent<RulerChangeDetail>) => this.call('light', 'turn_on', { color_temp_kelvin: e.detail.value })}
-              ></fluvy-ruler>
-              ${rulerLabels([
-                [0, this.t('light.warm')],
-                [1, this.t('light.cool')],
-              ])}`
-          : nothing
+        unusable || compact
+          ? nothing
+          : colour
+            ? colour.colourControls({
+                view,
+                t: (key) => this.t(key),
+                name,
+                width: w,
+                on,
+                held: choice,
+                colors: this.config?.colors,
+                minK,
+                maxK,
+                format: (v) => formatNumber(this.hass, v, { digits: 0 }),
+                temperature,
+                pick: (picked, data) => this.pickColour(picked, data),
+              })
+            : (temperature?.() ?? nothing)
       }
     </article>`;
   }

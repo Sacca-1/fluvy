@@ -234,7 +234,7 @@ export class FluvyProductionCard extends Card<ProductionCardConfig> {
         entityField(['sensor']),
         fieldRow(textField('name'), textField('subtitle')),
         iconField(),
-        colourFields(),
+        ...colourFields(),
         fieldRow(
           { name: 'forecast_entity', selector: { entity: { domain: ['sensor'] } } },
           { name: 'peak_entity', selector: { entity: { domain: ['sensor'] } } },

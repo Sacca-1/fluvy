@@ -32,6 +32,7 @@ import { Card } from '../shared/base.js';
 import { glyphFor, stateWord } from '../shared/domain.js';
 
 import {
+  accentField,
   actionField,
   actionFields,
   boolField,
@@ -183,7 +184,7 @@ export class FluvyStatTilesCard extends Card<StatTilesCardConfig> {
         entityField(),
         nameIconFields(),
         textField('secondary'),
-        colourFields(),
+        fieldRow(toneField(), accentField()),
         actionField(),
       ],
     },
@@ -199,7 +200,7 @@ export class FluvyStatTilesCard extends Card<StatTilesCardConfig> {
       schema: [
         titleFields(),
         iconField(),
-        colourFields(),
+        ...colourFields(),
         fieldRow(selectField('variant', VARIANTS), selectField('columns', COLUMNS)),
         entitiesField('tiles', undefined, true),
         fieldRow(entityField(undefined, 'entity', false), textField('name')),

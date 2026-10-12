@@ -322,4 +322,173 @@ const ids = (call) => [].concat(call?.d?.entity_id ?? call?.t?.entity_id ?? []);
   await page.close();
 }
 
+/* ---------- the light card's colour (issue #32), on the `slider` sheet ---------- */
+{
+  const page = await suite.sheet('slider');
+  const light = (title) => frame(page, title).locator('fluvy-light-card').first();
+  const readLight = (title) =>
+    light(title).evaluate((el) => {
+      const root = el.shadowRoot;
+      const article = root.querySelector('article');
+      const rulers = [...root.querySelectorAll('fluvy-ruler')];
+      return {
+        rulers: rulers.length,
+        tints: rulers.map((r) => r.tint ?? ''),
+        swatches: [...root.querySelectorAll('.lc-swatch')].map((b) => ({
+          label: b.getAttribute('aria-label'),
+          active: b.classList.contains('is-active'),
+          width: Math.round(b.getBoundingClientRect().width),
+          height: Math.round(b.getBoundingClientRect().height),
+        })),
+        accent: article?.dataset.accent ?? '',
+        picker: root.querySelector('.lc-swatch--picker input')?.value ?? '',
+        icon: getComputedStyle(root.querySelector('.fv-card__head .fv-ico')).color,
+        accentVar: getComputedStyle(article).getPropertyValue('--fluvy-accent').trim(),
+        height: Math.round(article.getBoundingClientRect().height),
+      };
+    });
+  // the colour controls arrive with their module: wait for the row
+  await light('On').locator('.lc-swatch').first().waitFor({ timeout: 5000 });
+  const white = await readLight('On');
+  check(
+    'a colour bulb in its white: the brightness and the temperature rulers, six quick colours (two whites first), the warm one checked at 3200 K',
+    white.rulers === 2 &&
+      white.tints[1] === 'warm-cool' &&
+      white.swatches.length === 6 &&
+      white.swatches.every((s) => s.width === 44 && s.height === 44) &&
+      white.swatches[0].active &&
+      white.accent === '',
+    JSON.stringify(white),
+  );
+  const amber = await readLight('Colour · hs mode');
+  check(
+    'a bulb glowing a colour: the hue ruler takes the slot, the card wears the bulb’s colour (its icon in it), the orange swatch checked',
+    amber.rulers === 2 &&
+      amber.tints[1] === 'hue' &&
+      amber.accent === '#ff9800' &&
+      amber.swatches.find((s) => s.active)?.label === 'Orange' &&
+      amber.accentVar !== '',
+    JSON.stringify(amber),
+  );
+  const alone = await readLight('Colour · colours alone');
+  check(
+    'a bulb of colours alone: no whites among its quick colours, the hue ruler, the blue checked',
+    alone.swatches.length === 6 &&
+      alone.swatches.every((s) => !/warm|cool/i.test(s.label)) &&
+      alone.tints[1] === 'hue' &&
+      alone.swatches.find((s) => s.active)?.label === 'Blue',
+    JSON.stringify(alone),
+  );
+  const custom = await readLight('Colour · custom swatches');
+  check(
+    'the house’s own quick colours, eight of them, in its order: words and hexes alike',
+    custom.swatches.map((s) => s.label).join('|') ===
+      'Warm|Cool|#ff2d55|Amber|Teal|Purple|Pink|Blue',
+    JSON.stringify(custom.swatches.map((s) => s.label)),
+  );
+  const hidden = await readLight('Colour hidden');
+  const dimmer = await readLight('Off');
+  check(
+    'show_color off, and a bulb with no colour: no swatches, no hue ruler; the dimmer keeps its one ruler',
+    hidden.swatches.length === 0 &&
+      hidden.tints.join() === ',warm-cool' &&
+      dimmer.swatches.length === 0 &&
+      dimmer.rulers === 1,
+    JSON.stringify([hidden, dimmer]),
+  );
+  // taps: a colour swatch sends rgb_color and is checked at once; a white sends the temperature; the ruler a hue
+  await reset(page);
+  await light('On').locator('.lc-swatch').nth(2).click();
+  await settle(page, 200);
+  const afterRed = await calls(page);
+  const checkedNow = await readLight('On');
+  check(
+    'a tap on a colour swatch calls light.turn_on with its rgb_color once, and the check moves to it before the bulb answers',
+    afterRed.length === 1 &&
+      afterRed[0].s === 'light.turn_on' &&
+      JSON.stringify(afterRed[0].d.rgb_color) === '[244,67,54]' &&
+      checkedNow.swatches.find((s) => s.active)?.label === 'Red' &&
+      checkedNow.tints[1] === 'hue',
+    JSON.stringify([afterRed, checkedNow.swatches]),
+  );
+  await reset(page);
+  await light('Colour · hs mode').locator('.lc-swatch').nth(1).click();
+  await settle(page, 200);
+  const afterCool = await calls(page);
+  check(
+    'a tap on a white swatch calls light.turn_on with its color_temp_kelvin, and the slot goes back to the temperature ruler',
+    afterCool.length === 1 &&
+      afterCool[0].d.color_temp_kelvin === 5000 &&
+      (await readLight('Colour · hs mode')).tints[1] === 'warm-cool',
+    JSON.stringify(afterCool),
+  );
+  await reset(page);
+  const hueRuler = light('Colour · colours alone').locator('fluvy-ruler').nth(1);
+  await hueRuler.evaluate((r) =>
+    r.dispatchEvent(new CustomEvent('fluvy-change', { detail: { value: 120 } })),
+  );
+  await settle(page, 200);
+  const afterHue = await calls(page);
+  check(
+    'the hue ruler’s release calls light.turn_on with hs_color at the bulb’s saturation (100 where it says none)',
+    afterHue.length === 1 && JSON.stringify(afterHue[0].d.hs_color) === '[120,100]',
+    JSON.stringify(afterHue),
+  );
+  await reset(page);
+  const tempRuler = light('On').locator('fluvy-ruler').nth(1);
+  await light('On').locator('.lc-swatch').nth(0).click(); // back to a white: the temperature ruler
+  await settle(page, 200);
+  await reset(page);
+  await tempRuler.evaluate((r) =>
+    r.dispatchEvent(new CustomEvent('fluvy-change', { detail: { value: 4000 } })),
+  );
+  await settle(page, 200);
+  const afterKelvin = await calls(page);
+  check(
+    'the temperature ruler still sends color_temp_kelvin',
+    afterKelvin.length === 1 && afterKelvin[0].d.color_temp_kelvin === 4000,
+    JSON.stringify(afterKelvin),
+  );
+  const compact = await readLight('Compact by choice');
+  check(
+    'the compact layout on a colour bulb: no colour controls, the worn colour alone',
+    compact.rulers === 1 && compact.swatches.length === 0 && compact.accent === '#ff9800',
+    JSON.stringify(compact),
+  );
+  // the picker's round: last of the house's list, 44, named; it holds the lamp's orange (none of red, blue, purple)
+  // and is checked, its input opening on that colour
+  const withPicker = await readLight('Colour · with the picker');
+  check(
+    'the picker round holds the bulb’s colour, checked, when the bulb is on none of the other rounds',
+    withPicker.swatches.length === 4 &&
+      withPicker.swatches[3].label === 'Colour picker' &&
+      withPicker.swatches[3].active &&
+      withPicker.swatches[3].width === 44 &&
+      withPicker.swatches[3].height === 44 &&
+      !withPicker.swatches.slice(0, 3).some((s) => s.active) &&
+      withPicker.picker === '#ff9800',
+    JSON.stringify(withPicker.swatches.concat(withPicker.picker)),
+  );
+  await reset(page);
+  const input = light('Colour · with the picker').locator('.lc-swatch--picker input');
+  await input.evaluate((el) => {
+    el.value = '#00ff00';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await settle(page, 600);
+  const afterPicked = await calls(page);
+  const pickedNow = await readLight('Colour · with the picker');
+  check(
+    'a colour chosen in the picker calls light.turn_on with its rgb_color once (input and change together), and the round takes it',
+    afterPicked.length === 1 &&
+      afterPicked[0].s === 'light.turn_on' &&
+      JSON.stringify(afterPicked[0].d.rgb_color) === '[0,255,0]' &&
+      pickedNow.swatches[3].active &&
+      pickedNow.accent === '#00ff00',
+    JSON.stringify([afterPicked, pickedNow.swatches[3], pickedNow.accent]),
+  );
+  await page.close();
+}
+
 await suite.finish();

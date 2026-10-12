@@ -73,7 +73,7 @@ In a narrow column the head is fitted by measure (`HeadFit`), and what gives way
 | Calendar | one component (`monthGrid()` in `cards/shared/days.ts`, `fluvy/days.css`): the weekday row (11/600, tracked, secondary, 8 over the days) over seven columns (the owner's tracks), each day a 44 target — its number 15/500 in tabular figures, weekends in the secondary ink, a 4 px dot for events — whose plate (radius 12) carries its state; the arrows walk the one tab stop (a day, a week; Home / End the week's ends; Page Up / Down a month), turning the month when it leaves it; a new month slides in from its side | **one day** (the calendar card's month and week): the chosen day on the primary fill, today on the palette's mark or, while another day is chosen, the accent's pastel. **A period** (Activity's dates): the chosen days one band on the accent's fill, its ends on the primary, today in the accent with a dot. Hover lays the page's fill on the plate (in a period, an end's plate), focus rings the day inside |
 | Artwork | `.fv-art`: the plate a player's picture sits on — the accent's gradient (a solid palette's primary) under a highlight, radius 12 (the hero's 20, lifted), the glyph centred in the plate's ink; the picture fades in over it and the 8 % hairline is drawn again on top; nothing playing, the plate goes neutral (page fill, hairline) | the player (80, 44, the hero's 200) and the home's now playing (64) |
 | Empty state | a 44 ring on the card fill with a 20 glyph, over one 14/500 secondary line, centred in a 120 panel (page fill inside a card, page-alt on the page) | `emptyState(glyph, text)`; HA's empty lists and drawers take the same idiom through the shell |
-| Words as a value | a state written in words ("Grid-Connected, normally") takes up to two 14/18 lines at the right edge, 55 % of the row; the name keeps 40 % | figures stay one line |
+| Words as a value | a state written in words ("Grid-Connected, normally", "Niet gedetecteerd") sits at the right edge: one 16/20 line where it fits beside the name, else two 14/18 lines; the name gives way first (its floor leaves the longest word its line, 40 % of the row at least), and prose is clamped at three lines (1.6) | figures stay one line |
 
 Rectangular tappables share **one radius: 12** (option tiles, buttons, keys, fields, toast actions); cards 20, tiles 16, sheets 24, device frames 24, the phone 40. Art thumbnails ≤ 80 are 12, the 200 hero 20. A scene tile on the page is a tile (76 / 16, hairline); inside a card it is an inner tile (84 / 12, page fill, no hairline). Active inner tiles are fill only (no hairline), like option tiles.
 
@@ -98,6 +98,7 @@ Rectangular tappables share **one radius: 12** (option tiles, buttons, keys, fie
 - **Tiles squeezed narrow (2026-09-19):** a large tile whose inner width cannot hold its icon circle, 8 and the switch (under 132 px) folds the switch into the circle (the circle becomes the switch, as Home Assistant's own tile's icon is); a sensor's value that would not fit beside the circle goes to the state line; a foot keeps one readout under 120 px of inner width and the ruler is drawn to the inner width. A group of tiles lays out fewer columns when its width cannot hold the ones asked (large 100, compact 128, mini 64 at least); a lone compact tile under 128 gives its name the circle's room, a mini tile under 60 draws a 36 circle. A thermostat's "Target · Now 20.8°" label keeps one line: the "· now" part goes when it would not fit beside the stepper.
 - **Names that must read:** two compact tiles side by side under 200 px step the name to 14 px; a large tile's name that would end in an ellipsis steps to 14 px, and a large tile with nothing under its state line lets the name take two balanced lines; a scenes card goes one tile a row when a name would not read in two lines of a half tile; a pill sized to its text is padded on both sides from the measured text, so its label never ends in an ellipsis; in a list row a state in words wraps between its words once the name is down to its third, figures never wrap.
 - **Customisation principle (user, 2026-09-18):** every card exposes what to show (section toggles such as `show_fan`), which items appear and in which order (subset lists such as `modes: [off, heat, cool]`), and at least two more layouts through `variant`. Chip rows fill the row by default and are content-sized on request (`preset_style`, `fan_style`, `suction_style: chips`). Editors show what the card does by default (`formEditor` / `listsEditor` with defaults): the dial, the mode tiles, every mode the device offers; a default the user leaves as it was is never written into the config. The thermostat is the reference: `variant: dial | compact | ruler`, `modes`, `modes_style: tiles | chips | full`, `preset_style`, `fan_style`.
+- **When off (1.7):** a device card can keep to the essentials while the device is off (`when_off: essentials`; the default `all` shows everything): the head, the state (dial, readout or ruler, dimmed as today) and what wakes it — the mode tiles on the thermostat, the switch and the speed ruler on the fan. What hides is what has no use off: the thermostat's presets and fan speeds, the fan's presets, oscillation and direction. "Off" is the card's own (`stateOf()` / `expect()`), so a mode or the switch tapped brings everything back in the same render, before Home Assistant answers, and below the tile under the finger — nothing moves under it; Home Assistant resizes as for any `rows: 'auto'`. Covers (tilt, favourites) and media (sources, volume) keep everything: those are how they wake. The water heater and the humidifier only have modes: nothing hides. `layoutHeight` stays the on height (the automatic dashboard reserves it).
 - Energy: see § Energy (1.4) below — the flow, its motion and the companion cards.
 - Charts are scrubbable: a mouse over a curve or a bar strip reads the value under it (a finger while pressing; a vertical swipe still scrolls) — the dot, the dashed cursor and the bubble follow, the bubble adds the time ("3.1 kW · 10:15"), the card's big readout shows the scrubbed figure with the time as its label; on leaving, everything returns to now.
 - The colour-temperature ruler tints its ticks with a faint warm → cool gradient (amber → cool grey-blue, opacity 0.85) and the knob's dot takes the colour under it; the ring keeps the tone. `temperature_tint: false` gives the neutral ticks of the brightness ruler.
@@ -181,8 +182,12 @@ Rectangular tappables share **one radius: 12** (option tiles, buttons, keys, fie
 ## Camera (1.6)
 
 - **The picture**: stills that refresh themselves (as quick as half a second), or Home Assistant's own stream
-  (`camera_view: live`: its player, WebRTC, HLS or MJPEG as the camera offers). The stream plays only while the card is
-  on screen, and the card falls back to stills where Home Assistant gives no player.
+  (`camera_view: live`: its player, WebRTC, HLS or MJPEG as the camera offers). The stream is one element for the
+  card's life: it plays while the card is on screen and for 45 s off it (a scroll past the card is not a reason to end
+  a camera's session and open another: some cameras go away under that, issue #28), a hidden tab is left to Home
+  Assistant's players, and it goes for good with the card or when the card changes its camera or goes back to stills.
+  Where Home Assistant gives no player, or the player gives up, the card falls back to stills and asks again a minute
+  later, then less often. In full screen the stream shows the whole picture.
 - **The shape**: 16:9 by default, or 4:3, 3:2, 1:1, 2:1, 21:9, or the camera's own (read off its first frame). Its
   height lands on the 4 grid.
 - **The fit**: the plate fills its shape (`cover`, cropping what overflows), or shows the whole picture
@@ -435,7 +440,9 @@ stops, the cursor reads "—"), never a zero. "Right now" is the house's own use
 - **Below it**, from the line down, the battery's charge, a car's and the export, at 60 %.
 - **The house's use** is a 2 px line in the text's ink over the stacks.
 - **The batteries' charge** is dashed (2 px, true 4 · 4, butt ends) in the battery's ink on its own scale: 100 % on
-  the tag's line (28 under the chart's top, its "100 %" at the top right, untracked), 0 % at the chart's foot. A 4 px
+  the tag's line (28 under the chart's top, its "100 %" at the top right, untracked), 0 % on the kW zero line, which is
+  the chart's foot when nothing left the house: the charge always lives in the positive half, and only the areas of
+  what went out are drawn under the line (1.7, issue #28). A 4 px
   card-coloured edge under it lets it read over the areas it crosses. Each run is laid out a whole number of dashes
   long, starting and ending on one, so a gap reads as two ends.
 - **The tags** are never crossed by a line: the house's line, the charge and the cursor give way round each tag's box
@@ -517,8 +524,17 @@ yet"), with how to fix it as the hint under it ("Add them here, or give the Ener
 - **The head**: the printer's glyph (the warning's when it failed, so a failure never reads as a pause), its name, the
   job (the stage while it prepares: "Heatbed preheating"), the state in the badge. The badge gives way first, as
   badges do, and the state is then said at the head of the sub ("Failed · Hook"): the state is never left unsaid.
+  The job is the file sensor's name without the slicer's extension; a printer without one (Creality) says it in the
+  status's own attributes, and a "None" (FlashForge at rest) is no job.
 - **Why it failed**, in the integration's words, is a line of its own under the head: 13/500 in the warning's ink,
-  two lines at most. The failed job keeps its bar where it stopped.
+  two lines at most. The failed job keeps its bar where it stopped. A printer without an error of its own says the
+  code its status carries (Creality's "2004").
+- **Who it is**: a printer of an integration the card knows (OctoPrint, PrusaLink, Bambu Lab, Moonraker, Creality,
+  Elegoo, Anycubic, Snapmaker's U1 and its older line, FlashForge) is read by its own words, the entity known most
+  surely to play a role playing it (a "print status" over a "wifi status"); a printer of any other is known by what
+  it has — a status, a heater and a job's measure together — so a washer with a progress is never one. A duration is
+  read in its sensor's unit (minutes, seconds, Elegoo's milliseconds) or as a clock ("01:02:03", the older
+  Snapmaker's). A system button, an emergency stop and a unit's own readings are never a role.
 - **The picture**: the camera (stills, or Home Assistant's stream with `camera_view: live`), else the job's preview
   (`image` picks); its shape and fit as the camera card's (16:9 by default), never taller than 360 — capped, it keeps
   its shape, centred. A preview is fetched again only when its picture changes.
@@ -539,11 +555,13 @@ yet"), with how to fix it as the hint under it ("Add them here, or give the Ener
   row that cannot fill is centred. A heater says "142 / 220 °C" from 3 °C off its target (5 °F), and its reading alone
   from 1 °C (2 °F) (no flicker between); it is always measured as its widest form ("888 / 888"), so a drifting heater never moves the
   card. Each readout opens its entity. Any entity of the printer can be one more (`sensors`).
-- **The filament unit's trays** (Bambu Lab's AMS): a 44 cell a tray, its colour as a 12 swatch and its type, the one
-  printing ringed in the accent (a 2 px ring and its words in the accent's ink, never a fill: the action row keeps the
-  one loud fill, and it says so to a reader, `aria-current`), an empty one with a dashed ring (a shape of its own); every
-  swatch has a ring in the text's ink at about half, so black filament on a dark card and white on a light one still
-  show. Four a row where every
+- **The filament unit's trays** (Bambu Lab's AMS, Creality's CFS, Anycubic's ACE — on the printer's device or on one
+  of their own reached through it; the unit's slots in their number, the spool outside it last): a 44 cell a tray,
+  its colour as a 12 swatch and its type (by the words the units use: `type`, `material`, `name`, else the state), the
+  one printing (`active`, `selected`, `loaded`) ringed in the accent (a 2 px ring and its words in the accent's ink,
+  never a fill: the action row keeps the one loud fill, and it says so to a reader, `aria-current`), an empty one
+  (said so, or holding no type) with a dashed ring (a shape of its own); every swatch has a ring in the text's ink at
+  about half, so black filament on a dark card and white on a light one still show. Four a row where every
   type fits its cell, else two, else the swatches alone (the type is each one's label and tip), four across where each
   keeps 44, else two by two. Cells with a hairline: a state, not buttons. The trays and the buttons share one gap, 8 to 16 (never wider
   than the 16 between the two groups): the first that lands both rows on the 4 grid, else the one nearest 16 that
@@ -553,6 +571,34 @@ yet"), with how to fix it as the hint under it ("Add them here, or give the Ener
 - **Tones**: printing, preparing and finished in the accent; paused and failed in the warning (failed with its own
   glyph); at rest and stopped neutral; offline the unavailable skin.
 - **The ring** (the row): 2 px at r 26.5 round the 44 circle, 3.5 clear of it, from twelve o'clock.
+
+## Light colour (1.7)
+
+- **A colour bulb's controls** (`supported_color_modes` with `hs`, `rgb`, `rgbw`, `rgbww` or `xy`) live under the
+  brightness block of the full layout: **one ruler slot** and **a row of quick colours**. The slot holds the
+  colour-temperature ruler while the bulb is white (`color_temp`) and a **hue ruler** (`tint: hue`: the hue circle
+  along the ticks, the knob's dot the hue under it, 0–360 in whole degrees) while it glows a colour, or always where it
+  has no white to set. A release sends `hs_color` at the bulb's own saturation (100 where it reports none).
+- **The quick colours** are 44 rounds, 8 apart, from the left, wrapping (six fill a phone's column): each its colour
+  with a 1 px edge of that colour a shade deeper (`color-mix` 86 % with the text ink), the one the bulb is on with a
+  check in black or white by luminance. A colour sends `rgb_color`, a white `color_temp_kelvin`, both wake an off
+  bulb; **the swatches are the mode's switch** (a white brings the temperature ruler back). The bulb is "on" a swatch
+  within ±12 a channel, or within 15 % of its temperature range. The default six are warm and cool whites (2700 and
+  5000 K, clamped to the bulb) then red, orange, green, blue; a bulb without a white gets red, orange, green, blue,
+  purple, pink. The house lists its own (`colors`: `warm`, `cool`, a Home Assistant colour name, `#rrggbb`,
+  `[r, g, b]`, `picker`); a colour name is Home Assistant's own bulb colour, not the palette's tone — a bulb wears no
+  palette. **`picker`** is a round ringed in the hues (the colour wheel's conic) that opens the browser's own colour
+  picker: an `<input type=color>` fills the round unseen, so the tap and the keyboard reach it; a colour chosen there
+  is sent as `rgb_color` 250 ms after the last change (a drag in the picker is not a call a move). The round holds
+  the bulb's colour, checked, inside a 3 px ring of the hues while the bulb is on a colour none of the other rounds
+  has — a white is never the picker's — and opens on Home Assistant's orange otherwise.
+- **The card wears the bulb's colour** (`data-accent` of its `rgb_color` while lit in a colour, the finger's choice
+  while held) where the config gives it no `color`: the icon circle, the switch and the brightness ruler take it
+  through the lit-light family the accent remaps; `compact` gets this and nothing else. A choice is held five seconds
+  or until the bulb reports it, as a level is.
+- **Heights** are the config's: the slot (100) when a temperature or a hue ruler may show, the row (8 + 52 a row of
+  six) when the colours may; a white bulb under the same config draws less. `show_color: false` is the white bulb's
+  card. The controls' table and row come in their own chunk the first colour bulb fetches.
 
 ## Room lights (1.4)
 
@@ -577,6 +623,34 @@ takes the row; one a row where a tile would be under 120, and under 136 a tile g
 `show_brightness` puts one ruler for the room under the head (16 + 44 + 20; the 16 above it is the ruler's own, never
 the room's): the average of what is on; a change sets what is on (everything when nothing is). An empty card's panel
 sits 16 under its head.
+
+## Narrow columns (1.7, the 1.6.1 list)
+
+What a card does at the widths a phone's zoom makes (211–266), beyond the rules above — never a word cut:
+- **Option tiles** (an alarm's modes, a thermostat's and a water heater's) stay tiles only while every word holds its
+  cell at the columns `optionColumnsFor` gives; else the row is the compact layout's chips, which give way in their
+  order (glyph and word, the words, the glyphs alone). `optionsHold`.
+- **A tile's foot** holds two (or three) readouts only while every label holds its equal cell (8 apart); else the first
+  readout has the foot to itself (fr's "PUISSANCE · AUJOURD'HUI" on a phone).
+- **A row of statistics** (the sensor's min · max · average) takes fewer columns where a label would not fit, the last
+  one alone taking its whole row (`statsColumns`).
+- **A head's line in segments**: the flow's dead source reads "Solar · unavailable · since 19:47", the weather's
+  "Feels 16° · Wind 12 km/h NW", a keypad's "Enter your code · 29 s" — the segments after the first go from the end.
+- **A room's head line** is fitted in the head's own class and room (the circle, the gap, the chevron's 44); a scene
+  tile's line is dropped, never cut; a map row keeps its word and lets the distance go when both would not hold 55 %.
+- **The lock's slide hint** hides where it would not fit between the knob and the end ring (the glyphs say it, the
+  status line reads it out); **the camera's off text** takes a second line on a narrow plate; **the keypad** keeps its
+  keys 56 wide at least and closes its gaps to 8.
+- **The energy card's rolling axis** keeps its middle label only where the three stand 12 apart (`axisHolds`, shared
+  with the sensor); **a long panel tab** keeps its words and the other tabs share what is left.
+- **A fold line that hides an alert** says so in the warning ink in every layout; a short age ("21 d") is read in
+  full; a layer's comets go at once when the layer changed size, never fading along the old lanes.
+- **A glyph-alone chip is never under 44** (`widestOf` counts one 44): a compact alarm's five modes in a 211 column
+  take two rows of glyphs rather than 36-wide chips.
+- **An option tile's value is dropped, never cut**: a value of several words wraps, a word longer than the cell (de's
+  "Bereitschaft" under Off, nl's "Overbrugging" under Away, de's "Überschuss" under a charger's sun mode) is let go —
+  the thermostat's and the mode row's tile by tile (`valuesHeld`), the alarm's every value or none (`valuesHold`); a
+  tile whose value is its only word keeps it.
 
 ## Readouts and text
 
@@ -606,6 +680,17 @@ sits 16 under its head.
 - **Highlight** (`--fluvy-highlight*`): a second brand colour, the accent where a palette has none, always a **fill with its on-fill ink** (never a stroke, text, chart or the primary action), at most one per region. It marks *here*: `--fluvy-selected` / `--fluvy-on-selected` fill the open tab (ink on a soft palette, the highlight on Volt and Iris); and, only on a palette that has one, *you* and *today* (`--fluvy-mark` / `--fluvy-on-mark`: the avatar, the calendar's today). Where a palette has no highlight there is no mark, and those places keep their accent design (on a solid palette its fill, never a dark ramp of it). Today keeps its colour when it is the selected day; another selected day takes the primary fill. Beside the mark (the greeting's avatar) the rooms' "here" is the ink pill, so the region holds one highlight: on a palette with a mark the rooms row always takes the ink pill, and the highlight's "here" is left to the settings panel's tabs.
 - **Custom palettes** go through the same derivation and gates, whatever colour is picked: an electric pick keeps its share of the gamut when its line has to go deeper to be seen (a pastel pink becomes a hot pink on white), the device colour it lands on becomes its twin, and crowded status or device colours turn a few degrees aside (at most 32° for a device, 24° for a status: a warning stays amber) until nothing is too close. "Electric" is asked of the accent only as far as the pick is: a dusty rose stays a dusty rose.
 - **Colour per card (2026-09-28).** A card's `color` — one of Home Assistant's colour names, or any `#rrggbb` — is *which colour that card is*: it stands in for the palette's accent inside the card (its chart's line and fill, its icon circle, its gauge's ring, its lit light — the accent's twin — its primary action, its ramp and graph series; the highlight too where the palette has none of its own), and nothing else: surfaces, text, the neutral ramp, the status and device tones and every Home Assistant name stay the palette's. The family is derived on the very palette the card wears (`--fluvy-palette`, written by the theme and by a look applied live) in the mode it is in, through the palette's own accent arithmetic (`deriveAccent`: the same ink fitting, fill legibility, on-fill and graph gates; a pick whose series sit too close stretches their tone stagger until they stand apart), and written into the card's shadow root on its children — never on the host, whose computed values the card reads — without `!important`. A part with a colour of its own and no tone is drawn in the accent (`toneOf`); a device tone (a fan, a heater, a speaker) is never recoloured. Home Assistant's colour names resolve through one table (`NAMED_COLORS`), the same the theme writes them from, each in the tone Home Assistant gives it (pink the armed rose, cyan the water, teal the presence green, brown the gas): a card asking for teal is the teal every Home Assistant surface shows. The editor offers Home Assistant's colour picker; its swatches show the palette's colours because the card editor dialog wears the look of its dashboard.
+- **A card's own surface (1.7, the second exception).** `card_color` tints the card itself: `--fluvy-card` becomes a
+  wash of the colour's fill over the palette's card (`surfaceWash`: as much of the fill, up to 40 %, as keeps the
+  primary and the secondary ink at 4.5 and the fill's hairline at 1.35 over it; with none to spare, the card itself),
+  and `--fluvy-border` becomes the fill's hairline, so the card's edge and every divider in it say the colour. Both are
+  written by the card's `AccentSheet` on its children, beside the accent's family, so everything that paints with the
+  card's fill (a knob's halo and face, a resting icon circle's mix, the focus ring, a chart's strokes and halos)
+  follows without a rule of its own. It is independent of `color`: the surface and the accent are two choices. The
+  page fill, the inner tiles' ground, the inks, the tones and the statuses stay the palette's; an item that is on keeps
+  its full fill; a card that is off or unavailable keeps the neutral skin (a state is never covered). Not on the
+  greeting, a heading or the tabs, which have no surface of their own. The gate runs in the build for every palette,
+  mode and pick.
 - **An item's colour, at rest too (1.6, the one exception to "surfaces stay the palette's").** Lists of things
   people tell apart by colour take a `color` per item: tiles, scenes, tabs, people (a ring round the avatar: a picture
   would hide a fill), openings (its circle), rows, bars, stat tiles and lights. Its fill shows while the item is on (the

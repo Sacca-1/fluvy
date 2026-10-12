@@ -128,12 +128,13 @@
   box-shadow: none;
 }
 
-/* 72 keys 24 apart; a sheet too narrow for that (a 232 column) closes the gaps, on the 4 grid */
+/* 72 keys 24 apart; a sheet too narrow for that (a 232 column) closes the gaps to 8 on the 4 grid, and narrower
+   still (a 211 column) the keys themselves give way, never under 56 */
 .dv-keys {
   display: grid;
-  grid-template-columns: repeat(3, 72px);
+  grid-template-columns: repeat(3, minmax(56px, 72px));
   justify-content: center;
-  gap: 16px min(24px, round(down, calc((100% - 216px) / 2), 4px));
+  gap: 16px max(8px, min(24px, round(down, calc((100% - 216px) / 2), 4px)));
   margin-top: 24px;
 }
 
@@ -141,7 +142,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 72px;
+  width: auto;
+  min-width: 56px;
   height: 56px;
   border-radius: var(--fluvy-radius-control);
   background: var(--fluvy-page);

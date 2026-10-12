@@ -24,11 +24,17 @@ export const sheet: SheetSpec = {
     ],
   ],
   frames: [
-    // the defaults: the icon opens the details, so does a hold on the head
-    { title: 'Defaults', cards: [{ type: 'custom:fluvy-light-card', entity: 'light.ac_desk' }] },
+    // the defaults: the icon opens the details, so does a hold on the head (a dimmer alone draws no colour
+    // controls: the light card's declared height reserves them, config only)
+    {
+      title: 'Defaults',
+      measure: false,
+      cards: [{ type: 'custom:fluvy-light-card', entity: 'light.ac_desk' }],
+    },
     // chosen: the icon toggles, a hold goes to the room
     {
       title: 'Toggle and go',
+      measure: false,
       cards: [
         {
           type: 'custom:fluvy-light-card',

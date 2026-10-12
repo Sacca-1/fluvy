@@ -152,6 +152,7 @@ export class FluvyActionsCard extends Card<ActionsCardConfig> {
     'icon',
     'tone',
     'color',
+    'card_color',
     'tap_action',
     'hold_action',
   ];
@@ -172,7 +173,7 @@ export class FluvyActionsCard extends Card<ActionsCardConfig> {
       schema: [
         titleFields(),
         fieldRow(iconField(), numberField('columns', 1, 3)),
-        colourFields(),
+        ...colourFields(),
         entitiesField('entities', ACTION_DOMAINS, true),
         actionFields(),
       ],

@@ -484,6 +484,16 @@ const pulses = (flow) =>
         socDashes: [...root.querySelectorAll('path.en-soc')].map((p) =>
           Number(p.getAttribute('pathLength')),
         ),
+        // the kW zero line (drawn when something went out) and the lowest point of the charge's line
+        zero: root.querySelector('line.en-zero')
+          ? Number(root.querySelector('line.en-zero').getAttribute('y1'))
+          : null,
+        socMaxY: Math.max(
+          -Infinity,
+          ...[...root.querySelectorAll('path.en-soc')].flatMap((p) =>
+            [...p.getAttribute('d').matchAll(/[\d.]+,([\d.]+)/g)].map((m) => Number(m[1])),
+          ),
+        ),
         legend: [...root.querySelectorAll('.en-legend__item')].map((i) =>
           i.textContent.replace(/\s+/g, ''),
         ),
@@ -559,6 +569,26 @@ const pulses = (flow) =>
       /^03:\d\d —$/.test(gap.reading) &&
       /^Battery —$/.test(gap.level),
     JSON.stringify([gap.reading, gap.level]),
+  );
+  check(
+    'the charge keeps to the positive half: its lowest point never goes under the kW zero line (issue #28)',
+    h.zero !== null && h.socMaxY <= h.zero + 0.05,
+    JSON.stringify([h.zero, h.socMaxY]),
+  );
+  // issue #28's roof: the export runs deep under the line and the battery stays low, still above it
+  const heavy = await read(
+    frame(page, 'The whole house · heavy export, a low battery')
+      .locator('fluvy-energy-card')
+      .first(),
+  );
+  check(
+    'a low battery under a deep export is drawn above the zero line, and reads its own level',
+    heavy.below.includes('grid') &&
+      heavy.zero !== null &&
+      heavy.zero < 150 &&
+      heavy.socMaxY <= heavy.zero + 0.05 &&
+      /^Battery [2-4]\d ?%$/.test(heavy.level),
+    JSON.stringify([heavy.zero, heavy.socMaxY, heavy.level, heavy.below]),
   );
   const two = await read(
     frame(page, 'The whole house · two batteries without their capacity')

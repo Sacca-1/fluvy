@@ -296,6 +296,11 @@ export const sheet: SheetSpec = {
       cards: [{ type: 'custom:fluvy-fan-card', entity: 'fan.bedroom' }],
     },
     {
+      title: 'Fan · off, essentials',
+      measure: false,
+      cards: [{ type: 'custom:fluvy-fan-card', entity: 'fan.bedroom', when_off: 'essentials' }],
+    },
+    {
       title: 'Fan · three speeds, no presets',
       cards: [{ type: 'custom:fluvy-fan-card', entity: 'fan.tower' }],
     },

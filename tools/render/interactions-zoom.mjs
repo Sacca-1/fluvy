@@ -282,7 +282,9 @@ async function tap(page, locator) {
   const page = await open('devices-security', 150, { viewport: PHONE });
   const alarm = frame(page, 'Alarm').locator('fluvy-alarm-card');
   await alarm.scrollIntoViewIfNeeded();
-  await tap(page, alarm.locator('.fv-option').nth(0)); // Disarm asks for the code
+  // Disarm asks for the code: the first mode, a tile or — on a phone at 150 %, where a word would not hold its
+  // tile — a chip (1.7)
+  await tap(page, alarm.locator('.fv-option, .fv-chip').nth(0));
   await settle(page, 500);
   const dialog = alarm.locator('fluvy-keypad dialog');
   const sheet = dialog.locator('.fv-sheet');

@@ -416,6 +416,9 @@
     "live_update": "Aggiorna durante il trascinamento",
     "show_count": "Mostra quanti sono accesi",
     "color": "Colore",
+    "card_color": "Colore della scheda",
+    "show_color": "Mostra il colore",
+    "colors": "Colori rapidi",
     "color_help": "Un colore della palette, oppure scrivi un #rrggbb",
     "show_tilt": "Mostra l’inclinazione",
     "show_favorites": "Mostra i preferiti",
@@ -464,10 +467,14 @@
     "camera_view": "Immagine",
     "aspect_ratio": "Proporzioni",
     "fit_mode": "Adattamento",
+    "chart_label": "Nome nel grafico",
+    "chart_label_helper": "Sotto la sua lettura quando altri sensori condividono il grafico. Vuoto: la parola della sua misura, altrimenti il suo nome senza il titolo.",
+    "extra_name_helper": "Sotto la sua lettura. Vuoto: la parola della sua misura, altrimenti il suo nome senza il titolo.",
     "also_sensors": "Anche nel grafico (fino a 2)",
     "people": "Persone",
     "battery": "Batteria del telefono",
-    "tint": "Mostra il colore"
+    "tint": "Mostra il colore",
+    "when_off": "Da spento"
   },
   "strategy": {
     "home": "Casa",
@@ -750,6 +757,7 @@
     "self_powered": "{percent} % autosufficiente",
     "import_export": "Prelievo + immissione",
     "unavailable_since": "{name} non disponibile dalle {time}",
+    "since_time": "dalle {time}",
     "updated": "Aggiornato {when}",
     "rest_of_house": "Resto della casa",
     "share_of_house": "{percent} % della casa",
@@ -1386,7 +1394,16 @@
     "contain": "Immagine intera",
     "on": "Se acceso",
     "camera": "Telecamera",
-    "preview": "Anteprima"
+    "preview": "Anteprima",
+    "essentials": "L’essenziale",
+    "red": "Rosso",
+    "orange": "Arancione",
+    "yellow": "Giallo",
+    "green": "Verde",
+    "blue": "Blu",
+    "purple": "Viola",
+    "pink": "Rosa",
+    "picker": "Selettore colore"
   },
   "tone": {
     "accent": "Accento",

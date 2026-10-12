@@ -333,7 +333,14 @@ export class FluvyEnergyFlowCard extends Card<EnergyFlowCardConfig> {
   ];
 
   /** A diagram of many sensors has no entity of its own: its head's icon, tone and colour, and its actions on the head. */
-  static override base: readonly BaseKey[] = ['icon', 'tone', 'color', 'tap_action', 'hold_action'];
+  static override base: readonly BaseKey[] = [
+    'icon',
+    'tone',
+    'color',
+    'card_color',
+    'tap_action',
+    'hold_action',
+  ];
   static override keys = configKeys<EnergyFlowCardConfig>()([
     'title',
     'subtitle',
@@ -432,7 +439,7 @@ export class FluvyEnergyFlowCard extends Card<EnergyFlowCardConfig> {
         ),
         boolField('show_period'),
         entitiesField('readouts', ['sensor']),
-        colourFields(),
+        ...colourFields(),
         actionFields(),
       ],
       ...editorLabels(
@@ -931,13 +938,12 @@ export class FluvyEnergyFlowCard extends Card<EnergyFlowCardConfig> {
     if (this.config?.subtitle !== undefined) return this.config.subtitle;
     const dead = scene.nodes.find((n) => n.dead);
     if (dead && dead.entity) {
+      // "Solar · unavailable · since 19:47", in segments the head drops from the end where the line would not hold
       const changed = Date.parse(this.hass?.states[dead.entity]?.last_changed ?? '');
+      const unavailable = this.t('state.unavailable').toLocaleLowerCase(this.hass?.language);
       return Number.isFinite(changed)
-        ? s(this.hass, 'unavailable_since', {
-            name: dead.label,
-            time: formatTime(this.hass, new Date(changed)),
-          })
-        : `${dead.label} · ${this.t('state.unavailable').toLocaleLowerCase(this.hass?.language)}`;
+        ? `${dead.label} · ${unavailable} · ${s(this.hass, 'since_time', { time: formatTime(this.hass, new Date(changed)) })}`
+        : `${dead.label} · ${unavailable}`;
     }
     return this.shownFreshness;
   }

@@ -105,7 +105,8 @@ battery exported, then the rest ran the house — and adds the hours up. The fig
     grid;
   - below the line, what went into the battery and out to the grid;
   - the house's use as a line;
-  - the batteries' state of charge as a dashed line on its own scale (100 % at the top). It comes from the charge
+  - the batteries' state of charge as a dashed line on its own scale: 100 % at the top, 0 % on the zero line, so it
+    always sits in the positive half, above what went out of the house. It comes from the charge
     sensor the Energy dashboard names; several batteries are weighted by their capacity, and with no capacity given
     there is no line.
 

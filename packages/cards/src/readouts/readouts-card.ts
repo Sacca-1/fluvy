@@ -185,7 +185,7 @@ export class FluvyReadoutsCard extends Card<ReadoutsCardConfig> {
   }
 
   /** A strip of readouts has no entity of its own; its colour is its figures' accent. */
-  static override base: readonly BaseKey[] = ['entities', 'color'];
+  static override base: readonly BaseKey[] = ['entities', 'color', 'card_color'];
   static override keys = configKeys<ReadoutsCardConfig>()(['rows', 'hours', 'variant']);
   static override lists: readonly RowsListSpec[] = [
     {
@@ -205,6 +205,7 @@ export class FluvyReadoutsCard extends Card<ReadoutsCardConfig> {
         entitiesField('entities', DOMAINS, true),
         fieldRow(numberField('hours', 1, 48), selectField('variant', ['grid', 'row'])),
         accentField(),
+        accentField('card_color', { none: true }),
       ],
       ...formLabels({}),
     };

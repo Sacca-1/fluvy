@@ -75,6 +75,113 @@ const styleOf = (locator, prop) => locator.evaluate((el, p) => getComputedStyle(
   await page.close();
 }
 
+/* ---------- the light card's quick colours read on every palette (issue #32) ---------- */
+for (const mode of ['linen', 'dark', 'volt']) {
+  const page = await suite.sheet('slider', {
+    extra: mode === 'linen' ? '' : mode === 'dark' ? '&mode=dark' : '&palette=volt',
+  });
+  const card = frame(page, 'Colour · hs mode').locator('fluvy-light-card');
+  await card.locator('.lc-swatch').first().waitFor({ timeout: 5000 });
+  const surface = toHex(await varOf(card, '--fluvy-card'));
+  // a mixed colour computes as `color(srgb …)`: painted on a canvas and read back as what it is
+  const swatches = await card.evaluate((el) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 1;
+    const ctx = canvas.getContext('2d');
+    const hex = (css) => {
+      ctx.fillStyle = css;
+      ctx.fillRect(0, 0, 1, 1);
+      const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+      return `#${[r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
+    };
+    return [...el.shadowRoot.querySelectorAll('.lc-swatch')].map((b) => {
+      const style = getComputedStyle(b);
+      return {
+        fill: hex(style.backgroundColor),
+        edge: hex(style.borderTopColor),
+        ink: hex(style.color),
+        active: b.classList.contains('is-active'),
+      };
+    });
+  });
+  check(
+    `${mode}: every quick colour's edge stands off the card (≥ 1.2) and the check reads on its swatch (≥ 3)`,
+    swatches.every((s) => contrastRatio(toHex(s.edge), surface) >= 1.2) &&
+      swatches
+        .filter((s) => s.active)
+        .every((s) => contrastRatio(toHex(s.ink), toHex(s.fill)) >= 3),
+    JSON.stringify(
+      swatches.map((s) => [
+        contrastRatio(toHex(s.edge), surface).toFixed(2),
+        s.active ? contrastRatio(toHex(s.ink), toHex(s.fill)).toFixed(2) : '',
+      ]),
+    ),
+  );
+  await page.close();
+}
+
+/* ---------- a colour for the whole card (issue #34) ---------- */
+for (const mode of ['linen', 'dark', 'volt']) {
+  const page = await suite.sheet('colours', {
+    extra: mode === 'linen' ? '' : mode === 'dark' ? '&mode=dark' : '&palette=volt',
+  });
+  const tinted = frame(page, 'Colour per card').locator('fluvy-tiles-card').first();
+  const chart = frame(page, 'Colour per card').locator('fluvy-sensor-card');
+  const plain = frame(page, 'Colour per card').locator('fluvy-tiles-card').nth(1);
+  const surface = toHex(await varOf(tinted, '--fluvy-card'));
+  const plainSurface = toHex(await varOf(plain, '--fluvy-card'));
+  // a tiles card's surface is its tiles: an off tile is painted with the wash; the chart card paints its article
+  const painted = toHex(
+    await styleOf(tinted.locator('.fv-tile:not(.is-on)').first(), 'backgroundColor'),
+  );
+  const chartPainted = toHex(await styleOf(chart.locator('.fv-card'), 'backgroundColor'));
+  const edge = toHex(await varOf(tinted, '--fluvy-border'));
+  const plainEdge = toHex(await varOf(plain, '--fluvy-border'));
+  const title = toHex(await styleOf(chart.locator('.fv-card__title').first(), 'color'));
+  check(
+    `${mode}: the card's fill is a wash of its colour, and the card is painted with it`,
+    surface !== plainSurface &&
+      painted === surface &&
+      chartPainted === toHex(await varOf(chart, '--fluvy-card')),
+    `${surface} vs ${plainSurface}, painted ${painted}, chart ${chartPainted}`,
+  );
+  check(
+    `${mode}: the card's edge is the colour's hairline, a plain card keeps the palette's`,
+    edge !== plainEdge,
+    `${edge} vs ${plainEdge}`,
+  );
+  const accent = toHex(await varOf(chart, '--fluvy-accent'));
+  const chartSurface = toHex(await varOf(chart, '--fluvy-card'));
+  check(
+    `${mode}: the title reads on the wash at 4.5 or more`,
+    contrastRatio(title, chartSurface) >= 4.5,
+    `${title} on ${chartSurface}: ${contrastRatio(title, chartSurface).toFixed(2)}`,
+  );
+  const line = toHex(await styleOf(chart.locator('.curve-line').first(), 'stroke'));
+  check(
+    `${mode}: the surface and the accent are two choices: a blue card draws its teal line`,
+    chartSurface !== plainSurface && line === accent && accent !== surface,
+    `${line} on ${chartSurface}`,
+  );
+  const inner = frame(page, 'Colour per card · tiles inside').locator('fluvy-tiles-card');
+  const innerSurface = toHex(await varOf(inner, '--fluvy-card'));
+  const lit = toHex(await styleOf(inner.locator('.fv-tile.is-on').first(), 'backgroundColor'));
+  const rest = toHex(await styleOf(inner.locator('.fv-tile.is-tinted').first(), 'backgroundColor'));
+  check(
+    `${mode}: inside, a lit tile keeps its full fill and a tinted one its own rest wash, neither the card's wash`,
+    lit !== innerSurface && rest !== innerSurface && lit !== rest,
+    `lit ${lit}, rest ${rest}, wash ${innerSurface}`,
+  );
+  const gone = frame(page, 'Colour per card · unavailable').locator('fluvy-light-card');
+  const goneSkin = toHex(await styleOf(gone.locator('.fv-card'), 'backgroundColor'));
+  check(
+    `${mode}: an unavailable card keeps the neutral skin`,
+    goneSkin === toHex(await varOf(plain, '--fluvy-page')) || goneSkin === plainSurface,
+    `${goneSkin}`,
+  );
+  await page.close();
+}
+
 /* ---------- a red card: the lit light turns red, the fan keeps its tone ---------- */
 {
   const page = await suite.sheet('colours');

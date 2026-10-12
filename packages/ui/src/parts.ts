@@ -423,6 +423,8 @@ export interface ListRowOptions {
   readonly quiet?: boolean;
   /** The word on the small quiet button at the row's end (`trailing: 'button'`); the row's tap is the action. */
   readonly button?: string;
+  /** The sub line in the warning ink: a fold that hides an alert says so in its tone. */
+  readonly subTone?: 'warning' | '';
   readonly valueTone?: 'warning' | '';
   readonly switchTone?: Tone;
   readonly unavailable?: boolean;
@@ -497,7 +499,7 @@ export function listRow(o: ListRowOptions): TemplateResult {
     ${rowIcon(o.icon, o.tone)}
     <span class="fv-row__text"
       ><span class="fv-row__title" data-name=${o.name ? '' : nothing}>${o.title}</span
-      >${o.sub && !o.compact ? html`<span class="fv-row__sub">${o.sub}</span>` : nothing}</span
+      >${o.sub && !o.compact ? html`<span class="fv-row__sub ${o.subTone ? `fv-row__sub--${o.subTone}` : ''}">${o.sub}</span>` : nothing}</span
     >
     ${tail}
   </div>`;

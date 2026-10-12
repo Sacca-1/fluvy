@@ -139,7 +139,7 @@ export class FluvyHumidityCard extends Card<HumidityCardConfig> {
         entityField(['sensor', 'number', 'input_number']),
         fieldRow(textField('name'), textField('subtitle')),
         iconField(),
-        colourFields(),
+        ...colourFields(),
         fieldRow(numberField('low', 0, 100), numberField('high', 0, 100)),
         {
           name: 'temperature_entity',

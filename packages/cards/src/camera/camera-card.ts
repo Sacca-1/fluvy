@@ -42,6 +42,7 @@ import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 import { configKeys, ITEM_ALIASES, type AliasSpec } from '../shared/config.js';
 import { toneOf } from '../shared/colour.js';
 import { Crossfade } from '../shared/crossfade.js';
+import { StreamHolder } from './stream.js';
 import {
   CAMERA_RATIOS,
   CLOCK_PLATE,
@@ -104,38 +105,6 @@ function rememberNative(entity: string | undefined, ratio: number): void {
     // kept for this page only
   }
 }
-/** How long Home Assistant has to define its stream element before the card keeps to stills. */
-const STREAM_WAIT = 5000;
-
-/** Home Assistant's camera stream element, as far as the card sets it. */
-export type StreamElement = HTMLElement & {
-  hass?: unknown;
-  stateObj?: unknown;
-  muted?: boolean;
-  controls?: boolean;
-  fitMode?: string;
-  aspectRatio?: number;
-};
-
-/**
- * Home Assistant's `ha-camera-stream`, which it defines with its picture cards: asked for once a page through the
- * card helpers (making a picture-entity card loads it), resolved true once it is defined, false when it never is.
- */
-let streamDefined: Promise<boolean> | undefined;
-export function cameraStream(entity: string): Promise<boolean> {
-  if (customElements.get('ha-camera-stream')) return Promise.resolve(true);
-  streamDefined ??= (async () => {
-    const helpers = (await window.loadCardHelpers?.().catch(() => undefined)) as
-      { createCardElement?: (config: Record<string, unknown>) => unknown } | undefined;
-    helpers?.createCardElement?.({ type: 'picture-entity', entity, camera_view: 'live' });
-    return Promise.race([
-      customElements.whenDefined('ha-camera-stream').then(() => true),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), STREAM_WAIT)),
-    ]);
-  })();
-  return streamDefined;
-}
-
 /**
  * The camera: a 16:9 still that refreshes itself, the live and time pills inside the picture and
  * two overlay actions. Two stacked images take turns: the next frame loads behind the current one
@@ -215,15 +184,19 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
         gap: 8px;
         padding: 0 16px;
       }
+      /* one line, or two on a narrow plate ("No image from the camera" in a 211 column): never a word cut */
       .dv-cam__off p {
         max-width: 100%;
         font-size: 13px;
         font-weight: 500;
         line-height: 24px;
         color: var(--fluvy-unavailable);
-        white-space: nowrap;
+        text-align: center;
+        overflow-wrap: anywhere;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
         overflow: hidden;
-        text-overflow: ellipsis;
       }
       .dv-cam:fullscreen {
         border-radius: 0;
@@ -280,7 +253,6 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
     failed_: { state: true },
     stale_: { state: true },
     native_: { state: true },
-    stream_: { state: true },
     fullscreen_: { state: true },
   };
   /** The picture fills the screen: its button leaves it, and says so. */
@@ -302,8 +274,6 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
   );
   /** The camera's own shape (width over height), read off the first frame shown; 0 until then. */
   declare native_: number;
-  /** Home Assistant's stream: being asked for, there (the card shows it), or not to be had (stills). */
-  declare stream_: 'asking' | 'ready' | 'none' | '';
   /** When the shown frame arrived. */
   declare stamp_: number;
   /** No frame to show: none ever came, or the camera kept failing. */
@@ -314,8 +284,8 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
   private timer = 0;
   /** Seconds the running interval was started with, so a config change restarts it. */
   private period = 0;
-  private observer: IntersectionObserver | undefined;
-  private onScreen = false;
+  /** Home Assistant's stream: one element, kept while the card is on screen or near it, gone with the card. */
+  private readonly holder = new StreamHolder(this, () => this.sync());
   private inFront = true;
   /** When the request now in flight was made; 0 when there is none. */
   private inFlight = 0;
@@ -327,7 +297,6 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
     this.failed_ = false;
     this.stale_ = false;
     this.native_ = 0;
-    this.stream_ = '';
     this.fullscreen_ = false;
   }
 
@@ -370,7 +339,7 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
         ),
         boolField('show_rows'),
         entitiesField('rows'),
-        colourFields(),
+        ...colourFields(),
         actionFields(),
       ],
       ...editorLabels(s, { refresh: 'refresh' }, {}),
@@ -407,18 +376,6 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
     this.inFront = document.visibilityState !== 'hidden';
     document.addEventListener('visibilitychange', this.onTabChange);
     document.addEventListener('fullscreenchange', this.onFullscreen);
-    if (typeof IntersectionObserver === 'function') {
-      this.onScreen = false; // the observer's first report, a frame from now, says otherwise
-      this.observer = new IntersectionObserver((entries) => {
-        const seen = entries[entries.length - 1]?.isIntersecting ?? true;
-        if (seen === this.onScreen) return;
-        this.onScreen = seen;
-        this.sync();
-      });
-      this.observer.observe(this);
-    } else {
-      this.onScreen = true;
-    }
     this.sync();
   }
 
@@ -426,8 +383,6 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
     super.disconnectedCallback();
     document.removeEventListener('visibilitychange', this.onTabChange);
     document.removeEventListener('fullscreenchange', this.onFullscreen);
-    this.observer?.disconnect();
-    this.observer = undefined;
     this.stop();
   }
 
@@ -435,6 +390,8 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
   private readonly onFullscreen = (): void => {
     this.fullscreen_ =
       this.renderRoot instanceof ShadowRoot && this.renderRoot.fullscreenElement !== null;
+    // the picture is as wide as the screen now (or the card's again): a still at that width at once
+    if (this.timer) this.pull();
   };
 
   private readonly onTabChange = (): void => {
@@ -453,31 +410,22 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
   /** Whether the last render drew the stream. */
   private shownStream = false;
 
-  /** Home Assistant's stream is what the card shows now (asked for, defined, on screen). */
+  /** Home Assistant's stream is what the card shows now (asked for, defined, on screen or only just off it). */
   private get streaming(): boolean {
     return (
-      this.config?.camera_view === 'live' &&
-      this.stream_ === 'ready' &&
-      this.onScreen &&
-      this.inFront &&
-      this.entity().status === 'ok'
+      this.config?.camera_view === 'live' && this.holder.playing && this.entity().status === 'ok'
     );
   }
 
   /**
    * Runs the loop exactly while it is worth running: connected, on screen, tab in front, a camera with a picture, and
-   * no stream in its place (asked for once on a live card; stills meanwhile and where there is none).
+   * no stream in its place (asked for on a live card, and again a while after it could not play; stills meanwhile and
+   * where there is none).
    */
   private sync(): void {
     const view = this.entity();
-    if (this.config?.camera_view === 'live' && !this.stream_ && view.status === 'ok') {
-      this.stream_ = 'asking';
-      void cameraStream(view.id).then((ok) => {
-        this.stream_ = ok ? 'ready' : 'none';
-        this.sync();
-      });
-    }
-    // the stream comes and goes with the screen and the tab, which are not the card's state: draw it again
+    if (this.config?.camera_view === 'live' && view.status === 'ok') this.holder.ask(view.id);
+    // the stream comes and goes with the screen, which is not the card's state: draw it again
     const streaming = this.streaming;
     if (streaming !== this.shownStream) {
       this.shownStream = streaming;
@@ -485,7 +433,7 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
     }
     const wanted =
       this.isConnected &&
-      this.onScreen &&
+      this.holder.onScreen &&
       this.inFront &&
       !streaming &&
       Boolean(this.hass) &&
@@ -508,10 +456,11 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
     if (this.inFlight && now - this.inFlight < STALL_MS) return;
     this.inFlight = now;
     const base = this.hass.hassUrl(picture);
-    // the signed token in the URL stays; the still is asked at the plate's width in device pixels (sharp, and no
-    // heavier than it needs to be — Home Assistant's own picture cards do the same), and the extra bit keeps the
-    // browser from serving one frame forever
-    const width = Math.ceil(this.contentWidth * (window.devicePixelRatio || 1));
+    // the signed token in the URL stays; the still is asked at the plate's width in device pixels (the screen's in
+    // full screen: sharp, and no heavier than it needs to be — Home Assistant's own picture cards do the same), and
+    // the extra bit keeps the browser from serving one frame forever
+    const across = this.fullscreen_ ? Math.max(screen.width, screen.height) : this.contentWidth;
+    const width = Math.ceil(across * (window.devicePixelRatio || 1));
     const url = base.startsWith('data:')
       ? `${base}#${now}`
       : `${base}${base.includes('?') ? '&' : '?'}width=${width}&_=${now}`;
@@ -557,22 +506,25 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
       this.native_ = 0;
       this.nativeChecked = false;
     }
+    // another camera, or stills instead of the stream: the stream goes, and its session with it
+    if (
+      previous &&
+      (previous.camera_view !== this.config?.camera_view || previous.entity !== this.config?.entity)
+    )
+      this.holder.teardown();
     if (!this.native_ && changed.has('config')) this.readNative();
     if (changed.has('hass') || changed.has('config')) this.sync();
   }
 
-  /** Home Assistant's stream inside the plate: made once, its camera and fit kept current. */
-  private stream: StreamElement | undefined;
-  private renderStream(ratio: number): StreamElement {
-    const element = (this.stream ??= document.createElement('ha-camera-stream') as StreamElement);
-    element.classList.add('dv-cam__stream');
-    element.hass = this.hass;
-    element.stateObj = this.hass?.states[this.config?.entity ?? ''];
-    element.muted = true;
-    element.controls = false;
-    element.fitMode = this.config?.fit_mode === 'contain' ? 'contain' : 'cover';
-    element.aspectRatio = ratio;
-    return element;
+  /** Home Assistant's stream inside the plate: made once, its camera and fit kept current (the whole picture in full screen). */
+  private renderStream(ratio: number): HTMLElement {
+    return this.holder.draw({
+      hass: this.hass,
+      stateObj: this.hass?.states[this.config?.entity ?? ''],
+      fitMode: this.fullscreen_ || this.config?.fit_mode === 'contain' ? 'contain' : 'cover',
+      aspectRatio: ratio,
+      className: 'dv-cam__stream',
+    });
   }
 
   /* ---------- actions ---------- */
@@ -622,7 +574,12 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
     const ratio = cameraRatio(this.config?.aspect_ratio, this.native_);
     const height = plateHeight(this.contentWidth, ratio);
     const contain = this.config?.fit_mode === 'contain';
-    const offTop = Math.max(0, Math.round((height - 76) / 2 / 4) * 4);
+    // the off block: the 44 glyph, 8, and its line — two lines where the words do not fit the plate's width
+    const offText = unusable ? stateText(this.hass, view) : s(this.hass, 'offline');
+    const offLines =
+      this.headFit.ruler.width('dv-cam__off p', offText) > this.contentWidth - 32 ? 2 : 1;
+    const offHeight = 52 + 24 * offLines;
+    const offTop = Math.max(0, Math.round((height - offHeight) / 2 / 4) * 4);
     const sub =
       this.config?.subtitle ??
       [view.areaName, stateText(this.hass, view)].filter(Boolean).join(' · ');
@@ -665,9 +622,9 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
         ${streaming ? this.renderStream(ratio) : this.frames.render()}
         ${
           off
-            ? html`<div class="dv-cam__off" style="top:${offTop}px;height:76px">
+            ? html`<div class="dv-cam__off" style="top:${offTop}px;height:${offHeight}px">
                 <span class="fv-ico fv-ico--off" data-icon>${glyph('camera')}</span>
-                <p>${unusable ? stateText(this.hass, view) : s(this.hass, 'offline')}</p>
+                <p>${offText}</p>
               </div>`
             : !this.stamp_ && !streaming
               ? html`<span class="fv-skeleton dv-cam__skeleton"></span>`

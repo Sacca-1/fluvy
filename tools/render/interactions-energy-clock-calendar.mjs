@@ -161,6 +161,49 @@ async function moreInfos(page, run) {
       atRest.bubble === '',
     JSON.stringify(atRest),
   );
+  // issue #28: a readout is called what the config says, else its measure's word, else its name beyond the head; a
+  // sensor with a colour of its own wears it on its key and its curve
+  const readOf = (title) =>
+    frame(sensorPage, title)
+      .locator('fluvy-sensor-card')
+      .evaluate((el) => {
+        const root = el.shadowRoot;
+        const items = [...root.querySelectorAll('.am-pair__item')];
+        const curves = [...root.querySelectorAll('.am-multi > g')];
+        return {
+          title: root.querySelector('.fv-card__title')?.textContent.trim() ?? '',
+          labels: items.map((i) => i.querySelector('.am-name')?.textContent.trim() ?? ''),
+          accents: items.map((i) => i.dataset.accent ?? ''),
+          keys: items.map((i) => {
+            const key = i.querySelector('.am-key');
+            return key ? getComputedStyle(key).backgroundColor : '';
+          }),
+          strokes: curves.map((g) => getComputedStyle(g.querySelector('.curve-line')).stroke),
+          curveAccents: curves.map((g) => g.dataset.accent ?? ''),
+        };
+      });
+  const office = await readOf('Sensors · the measures name themselves');
+  check(
+    'sensors: "Office climate temperature" and "… humidity" under "Office" read "Temperature" and "Humidity" with nothing set',
+    office.title === 'Office' && office.labels.join('|') === 'Temperature|Humidity',
+    JSON.stringify(office),
+  );
+  const named = await readOf('Sensors · three, named and coloured');
+  check(
+    'sensors: `label` names the card’s own readout, an entry’s `name` its own, and the word sensor keeps its name',
+    named.labels.join('|') === 'Inside|Power|Washer',
+    JSON.stringify(named.labels),
+  );
+  check(
+    'sensors: an entry’s own colour is on its readout and its curve (the key and the line in that ink), the others keep their measures’ tones',
+    named.accents[1] !== '' &&
+      named.accents[0] === '' &&
+      named.curveAccents[1] === named.accents[1] &&
+      named.keys[1] !== '' &&
+      named.keys[1] === named.strokes[1] &&
+      named.strokes[0] !== named.strokes[1],
+    JSON.stringify(named),
+  );
   const pairBox = await several.locator('.am-chart').boundingBox();
   await sensorPage.mouse.move(pairBox.x + pairBox.width * 0.3, pairBox.y + pairBox.height * 0.6);
   await sensorPage.waitForTimeout(150);

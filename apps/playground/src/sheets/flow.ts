@@ -5,6 +5,7 @@ import {
   HYBRID_LEVELS,
   HYBRID_STATES,
   hybridMetersOnly,
+  hybridHeavyExport,
   hybridNoBattery,
   hybridTwoBatteries,
   hybridWithPower,
@@ -513,6 +514,11 @@ export const sheet: SheetSpec = {
     {
       title: 'The whole house · a hybrid inverter, with power',
       hass: hybridWithPower,
+      cards: [{ type: 'custom:fluvy-energy-card', variant: 'overview', _now: NOW }],
+    },
+    {
+      title: 'The whole house · heavy export, a low battery',
+      hass: hybridHeavyExport,
       cards: [{ type: 'custom:fluvy-energy-card', variant: 'overview', _now: NOW }],
     },
     {

@@ -176,6 +176,11 @@
   color: var(--fluvy-warning);
 }
 
+/* a fold line that hides an alert says it in the warning ink, as the compact and tile layouts do */
+.fv-row__sub--warning {
+  color: var(--fluvy-warning);
+}
+
 /* a state written in words ("Grid-Connected, normally"): up to two lines at the right edge, never pushing the
    name out of its row (the name keeps 40 % of the row, the words 55 %) */
 .fv-row:has(.fv-row__value--text) .fv-row__text {

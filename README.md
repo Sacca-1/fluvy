@@ -57,7 +57,8 @@ hold for the 1 % scale.
 **Control** — lights with brightness and colour temperature, a room's lights on one card (one tap for the whole
 room, a round for each light, in its bulb's colour), thermostats (dial or compact), water heaters and humidifiers,
 covers with position and tilt, fans, vacuums, valves, media players and TVs, 3D printers (OctoPrint, PrusaLink,
-Bambu Lab, Moonraker: the job, its time left, the heaters, the camera, pause and stop), tiles and lists.
+Bambu Lab, Moonraker, Creality, Elegoo, Anycubic, Snapmaker and FlashForge: the job, its time left, the heaters, the
+filament unit's trays, the camera, pause and stop), tiles and lists.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/acosta290/fluvy/main/docs/images/cards-control.png" width="960" alt="Control cards: lights, thermostats, covers, fans, vacuums, media players, tiles and lists">

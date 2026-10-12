@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { optionColumnsFor } from './options.js';
+import { optionCell, optionColumnsFor, valuesHeld, valuesHold } from './options.js';
 
 /** A stand-in for the laid-out width: 6 px a letter, as the tile's 12/500 label runs. */
 const measure = (label: string): number => label.length * 6;
@@ -29,5 +29,25 @@ describe('optionColumnsFor', () => {
   it('starts from the count: four tiles are two by two, five wrap in threes', () => {
     expect(optionColumnsFor(['A', 'B', 'C', 'D'], 320, 4, measure)).toBe(2);
     expect(optionColumnsFor(['A', 'B', 'C', 'D', 'E'], 320, 4, measure)).toBe(3);
+  });
+});
+
+describe('option tile values', () => {
+  const measure = (text: string): number => text.length * 8;
+  it('drops a value whose longest word the cell cannot hold, keeps one that wraps and a label-less tile’s word', () => {
+    const items = [
+      { key: 'off', label: 'Off', value: 'Bereitschaft' },
+      { key: 'heat', label: 'Heat', value: '21.5 °C' },
+      { key: 'eco', label: '', value: 'Economical' },
+    ];
+    expect(valuesHeld(items, 60, measure).map((i) => i.value)).toEqual([
+      '',
+      '21.5 °C',
+      'Economical',
+    ]);
+    expect(valuesHold(['Bereitschaft', 'Standby'], 60, measure)).toBe(false);
+    expect(valuesHold(['Standby', 'All on'], 60, measure)).toBe(true);
+    expect(optionCell(211, 4, 3)).toBeCloseTo((211 - 8) / 3 - 24);
+    expect(optionCell(320, (n) => n * 2, 2)).toBeCloseTo((320 - 4) / 2 - 24);
   });
 });

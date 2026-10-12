@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * The 3D printer card, 1.6 (issue #27), on the playground's `printer` sheet (real cards, simulated hass). Exit code 1
- * on any failure.
+ * The 3D printer card, 1.6 (issue #27) and 1.7 (issues #29 and #30), on the playground's `printer` sheet (real cards,
+ * simulated hass). Exit code 1 on any failure.
  *   PLAYGROUND=http://127.0.0.1:5183/ node interactions-printer.mjs
  * What it proves: each integration's printer is found from its device (Bambu Lab and PrusaLink by their keys, OctoPrint
  * by its ids from one entity, Moonraker at rest), never with its system buttons; the job, its progress, its time left,
@@ -9,7 +9,10 @@
  * layout never moving), the layers said once; the AMS's trays, the one printing marked; pause presses the printer's
  * own button, resume while paused, stop asks first in Home Assistant's dialog; the light toggles; a readout opens its
  * entity; a failed printer says why under its head; a finished one says when, never now; the stage while it prepares;
- * an offline printer; the row's 76 and its ring.
+ * an offline printer; the row's 76 and its ring. Then the newer integrations: Creality's job and error code from its
+ * status's own attributes and its CFS's trays, Elegoo's milliseconds, Anycubic's ACE on a device of its own, the
+ * Snapmaker U1's switch of a light and never its emergency stop, the older Snapmaker's "HH:MM:SS" with nothing to
+ * press, FlashForge's completed job said when it finished.
  */
 import { calls, frame, moreInfo, reset, settle, startSuite } from './lib/suite.mjs';
 
@@ -255,6 +258,108 @@ check(
   JSON.stringify(mini),
 );
 
+/* ---------- the newer integrations: Creality, Elegoo, Anycubic, Snapmaker, FlashForge ---------- */
+const k1c = await read(card(page, 'Creality · printing, CFS trays'));
+check(
+  'Creality: found by its keys — the job from its status’s own attributes, its seconds as the time left and the time so far, its targets as numbers read alone; never its reconnect or its homing',
+  k1c.title === 'K1C' &&
+    k1c.sub === 'Phone_stand' &&
+    /^Progress 34 ?%$/.test(k1c.progress) &&
+    /^Left 1 h 01 ?min$/.test(k1c.left) &&
+    k1c.bar === '34' &&
+    /^Ready at \d{1,2}:\d{2} · 25 min so far$/.test(k1c.meta) &&
+    k1c.readouts.join('|') === 'Nozzle 220°C|Bed 60°C|Chamber 35°C|Layer 58 / 170' &&
+    k1c.buttons.map((b) => b.key).join() === 'pause,stop,light',
+  JSON.stringify(k1c),
+);
+check(
+  'Creality: its CFS’s four slots in their number, the one selected marked (for a reader too), the empty one said so, the spool outside last',
+  k1c.trays.join('|') === 'PLA|PLA*|ABS|Empty|PETG' && k1c.active.join('|') === '|true|||',
+  JSON.stringify({ trays: k1c.trays, active: k1c.active }),
+);
+const k1max = await read(card(page, 'Creality · error from its status'));
+check(
+  'Creality: a printer with no error sensor says the code its status carries under its head — the warning’s glyph, its job, where its bar stopped, nothing to press',
+  /Error/.test(`${k1max.badge} ${k1max.sub}`) &&
+    k1max.glyph &&
+    /Vase_mode_lamp/.test(k1max.sub) &&
+    k1max.note === '2004' &&
+    k1max.bar === '46' &&
+    k1max.buttons.length === 0,
+  JSON.stringify(k1max),
+);
+const elegoo = await read(card(page, 'Elegoo · preheating'));
+check(
+  'Elegoo: preheating is preparing (its job said, the heaters both their figures, its box the chamber), its milliseconds read as time — 1 h 30 min left, 2 min so far — ready at its end time; never its stage',
+  /Preheating/.test(`${elegoo.badge} ${elegoo.sub}`) &&
+    /Dragon_egg/.test(elegoo.sub) &&
+    /^Left 1 h 30 ?min$/.test(elegoo.left) &&
+    /^Ready at \d{1,2}:\d{2} · 2 min so far$/.test(elegoo.meta) &&
+    elegoo.readouts.includes('Nozzle 96 / 220°C') &&
+    elegoo.readouts.includes('Bed 41 / 60°C') &&
+    elegoo.readouts.includes('Chamber 27°C') &&
+    elegoo.buttons.map((b) => b.key).join() === 'pause,stop,light',
+  JSON.stringify(elegoo),
+);
+const kobra = await read(card(page, 'Anycubic · printing, ACE'));
+check(
+  'Anycubic: found by the shared words, its minutes read as time; its ACE’s four slots on a device of their own, the loaded one marked, the empty one said so, the spool outside last',
+  kobra.title === 'Kobra S1' &&
+    kobra.sub === 'Headphone_hook' &&
+    /^Left 47 ?min$/.test(kobra.left) &&
+    kobra.trays.join('|') === 'PLA|PETG*|TPU|Empty|PLA' &&
+    kobra.readouts.join('|') === 'Nozzle 215°C|Bed 60°C|Chamber 33°C|Layer 140 / 255',
+  JSON.stringify(kobra),
+);
+const u1 = card(page, 'Snapmaker U1 · paused');
+const snapmaker = await read(u1);
+check(
+  'Snapmaker U1: paused — resume the primary, stop, its work light lit; never its emergency stop, its restart or its homing; its ETA says when, its seconds how long',
+  snapmaker.badge === 'Paused' &&
+    JSON.stringify(snapmaker.buttons) ===
+      JSON.stringify([
+        { key: 'resume', primary: true, on: false },
+        { key: 'stop', primary: false, on: false },
+        { key: 'light', primary: false, on: true },
+      ]) &&
+    /^Left 29 ?min$/.test(snapmaker.left) &&
+    /^Ready at \d{1,2}:\d{2} · 1 h 11 min so far$/.test(snapmaker.meta),
+  JSON.stringify(snapmaker),
+);
+await reset(page);
+await u1.locator('[data-action="light"]').click();
+await settle(page, 200);
+done = await calls(page);
+check(
+  'a work light that is a switch toggles as one',
+  done.length === 1 &&
+    done[0].s === 'switch.toggle' &&
+    done[0].d.entity_id === 'switch.snapmaker_u1_work_light',
+  JSON.stringify(done),
+);
+const a350 = await read(card(page, 'Snapmaker · legacy, read-only'));
+check(
+  'the older Snapmaker: known by its fixed names, its clock’s "02:06:00" read as the time left and "01:12:35" as the time so far (to the minute), its first nozzle of two; nothing to press',
+  a350.sub === 'Spool_holder' &&
+    /^Left 2 h 06 ?min$/.test(a350.left) &&
+    /^Ready at \d{1,2}:\d{2} · 1 h 13 min so far$/.test(a350.meta) &&
+    a350.bar === '36' &&
+    a350.readouts.join('|') === 'Nozzle 205°C|Bed 60°C' &&
+    a350.buttons.length === 0,
+  JSON.stringify(a350),
+);
+const ad5m = await read(card(page, 'FlashForge · completed'));
+check(
+  'FlashForge: completed is finished — when, from its status’s last change (its completion time went with the job), never now — the full bar, its filament by type, its LED lit',
+  ad5m.badge === 'Completed' &&
+    ad5m.sub === 'Drawer_knob' &&
+    /^Finished at 19:47$/.test(ad5m.meta) &&
+    ad5m.bar === '100' &&
+    ad5m.readouts.includes('Filament PLA') &&
+    ad5m.buttons.map((b) => `${b.key}${b.on ? '+' : ''}`).join() === 'light+',
+  JSON.stringify(ad5m),
+);
+
 /* ---------- a colour of its own, other days, its own words, half a column ---------- */
 const teal = await read(card(page, 'A colour of its own · failed and paused', 0));
 const tealPaused = await read(card(page, 'A colour of its own · failed and paused', 1));
@@ -401,6 +506,58 @@ await page.close();
     JSON.stringify(cells),
   );
   await wide.close();
+}
+
+/* ---------- 1.6.1's printer nits: 44-tall readouts, tray columns that only grow, buttons that wrap under 180 ---------- */
+{
+  const columnsAt = async (width) => {
+    const p = await suite.sheet('printer', { width });
+    const n = await frame(p, 'Bambu Lab · printing')
+      .locator('fluvy-printer-card')
+      .evaluate((el) =>
+        Number(el.shadowRoot.querySelector('.pr-trays')?.style.getPropertyValue('--pr-trays') ?? 0),
+      );
+    await p.close();
+    return n;
+  };
+  const run = [];
+  for (const width of [360, 372, 380, 388, 396, 404, 412]) run.push(await columnsAt(width));
+  check(
+    'the trays’ columns never fall as the card widens (decided at the narrowest gap, not the gap a width lands on)',
+    run.every((n, i) => i === 0 || n >= run[i - 1]) && run[0] > 0,
+    run.join(' → '),
+  );
+  const tight = await suite.sheet('printer', { width: 176 });
+  const buttons = await frame(tight, 'Bambu Lab · printing')
+    .locator('fluvy-printer-card')
+    .evaluate((el) => {
+      const row = el.shadowRoot.querySelector('.pr-actions');
+      return {
+        columns: Number(row?.style.getPropertyValue('--pr-actions') ?? 0),
+        widths: [...(row?.children ?? [])].map((b) => Math.round(b.getBoundingClientRect().width)),
+      };
+    });
+  await tight.close();
+  check(
+    'under 180, three buttons go two a row and every one of them keeps 44',
+    buttons.columns === 2 && buttons.widths.length === 3 && buttons.widths.every((w) => w >= 44),
+    JSON.stringify(buttons),
+  );
+  const compactPage = await suite.sheet('printer');
+  const stats = await frame(compactPage, 'Compact')
+    .locator('fluvy-printer-card')
+    .first()
+    .evaluate((el) =>
+      [...el.shadowRoot.querySelectorAll('.pr-stat[role="button"]')].map((s) =>
+        Math.round(s.getBoundingClientRect().height),
+      ),
+    );
+  await compactPage.close();
+  check(
+    'the compact layout’s readouts that open their entity are 44 tall targets',
+    stats.length > 0 && stats.every((h) => h >= 44),
+    stats.join(' '),
+  );
 }
 
 await suite.finish();

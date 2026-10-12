@@ -75,6 +75,8 @@ export function budget(pulses: readonly Pulse[], mode: MotionMode): Map<string, 
 
 interface Running {
   readonly shape: string;
+  /** The layer's size the pulses were masked for: a re-laid-out layer takes new ones at once. */
+  readonly size: string;
   readonly group: HTMLElement;
   readonly layer: HTMLElement;
   readonly animations: Animation[];
@@ -128,14 +130,24 @@ export class PulseEngine {
       !root || mode === 'off' || reducedMotion() || this.host.hasAttribute('reduced-motion');
     const counts = still ? new Map<string, number>() : budget(pulses, mode);
     const wanted = new Map(pulses.map((p) => [p.key, p]));
-    // pulses no longer asked for (or whose layer went with a re-drawn diagram) fade out
+    const sized = `${size[0]}x${size[1]}`;
+    // pulses no longer asked for (or whose layer went with a re-drawn diagram) fade out; a layer that changed size
+    // has moved its lanes, and a comet fading out along the old ones would ride off its lane: those go at once
     for (const [key, run] of this.running) {
       const p = wanted.get(key);
       const n = counts.get(key) ?? 0;
       const layer = root && p ? layerOf(root, p.over) : null;
-      if (p && n > 0 && layer === run.layer && run.layer.isConnected && run.shape === shapeOf(p, n))
+      if (
+        p &&
+        n > 0 &&
+        layer === run.layer &&
+        run.layer.isConnected &&
+        run.shape === shapeOf(p, n) &&
+        run.size === sized
+      )
         continue;
-      this.retire(run);
+      if (run.size === sized) this.retire(run);
+      else run.group.remove();
       this.running.delete(key);
     }
     if (!root) return;
@@ -194,7 +206,14 @@ export class PulseEngine {
     layer.append(group);
     // in on the next frame, so the fade runs
     requestAnimationFrame(() => group.classList.add('is-on'));
-    return { shape: shapeOf(p, n), group, layer, animations, base: duration };
+    return {
+      shape: shapeOf(p, n),
+      size: `${width}x${height}`,
+      group,
+      layer,
+      animations,
+      base: duration,
+    };
   }
 
   private retire(run: Running): void {

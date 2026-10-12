@@ -23,7 +23,8 @@ const release = args.includes('--release') || args.includes('--tag');
 /** Each chunk's gzip budget in bytes (`core` is what every page loads; the rest come on demand). */
 const BUDGETS = {
   'fluvy.js': 2048,
-  core: 225_280,
+  // 222 KB since 1.7 (the light's colour wiring, the surface colour, the essentials while off): 220 before
+  core: 227_328,
   panel: 40_960,
   strategy: 24_576,
   wall: 16_384,
@@ -31,8 +32,10 @@ const BUDGETS = {
   energy: 65_536,
   // the media family: the player and the now-playing strip
   media: 16_384,
-  // the devices family: the lock, the alarm and its keypad, the camera
+  // the devices family: the lock, the alarm and its keypad, the camera, the printer
   devices: 32_768,
+  // the light card's colour controls: the quick colours' table and row, fetched by the first colour bulb
+  'light-colour': 4096,
   // the weather card
   weather: 12_288,
   editor: 8192,

@@ -1538,7 +1538,7 @@ export function about(ctx: PanelContext, info: AboutInfo, actions: AboutActions)
       })}
     </div>
     <p class="fv-label pn-label">${ctx.t('about.file')}</p>
-    <div class="pn-pair" data-fill-row>
+    <div class="pn-pair pn-pair--words" data-fill-row>
       <button class="fv-btn fv-btn--quiet" data-target @click=${actions.exportSettings}>
         ${ctx.t('about.export')}
       </button>

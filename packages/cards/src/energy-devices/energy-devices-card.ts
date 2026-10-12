@@ -27,6 +27,7 @@ import { Card, type BaseKey } from '../shared/base.js';
 import { glyphFor } from '../shared/domain.js';
 
 import {
+  accentField,
   actionField,
   actionFields,
   boolField,
@@ -40,6 +41,7 @@ import {
   nameIconFields,
   numberField,
   titleFields,
+  toneField,
 } from '../shared/form.js';
 
 import { fetchPrefs } from '../energy-model/house.js';
@@ -166,6 +168,7 @@ export class FluvyEnergyDevicesCard extends Card<EnergyDevicesCardConfig> {
     'icon',
     'tone',
     'color',
+    'card_color',
     'tap_action',
     'hold_action',
   ];
@@ -191,7 +194,7 @@ export class FluvyEnergyDevicesCard extends Card<EnergyDevicesCardConfig> {
           entityField(['sensor'], 'parent', false),
           entityField(['sensor'], 'cost_entity', false),
         ),
-        colourFields(),
+        fieldRow(toneField(), accentField()),
         actionField(),
       ],
       computeLabel: formLabels({
@@ -208,7 +211,7 @@ export class FluvyEnergyDevicesCard extends Card<EnergyDevicesCardConfig> {
       schema: [
         titleFields(),
         iconField(),
-        colourFields(),
+        ...colourFields(),
         entitiesField('entities', ['sensor']),
         entityField(['sensor'], 'total', false),
         fieldRow(boolField('sort'), numberField('max_rows', 1, 20)),

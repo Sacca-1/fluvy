@@ -89,6 +89,13 @@ export interface OpeningsCardConfig extends FluvyCardConfig {
 
 /** Device classes whose "on" is something to act on (warning tone), and the ones that read open / closed. */
 const OPENING = new Set(['door', 'garage_door', 'window', 'opening', 'garage', 'gate']);
+
+/** Whether an entity opens and closes: a cover, a lock (the domain or the class), or an opening by its class. */
+const isOpening = (view: EntityView): boolean =>
+  view.domain === 'cover' ||
+  view.domain === 'lock' ||
+  view.deviceClass === 'lock' ||
+  OPENING.has(view.deviceClass ?? '');
 const ALERT = new Set([
   ...OPENING,
   'lock',
@@ -162,6 +169,7 @@ export class FluvyOpeningsCard extends Card<OpeningsCardConfig> {
     'icon',
     'tone',
     'color',
+    'card_color',
     'tap_action',
     'hold_action',
   ];
@@ -203,7 +211,7 @@ export class FluvyOpeningsCard extends Card<OpeningsCardConfig> {
         entitiesField('entities', ['binary_sensor', 'cover', 'lock'], true),
         titleFields(),
         iconField(),
-        colourFields(),
+        ...colourFields(),
         fieldRow(selectField('variant', OPENINGS_VARIANTS), numberField('max_rows', 1, 20)),
         fieldRow(boolField('show_count'), boolField('show_time')),
         actionFields(),
@@ -399,6 +407,7 @@ export class FluvyOpeningsCard extends Card<OpeningsCardConfig> {
           }
         : {
             trailing: 'chevron' as const,
+            ...(alert ? { subTone: 'warning' as const } : {}),
             ...(compact
               ? {}
               : {
@@ -453,13 +462,7 @@ export class FluvyOpeningsCard extends Card<OpeningsCardConfig> {
           : s(this.hass, 'rooms', { count: rooms.size });
 
     // "1 open" when everything alerting is an opening; a leak or smoke makes it "1 alert"
-    const openOnly = alerts.every(
-      (view) =>
-        view.domain === 'cover' ||
-        view.domain === 'lock' ||
-        view.deviceClass === 'lock' ||
-        OPENING.has(view.deviceClass),
-    );
+    const openOnly = alerts.every((view) => isOpening(view));
     const badgeText =
       alerts.length === 0
         ? s(this.hass, 'all_clear')
@@ -521,13 +524,7 @@ export class FluvyOpeningsCard extends Card<OpeningsCardConfig> {
         : [];
     const hidden = {
       count: hiddenAlerts.length,
-      openOnly: hiddenAlerts.every(
-        (view) =>
-          view.domain === 'cover' ||
-          view.domain === 'lock' ||
-          view.deviceClass === 'lock' ||
-          OPENING.has(view.deviceClass),
-      ),
+      openOnly: hiddenAlerts.every((view) => isOpening(view)),
     };
     return html`<article class="fv-card am-card" data-card>
       ${head({

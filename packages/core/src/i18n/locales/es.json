@@ -416,6 +416,9 @@
     "live_update": "Actualizar al arrastrar",
     "show_count": "Mostrar cuántos están encendidos",
     "color": "Color",
+    "card_color": "Color de la tarjeta",
+    "show_color": "Mostrar el color",
+    "colors": "Colores rápidos",
     "color_help": "Un color de la paleta, o escribe cualquier #rrggbb",
     "show_tilt": "Mostrar la inclinación",
     "show_favorites": "Mostrar los favoritos",
@@ -464,10 +467,14 @@
     "camera_view": "Imagen",
     "aspect_ratio": "Proporción",
     "fit_mode": "Encaje",
+    "chart_label": "Nombre en la gráfica",
+    "chart_label_helper": "Bajo su lectura cuando otros sensores comparten la gráfica. Vacío: la palabra de su medida, o su nombre sin el título.",
+    "extra_name_helper": "Bajo su lectura. Vacío: la palabra de su medida, o su nombre sin el título.",
     "also_sensors": "También en la gráfica (hasta 2)",
     "people": "Personas",
     "battery": "Batería del móvil",
-    "tint": "Mostrar su color"
+    "tint": "Mostrar su color",
+    "when_off": "Apagado"
   },
   "strategy": {
     "home": "Inicio",
@@ -704,7 +711,7 @@
     "ready_on": "Lista el {day} a las {time}"
   },
   "camera": {
-    "live": "Live",
+    "live": "En directo",
     "snapshot": "Captura",
     "fullscreen": "Pantalla completa",
     "view": "Vista en directo de {name}",
@@ -750,6 +757,7 @@
     "self_powered": "{percent} % autosuficiente",
     "import_export": "Importa + exporta",
     "unavailable_since": "{name} no disponible desde las {time}",
+    "since_time": "desde las {time}",
     "updated": "Actualizado {when}",
     "rest_of_house": "Resto de la casa",
     "share_of_house": "{percent} % de la casa",
@@ -1386,7 +1394,16 @@
     "contain": "Imagen entera",
     "on": "Al encenderse",
     "camera": "Cámara",
-    "preview": "Vista previa"
+    "preview": "Vista previa",
+    "essentials": "Lo esencial",
+    "red": "Rojo",
+    "orange": "Naranja",
+    "yellow": "Amarillo",
+    "green": "Verde",
+    "blue": "Azul",
+    "purple": "Morado",
+    "pink": "Rosa",
+    "picker": "Selector de color"
   },
   "tone": {
     "accent": "Acento",

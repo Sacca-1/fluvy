@@ -416,6 +416,9 @@
     "live_update": "Sürüklerken güncelle",
     "show_count": "Kaç tanesinin açık olduğunu göster",
     "color": "Renk",
+    "card_color": "Kart rengi",
+    "show_color": "Rengi göster",
+    "colors": "Hızlı renkler",
     "color_help": "Paletten bir renk ya da herhangi bir #rrggbb",
     "show_tilt": "Eğimi göster",
     "show_favorites": "Favorileri göster",
@@ -464,10 +467,14 @@
     "camera_view": "Görüntü",
     "aspect_ratio": "En boy oranı",
     "fit_mode": "Sığdırma",
+    "chart_label": "Grafikteki adı",
+    "chart_label_helper": "Başka sensörler grafiği paylaştığında okumasının altında. Boş: ölçüsünün sözcüğü, yoksa başlıksız adı.",
+    "extra_name_helper": "Okumasının altında. Boş: ölçüsünün sözcüğü, yoksa başlıksız adı.",
     "also_sensors": "Grafikte ayrıca (en fazla 2)",
     "people": "Kişiler",
     "battery": "Telefon pili",
-    "tint": "Rengi göster"
+    "tint": "Rengi göster",
+    "when_off": "Kapalıyken"
   },
   "strategy": {
     "home": "Ana sayfa",
@@ -750,6 +757,7 @@
     "self_powered": "%{percent} öz yeterli",
     "import_export": "Alım + veriş",
     "unavailable_since": "{name} {time} itibarıyla kullanılamıyor",
+    "since_time": "{time} itibarıyla",
     "updated": "Güncellendi: {when}",
     "rest_of_house": "Evin geri kalanı",
     "share_of_house": "evin %{percent}’i",
@@ -1386,7 +1394,16 @@
     "contain": "Tüm görüntü",
     "on": "Açıkken",
     "camera": "Kamera",
-    "preview": "Önizleme"
+    "preview": "Önizleme",
+    "essentials": "Temel öğeler",
+    "red": "Kırmızı",
+    "orange": "Turuncu",
+    "yellow": "Sarı",
+    "green": "Yeşil",
+    "blue": "Mavi",
+    "purple": "Mor",
+    "pink": "Pembe",
+    "picker": "Renk seçici"
   },
   "tone": {
     "accent": "Vurgu",

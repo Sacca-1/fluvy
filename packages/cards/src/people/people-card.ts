@@ -192,6 +192,7 @@ export class FluvyPeopleCard extends Card<PeopleCardConfig> {
     'entities',
     'icon',
     'color',
+    'card_color',
     'tap_action',
     'hold_action',
   ];
@@ -239,6 +240,7 @@ export class FluvyPeopleCard extends Card<PeopleCardConfig> {
         fieldRow(boolField('show_zone'), boolField('show_time')),
         boolField('show_battery'),
         accentField(),
+        accentField('card_color', { none: true }),
         actionFields(),
       ],
       ...editorLabels(s, { map_path: 'editor.map_path' }, {}),

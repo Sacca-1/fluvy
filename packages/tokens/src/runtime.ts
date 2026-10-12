@@ -74,7 +74,7 @@ export {
 export { meshOf, type Mesh } from './build/mesh.js';
 export { HA_COLOR_NAMES, NAMED_COLORS, resolveAccent, type HaColorName } from './ha/named.js';
 export { accentFamily, type AccentFamily } from './build/accent-family.js';
-export { accentFamilyVars, identityVars } from './emit/vars.js';
+export { accentFamilyVars, identityVars, surfaceWash } from './emit/vars.js';
 
 export function isShapeName(value: unknown): value is ShapeName {
   return typeof value === 'string' && (SHAPE_NAMES as readonly string[]).includes(value);

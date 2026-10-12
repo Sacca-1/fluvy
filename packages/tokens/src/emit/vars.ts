@@ -143,6 +143,26 @@ export function restWash(fill: Hex, ground: Hex, colors: PaletteModeColors): Hex
 }
 
 /**
+ * A card's own surface (`card_color`, 1.7): its fill washed into the palette's card as far as everything on it still
+ * reads — the words at 4.5, the fill's hairline (the card's edges and dividers then) at 1.35 over it — up to 40 %.
+ * With none to spare, the card itself: the hairline alone says the colour. The page, the inner tiles and the inks stay
+ * the palette's, so what is on a tinted card reads as it does on any other.
+ */
+export function surfaceWash(family: AccentFamily, colors: PaletteModeColors): Hex {
+  const ground = colors.surface.card;
+  for (let step = 20; step > 0; step--) {
+    const wash = composite(family.fill, ground, step / 50);
+    if (
+      contrastRatio(colors.text.secondary, wash) >= 4.5 &&
+      contrastRatio(colors.text.primary, wash) >= 4.5 &&
+      contrastRatio(family.fillBorder, wash) >= 1.35
+    )
+      return wash;
+  }
+  return ground;
+}
+
+/**
  * What a card's own colour redefines inside it: the accent's seven, the ink on the solid accent, the primary
  * action, the highlight where the palette has none of its own, the accent ramp, the twelve graph series and the
  * lit light (the accent's twin) — and nothing else: surfaces, text, the neutral ramp, the other states, the marks

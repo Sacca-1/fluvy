@@ -304,7 +304,7 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
         fieldRow(boolField('show_source'), boolField('show_volume')),
         boolField('show_power'),
         controlsField(),
-        colourFields(),
+        ...colourFields(),
         actionFields(),
       ],
       ...formLabels({}),

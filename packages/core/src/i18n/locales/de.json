@@ -416,6 +416,9 @@
     "live_update": "Beim Ziehen aktualisieren",
     "show_count": "Anzahl der eingeschalteten zeigen",
     "color": "Farbe",
+    "card_color": "Kartenfarbe",
+    "show_color": "Farbe anzeigen",
+    "colors": "Schnellfarben",
     "color_help": "Eine Farbe der Palette, oder ein beliebiges #rrggbb",
     "show_tilt": "Neigung zeigen",
     "show_favorites": "Favoriten zeigen",
@@ -464,10 +467,14 @@
     "camera_view": "Bild",
     "aspect_ratio": "Seitenverhältnis",
     "fit_mode": "Einpassen",
+    "chart_label": "Name im Diagramm",
+    "chart_label_helper": "Unter seinem Messwert, wenn weitere Sensoren das Diagramm teilen. Leer: das Wort seiner Messgröße, sonst sein Name ohne den Titel.",
+    "extra_name_helper": "Unter seinem Messwert. Leer: das Wort seiner Messgröße, sonst sein Name ohne den Titel.",
     "also_sensors": "Auch im Diagramm (bis zu 2)",
     "people": "Personen",
     "battery": "Handy-Akku",
-    "tint": "Farbe zeigen"
+    "tint": "Farbe zeigen",
+    "when_off": "Wenn aus"
   },
   "strategy": {
     "home": "Zuhause",
@@ -750,6 +757,7 @@
     "self_powered": "{percent} % autark",
     "import_export": "Bezug + Einspeisung",
     "unavailable_since": "{name} nicht verfügbar seit {time}",
+    "since_time": "seit {time}",
     "updated": "Aktualisiert {when}",
     "rest_of_house": "Rest des Hauses",
     "share_of_house": "{percent} % des Hauses",
@@ -1386,7 +1394,16 @@
     "contain": "Ganzes Bild",
     "on": "Wenn an",
     "camera": "Kamera",
-    "preview": "Vorschau"
+    "preview": "Vorschau",
+    "essentials": "Das Wesentliche",
+    "red": "Rot",
+    "orange": "Orange",
+    "yellow": "Gelb",
+    "green": "Grün",
+    "blue": "Blau",
+    "purple": "Lila",
+    "pink": "Rosa",
+    "picker": "Farbwähler"
   },
   "tone": {
     "accent": "Akzent",

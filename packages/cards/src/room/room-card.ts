@@ -131,6 +131,7 @@ export class FluvyRoomCard extends FluvyTileCard {
     'icon',
     'tone',
     'color',
+    'card_color',
     'tap_action',
     'hold_action',
   ];
@@ -192,7 +193,7 @@ export class FluvyRoomCard extends FluvyTileCard {
           name: 'readouts',
           selector: { entity: { multiple: true } },
         }),
-        colourFields(),
+        ...colourFields(),
         tintField(),
         fieldRow(actionField('tap_action'), actionField('hold_action')),
       ],
@@ -294,7 +295,13 @@ export class FluvyRoomCard extends FluvyTileCard {
   }
 
   /** The state line: "3 of 5 on · 21.4 °C". */
-  private roomLine(ids: readonly string[], on: number): string {
+  private roomLine(
+    ids: readonly string[],
+    on: number,
+    // the compact tile's words by default; the tile variant's head measures its sub in its own class and room
+    room = this.width - 32 - (this.width >= 128 ? 44 + 12 : 0),
+    cls = 'fv-tile fv-tile--compact > fv-tile__state',
+  ): string {
     const count =
       this.room?.show_count !== false && ids.length
         ? on > 0
@@ -318,9 +325,7 @@ export class FluvyRoomCard extends FluvyTileCard {
     }
     // the compact tile's words have its width less its 16 px sides, and less its circle and gap where it keeps one
     // (128 and wider: tiles.css)
-    const room = this.width - 32 - (this.width >= 128 ? 44 + 12 : 0);
-    const width = (text: string): number =>
-      this.roomRuler.width('fv-tile fv-tile--compact > fv-tile__state', text);
+    const width = (text: string): number => this.roomRuler.width(cls, text);
     // the count stays, the climate leaves first; then the count in figures ("3/5") where its words would be cut, the
     // tile's fill already saying that something is on
     const worded = fitLine([...(count ? [{ text: count }] : []), ...climate], room, width);
@@ -509,7 +514,13 @@ export class FluvyRoomCard extends FluvyTileCard {
           tone: summary.on ? 'accent' : 'neutral',
           title: name,
           name: true,
-          sub: this.roomLine(ids, summary.on),
+          // the head's line: its room is the column less the circle and its gap and the chevron's 44
+          sub: this.roomLine(
+            ids,
+            summary.on,
+            this.contentWidth - 56 - (to ? 44 : 0),
+            'fv-card__sub',
+          ),
           // "opens" is the bare chevron the rows use, its ink on the column edge
           trailing: to
             ? html`<button

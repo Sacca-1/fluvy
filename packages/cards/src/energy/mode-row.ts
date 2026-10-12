@@ -4,7 +4,7 @@ import { html, nothing, type TemplateResult } from 'lit';
 import { MODE_GLYPH, modeKind, selectOptions, type ModeKind } from '../energy-model/modes.js';
 import { chipRow } from '../shared/chips.js';
 import type { TextRuler } from '../shared/fit.js';
-import { optionColumnsFor } from '../shared/options.js';
+import { optionCell, optionColumnsFor, valuesHeld } from '../shared/options.js';
 
 /** Under this column option tiles would be too narrow for their words: the modes are a chip row. */
 const TILES_FROM = 240;
@@ -93,28 +93,33 @@ export function modeRow(o: ModeRowOptions): TemplateResult | typeof nothing {
     };
   });
   const height = o.meaning ? 84 : 64;
-  if (items.length <= o.tilesUpTo && o.width >= TILES_FROM)
-    return html`${label(o.heading)}${options(
-      items,
-      usable ? select : null,
+  if (items.length <= o.tilesUpTo && o.width >= TILES_FROM) {
+    const columns = optionColumnsFor(
+      items.map((i) => i.label || i.value || ''),
+      o.width,
       4,
-      height,
-      optionColumnsFor(
-        items.map((i) => i.label || i.value || ''),
-        o.width,
-        4,
-        (text) =>
-          items.some((i) => !i.label && i.value === text)
-            ? o.ruler.width('fv-option__value', text)
-            : o.ruler.width('fv-option__label', text),
-      ),
-    )}`;
+      (text) =>
+        items.some((i) => !i.label && i.value === text)
+          ? o.ruler.width('fv-option__value', text)
+          : o.ruler.width('fv-option__label', text),
+    );
+    // a meaning's word the cell cannot hold (de's "Überschuss" under the sun's mode) is dropped, never cut; a name
+    // on the value's line stays
+    const held = valuesHeld(items, optionCell(o.width, 4, columns), (text) =>
+      o.ruler.width('fv-option__value', text),
+    );
+    return html`${label(o.heading)}${options(held, usable ? select : null, 4, height, columns)}`;
+  }
   // a chip's words are never cut: a column that cannot hold the longest even alone lists the modes as tiles, one a
   // row, whose names (an entity's options) may end in an ellipsis as names do
   const widest = Math.max(...items.map((i) => o.ruler.width(CHIP_LABEL, i.words))) + CHIP_SIDES;
   if (widest > o.width)
     return html`${label(o.heading)}${options(
-      items.map((i) => ({ ...i, name: true })),
+      valuesHeld(
+        items.map((i) => ({ ...i, name: true })),
+        optionCell(o.width, 4, 1),
+        (text) => o.ruler.width('fv-option__value', text),
+      ),
       usable ? select : null,
       4,
       height,

@@ -46,12 +46,13 @@ import {
   formLabels,
   nameIconFields,
   selectField,
+  whenOffField,
 } from '../shared/form.js';
 
 import { HeadFit } from '../energy/head.js';
-import { optionColumnsFor } from '../shared/options.js';
+import { optionCell, optionColumnsFor, optionsHold, valuesHeld } from '../shared/options.js';
 import type { EditorDefaults } from '../shared/rows-editor.js';
-import { configKeys } from '../shared/config.js';
+import { configKeys, type WhenOff } from '../shared/config.js';
 import { chipRow } from '../shared/chips.js';
 
 export type ThermostatVariant = 'dial' | 'compact' | 'ruler';
@@ -69,6 +70,8 @@ export interface ThermostatCardConfig extends FluvyCardConfig {
   /** Presets and fan speeds as content-sized chips (default) or as chips filling the row. */
   preset_style?: RowStyle;
   fan_style?: RowStyle;
+  /** While the device is off: everything (default), or `essentials` — the head, the value and the modes; presets and fan speeds wait for a mode. */
+  when_off?: WhenOff;
 }
 
 interface Model {
@@ -136,7 +139,10 @@ const pretty = (raw: string): string => {
  * tiles and presets / fan speeds as chips. Every null the integrations send is survived.
  */
 export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
-  /** The card's height at a 360 column, for the automatic dashboard's columns. */
+  /**
+   * The card's height at a 360 column, for the automatic dashboard's columns. Read from the config alone: a card
+   * that keeps to the essentials while off is reserved its height when on.
+   */
   static override layoutHeight(config: ThermostatCardConfig): number {
     return config.variant === 'compact' ? 292 : config.variant === 'ruler' ? 356 : 484;
   }
@@ -163,6 +169,7 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
     fan_style: 'full',
     show_presets: true,
     show_fan: true,
+    when_off: 'all',
     ...(typeof config['entity'] === 'string' &&
     Array.isArray(hass?.states[config['entity']]?.attributes['hvac_modes'])
       ? { modes: hass?.states[config['entity']]?.attributes['hvac_modes'] }
@@ -176,6 +183,7 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
     'modes_style',
     'preset_style',
     'fan_style',
+    'when_off',
   ]);
   static override getConfigForm(): LovelaceConfigForm {
     return {
@@ -201,7 +209,8 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
         },
         fieldRow(boolField('show_presets'), selectField('preset_style', ['full', 'chips'])),
         fieldRow(boolField('show_fan'), selectField('fan_style', ['full', 'chips'])),
-        colourFields(),
+        whenOffField(),
+        ...colourFields(),
         actionFields(),
       ],
       ...formLabels({
@@ -616,19 +625,30 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
   private renderModes(view: EntityView, m: Model, modes: readonly OptionItem[]): TemplateResult {
     const style = this.config?.modes_style ?? 'tiles';
     const select = (key: string): void => this.setMode(view, m, key);
-    if (style === 'tiles')
-      return options(
-        modes,
-        select,
+    // tiles only while every mode's word holds its cell (a water heater's "Performance" in a 211 column does not):
+    // else the chips, which give way in their order and never cut a word
+    const measure = (text: string): number => this.head.ruler.width('fv-option__label', text);
+    const tiled =
+      style === 'tiles' &&
+      optionsHold(
+        modes.map((o) => o.label),
+        this.contentWidth,
         4,
-        84,
-        optionColumnsFor(
-          modes.map((o) => o.label),
-          this.contentWidth,
-          4,
-          (text) => this.head.ruler.width('fv-option__label', text),
-        ),
+        measure,
       );
+    if (tiled) {
+      const columns = optionColumnsFor(
+        modes.map((o) => o.label),
+        this.contentWidth,
+        4,
+        measure,
+      );
+      // a value's word the cell cannot hold (de's "Bereitschaft" under Off in a 211 column) is dropped, never cut
+      const held = valuesHeld(modes, optionCell(this.contentWidth, 4, columns), (text) =>
+        this.head.ruler.width('fv-option__value', text),
+      );
+      return options(held, select, 4, 84, columns);
+    }
     return chipRow(
       modes.map((o) => ({
         key: o.key,
@@ -637,7 +657,7 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
         ...(o.glyph ? { glyph: o.glyph } : {}),
       })),
       select,
-      style,
+      style === 'tiles' ? 'full' : style,
       { ruler: this.head.ruler, width: this.contentWidth },
     );
   }
@@ -680,6 +700,8 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
       badge: { text: unusable ? stateText(this.hass, view) : m.badgeText, tone },
     });
     const modes = this.shownModes(m);
+    // the essentials while off: the head, the value and the modes stay; presets and fan speeds wait for a mode
+    const essentials = m.off && this.config?.when_off === 'essentials';
     return html`<article
       class="fv-card cl-card ${unusable ? 'is-unavailable' : ''} ${this.contentWidth < 292 ? 'is-narrow' : ''}"
       data-card
@@ -715,7 +737,7 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
       }
       ${modes.length ? html`${label(this.t('climate.mode'))}${this.renderModes(view, m, modes)}` : nothing}
       ${
-        m.presets.length && this.config?.show_presets !== false
+        m.presets.length && !essentials && this.config?.show_presets !== false
           ? html`${label(this.t('climate.preset'))}${chipRow(
               m.presets.map((p) => ({ key: p, label: pretty(p), active: p === m.preset })),
               (key) => this.call('climate', 'set_preset_mode', { preset_mode: key }),
@@ -725,7 +747,7 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
           : nothing
       }
       ${
-        m.fans.length && this.config?.show_fan !== false
+        m.fans.length && !essentials && this.config?.show_fan !== false
           ? html`${label(this.t('climate.fan'))}${chipRow(
               m.fans.map((f) => ({ key: f, label: pretty(f), active: f === m.fan })),
               (key) => this.call('climate', 'set_fan_mode', { fan_mode: key }),

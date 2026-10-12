@@ -191,8 +191,9 @@ export const panelStyles = css`
   }
   .pn-tabs.is-wide .pn-tabs__row {
     display: grid;
-    /* five whole-pixel tabs on the 8 gap, the tail at the end */
-    grid-template-columns: repeat(5, round(down, calc((100% - 32px) / 5 + 0.01px), 1px));
+    /* five equal tabs on the 8 gap — a tab whose words need more ("Tableaux de bord") keeps them and the others share
+       what is left: a word is never cut for the sake of equal cells */
+    grid-template-columns: repeat(5, minmax(max-content, 1fr));
     column-gap: 8px;
     justify-content: start;
     padding: 0;
@@ -662,9 +663,10 @@ export const panelStyles = css`
       grid-template-columns: repeat(2, round(down, calc((100% - 12px) / 2), 1px));
     }
   }
-  /* a pair of worded buttons ("Export a palette" | "Import a palette") stacks where a phone's column (under 380)
-     cannot hold both words side by side — never a smaller face, never a word cut */
-  @container pn (max-width: 379px) {
+  /* a pair of worded buttons ("Export a palette" | "Import a palette") stacks where a phone's column (under 432:
+     two 202 cells hold every language's words, 174–190 wide) cannot hold both side by side — never a smaller face,
+     never a word cut */
+  @container pn (max-width: 431px) {
     .pn-pair--words:has(> :nth-child(2)) {
       grid-template-columns: minmax(0, 1fr);
       row-gap: 8px;

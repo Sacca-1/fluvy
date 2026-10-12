@@ -6,6 +6,7 @@ import {
   parsePaletteKey,
   resolveAccent,
   seedOf,
+  surfaceWash,
   type Hex,
   type PaletteMode,
 } from '@fluvy/tokens/runtime';
@@ -38,6 +39,26 @@ export function accentHex(paletteKey: string, mode: PaletteMode, choice: unknown
   return resolveAccent(choice, paletteOf(choiceOf(paletteKey))[mode]);
 }
 
+/**
+ * What a card's own surface colour (`card_color`) writes: the card's fill as a wash of the colour and the card's edge
+ * and dividers in the colour's hairline, derived on the palette × mode and kept like the accent's family.
+ */
+export function surfaceCss(paletteKey: string, mode: PaletteMode, pick: Hex): string {
+  const key = `surface|${paletteKey}|${mode}|${pick}`;
+  const known = kept.get(key);
+  if (known !== undefined) return known;
+  const choice = choiceOf(paletteKey);
+  const colors = paletteOf(choice)[mode];
+  const family = accentFamily(seedOf(choice), colors, pick);
+  return remember(
+    key,
+    declarationsCss([
+      ['--fluvy-card', surfaceWash(family, colors)],
+      ['--fluvy-border', family.fillBorder],
+    ]),
+  );
+}
+
 export function accentCss(paletteKey: string, mode: PaletteMode, pick: Hex): string {
   const key = `${paletteKey}|${mode}|${pick}`;
   const known = kept.get(key);
@@ -61,6 +82,7 @@ export class AccentSheet {
   private paletteKey = '';
   private mode: PaletteMode = 'light';
   private hostPick: Hex | undefined;
+  private surfacePick: Hex | undefined;
   private items = new Set<Hex>();
   private written = '';
 
@@ -84,6 +106,11 @@ export class AccentSheet {
     this.hostPick = accentHex(this.paletteKey, this.mode, choice);
   }
 
+  /** The card's own surface colour (`card_color`), as configured: a wash of it as the card's fill, its hairline as the edge. */
+  surface(choice: unknown): void {
+    this.surfacePick = accentHex(this.paletteKey, this.mode, choice);
+  }
+
   /** Forgets the items' colours before a render asks for them again. */
   begin(): void {
     this.items = new Set();
@@ -96,11 +123,13 @@ export class AccentSheet {
     return hex;
   }
 
-  /** Writes the sheet: the host's colour on the card's children, each item's on its `data-accent`. */
+  /** Writes the sheet: the host's colour and surface on the card's children, each item's on its `data-accent`. */
   commit(): void {
     const rules: string[] = [];
-    if (this.hostPick)
-      rules.push(`:host > *{${accentCss(this.paletteKey, this.mode, this.hostPick)}}`);
+    const host =
+      (this.hostPick ? accentCss(this.paletteKey, this.mode, this.hostPick) : '') +
+      (this.surfacePick ? surfaceCss(this.paletteKey, this.mode, this.surfacePick) : '');
+    if (host) rules.push(`:host > *{${host}}`);
     for (const hex of this.items)
       rules.push(`[data-accent="${hex}"]{${accentCss(this.paletteKey, this.mode, hex)}}`);
     const css = rules.join('');

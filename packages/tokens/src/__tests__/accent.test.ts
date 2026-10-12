@@ -4,7 +4,7 @@ import { GATES } from '../build/derive.js';
 import { derivePalettes } from '../build/palettes.js';
 import { contrastRatio, minPairwiseDeltaE, toHex } from '../color/index.js';
 import { PALETTE_MODES } from '../config.js';
-import { accentFamilyVars } from '../emit/vars.js';
+import { accentFamilyVars, surfaceWash } from '../emit/vars.js';
 import { HA_COLOR_NAMES, NAMED_COLORS } from '../ha/named.js';
 import { seeds } from '../palettes/index.js';
 import { RAMP_STEPS, type PaletteMode } from '../types.js';
@@ -94,6 +94,37 @@ describe('a card’s own colour on every palette', () => {
           expect(contrastRatio(rest, card), at).toBeLessThan(contrastRatio(fill, card) + 0.001);
           if (contrastRatio(fill, card) >= 1.6)
             expect(contrastRatio(rest, card), at).toBeGreaterThanOrEqual(1.18);
+        }
+      }
+    }
+  });
+
+  it('washes a card’s own surface so its words and its hairline read on it, never louder than the fill', () => {
+    for (const palette of palettes) {
+      const seed = seeds[palette.name as keyof typeof seeds];
+      for (const mode of PALETTE_MODES) {
+        const colors = palette[mode];
+        const { card } = colors.surface;
+        for (const pick of [
+          ...HARD_PICKS,
+          ...WHEEL,
+          ...HA_COLOR_NAMES.map((n) => NAMED_COLORS[n](colors)),
+        ]) {
+          const family = accentFamily(seed, colors, pick);
+          const wash = surfaceWash(family, colors);
+          const at = `${palette.name} ${mode} ${pick}`;
+          // the words on the card: the title and the state line, at 4.5
+          expect(contrastRatio(colors.text.primary, wash), at).toBeGreaterThanOrEqual(4.5);
+          expect(contrastRatio(colors.text.secondary, wash), at).toBeGreaterThanOrEqual(4.5);
+          // the card's edge and dividers, now the fill's hairline, still read on it (or the wash is the card itself)
+          if (wash !== card)
+            expect(contrastRatio(family.fillBorder, wash), at).toBeGreaterThanOrEqual(1.35);
+          // a wash of the fill, never louder than it
+          expect(contrastRatio(wash, card), at).toBeLessThan(
+            contrastRatio(family.fill, card) + 0.001,
+          );
+          // the same every time
+          expect(surfaceWash(family, colors), at).toBe(wash);
         }
       }
     }

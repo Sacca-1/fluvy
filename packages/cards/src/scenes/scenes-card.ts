@@ -145,7 +145,7 @@ export class FluvyScenesCard extends Card<ScenesCardConfig> {
   ];
 
   /** A grid of scenes has no entity of its own: its colour is the lit tile's, a hold on a tile is the base's. */
-  static override base: readonly BaseKey[] = ['entities', 'color', 'hold_action'];
+  static override base: readonly BaseKey[] = ['entities', 'color', 'card_color', 'hold_action'];
   static override keys = configKeys<ScenesCardConfig>()(['title', 'scenes', 'columns', 'tint']);
   static override lists: readonly RowsListSpec[] = [
     {
@@ -171,7 +171,11 @@ export class FluvyScenesCard extends Card<ScenesCardConfig> {
       schema: [
         fieldRow(textField('title'), selectField('columns', ['auto', '1', '2'])),
         entitiesField('entities', DOMAINS, true),
-        fieldRow(accentField(), actionField('hold_action')),
+        fieldRow(
+          accentField(),
+          accentField('card_color', { none: true }),
+          actionField('hold_action'),
+        ),
         tintField(),
       ],
       ...formLabels({}),
@@ -265,6 +269,10 @@ export class FluvyScenesCard extends Card<ScenesCardConfig> {
       view.status === 'ok' || view.status === 'unknown' ? firedAt(view, this.stateOf(view)) : 0,
     );
     const newest = Math.max(0, ...fired);
+    // the line under a name only while it fits the tile's words column: a state is dropped, never cut
+    const room = (columns === 2 ? (this.width - GRID_GAP) / 2 : this.width) - TILE_CHROME;
+    const fitted = (line: string): string =>
+      line && this.ruler.width('fv-row__sub', line) <= room ? line : '';
 
     const title = this.config?.title;
     return html`<div class="am-scenes">
@@ -280,6 +288,7 @@ export class FluvyScenesCard extends Card<ScenesCardConfig> {
           const view = views[index] as EntityView;
           const name = item.name ?? view.name;
           if (view.status === 'missing' || view.status === 'unavailable') {
+            const state = fitted(stateText(this.hass, view));
             return html`<button
               class="fv-tile fv-tile--off fv-tile--tap"
               data-card
@@ -289,13 +298,13 @@ export class FluvyScenesCard extends Card<ScenesCardConfig> {
               ${ico('ban', 'off')}
               <span class="fv-row__text"
                 ><span class="fv-row__title">${name}</span
-                ><span class="fv-row__sub">${stateText(this.hass, view)}</span></span
+                >${state ? html`<span class="fv-row__sub">${state}</span>` : nothing}</span
               >
             </button>`;
           }
           const at = fired[index] ?? 0;
           const active = at > 0 && at === newest;
-          const meta = this.meta(item, view, at, now);
+          const meta = fitted(this.meta(item, view, at, now));
           // a coloured scene keeps its colour at rest when the card asks (the last run is on: its full fill)
           const tinted = this.config?.tint === 'always' && Boolean(item.color) && !active;
           return html`<button

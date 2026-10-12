@@ -56,7 +56,7 @@ import { Card } from '../shared/base.js';
 
 import { toneOf } from '../shared/colour.js';
 import { TextRuler } from '../shared/fit.js';
-import { statsSize } from '../shared/readouts.js';
+import { statsColumns, statsSize } from '../shared/readouts.js';
 import { FontsSettled } from '../shared/fonts.js';
 import { glyphFor } from '../shared/domain.js';
 import {
@@ -65,6 +65,7 @@ import {
   boolField,
   colourFields,
   editorLabels,
+  editorWord,
   entityField,
   fieldRow,
   iconField,
@@ -76,22 +77,22 @@ import { Refresher } from '../shared/refresh.js';
 import { configKeys, ITEM_ALIASES, type AliasSpec } from '../shared/config.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 import type { BaseKey } from '../shared/base.js';
+import { axisHolds } from '../shared/axis.js';
+import { labelOf, normaliseExtras, type SensorItem } from './series.js';
 
 const s = strings('sensor');
 
 export type SensorVariant = 'chart' | 'tile';
 
 /** A sensor drawn beside the card's own (`entities`): its id, and the name, icon and colour it is shown with. */
-export interface SensorItem {
-  readonly entity: string;
-  readonly name?: string;
-  readonly icon?: string;
-  readonly color?: string;
-}
-
 export interface SensorCardConfig extends FluvyCardConfig {
   /** Context in the sub line, before the window ("Temperature · last 24 h"). Defaults to the device class, as Home Assistant names it. */
   subtitle?: string;
+  /**
+   * The card's own sensor's name under its readout when other sensors share the chart. Empty: its measure's word
+   * ("Temperature") when no other sensor on the chart measures the same, else its name beyond the title.
+   */
+  label?: string;
   /** Rolling window of history in hours (default 24), ending at "now". */
   hours?: number;
   show_stats?: boolean;
@@ -108,8 +109,6 @@ export interface SensorCardConfig extends FluvyCardConfig {
 const POINTS = 48;
 /** The chart of several curves: the single chart's band (76) and 12 above it, no bubble's headroom. */
 const SEVERAL_CHART = 88;
-/** The card's own sensor and up to two more: three readouts still read in a phone's column. */
-const MOST = 3;
 /** The tones a second and third curve take when their measure would repeat the first's. */
 const SPARE_TONES: readonly Tone[] = ['accent', 'water', 'solar', 'grid', 'heat'];
 const CHART_HEIGHT = 120;
@@ -118,18 +117,6 @@ const HOUR_MS = 3_600_000;
 
 const down4 = (n: number): number => Math.max(4, Math.floor(n / 4) * 4);
 const capitalise = (text: string): string => text.charAt(0).toLocaleUpperCase() + text.slice(1);
-
-/**
- * A sensor's name under the card's head: what it says beyond the head ("Living room temperature" under "Living room" is
- * "Temperature"), else its whole name.
- */
-function nameUnder(name: string, title: string): string {
-  const head = title.trim().toLocaleLowerCase();
-  const rest = name.toLocaleLowerCase().startsWith(`${head} `)
-    ? name.slice(head.length).trim()
-    : '';
-  return rest ? capitalise(rest) : name;
-}
 
 /** What a measurement is coloured by when the config does not say (the sheet paints heat and water). */
 function sensorTone(view: EntityView): Tone {
@@ -182,7 +169,7 @@ export class FluvySensorCard extends Card<SensorCardConfig> {
     if (config.variant === 'tile') return 168;
     // several sensors: their readout row (16 + 48) takes the statistics' place, and the chart no bubble's 32; three in
     // a phone's column read a line each (3 × 32 + 2 × 12 in place of the row's 48)
-    const extra = Array.isArray(config['entities']) ? Math.min(2, config['entities'].length) : 0;
+    const extra = normaliseExtras(config['entities']).length;
     if (extra) return extra === 2 ? 348 : 276;
     return config.show_stats === false ? 244 : 304;
   }
@@ -197,6 +184,10 @@ export class FluvySensorCard extends Card<SensorCardConfig> {
       }
       .am-cols {
         grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      /* fewer columns than statistics: the last one, alone on its row, takes the whole row */
+      .am-cols--odd > :last-child {
+        grid-column: 1 / -1;
       }
       /* the sheet scopes this under its lab frame (.am-sensors); here the tile is the card itself */
       .fv-tile .fv-readout {
@@ -418,9 +409,11 @@ export class FluvySensorCard extends Card<SensorCardConfig> {
     'hold_action',
     'tone',
     'color',
+    'card_color',
   ];
   static override keys = configKeys<SensorCardConfig>()([
     'subtitle',
+    'label',
     'hours',
     'show_stats',
     'variant',
@@ -436,6 +429,8 @@ export class FluvySensorCard extends Card<SensorCardConfig> {
         fieldRow(textField('name'), iconField()),
         accentField(),
       ],
+      computeHelper: (schema) =>
+        schema.name === 'name' ? editorWord('editor.extra_name_helper') : undefined,
     },
   ];
   static override aliases: AliasSpec = { items: { entities: ITEM_ALIASES } };
@@ -447,12 +442,15 @@ export class FluvySensorCard extends Card<SensorCardConfig> {
         entityField(['sensor', 'number', 'input_number', 'counter']),
         fieldRow(textField('name'), textField('subtitle')),
         iconField(),
-        colourFields(),
+        ...colourFields(),
         fieldRow(selectField('variant', ['chart', 'tile']), numberField('hours', 1, 168)),
         boolField('show_stats'),
+        textField('label'),
         actionFields(),
       ],
-      ...editorLabels(s, { show_stats: 'editor.show_stats' }, {}),
+      ...editorLabels(s, { show_stats: 'editor.show_stats' }, { label: 'editor.chart_label' }),
+      computeHelper: (schema) =>
+        schema.name === 'label' ? editorWord('editor.chart_label_helper') : undefined,
     };
   }
 
@@ -470,17 +468,7 @@ export class FluvySensorCard extends Card<SensorCardConfig> {
 
   /** The other sensors on the chart, as entries (a bare id, or its name, icon and colour), two at most. */
   private extras(): SensorItem[] {
-    const raw = (this.config as { entities?: readonly unknown[] } | undefined)?.entities ?? [];
-    return raw
-      .map((entry): SensorItem | null =>
-        typeof entry === 'string'
-          ? { entity: entry }
-          : entry && typeof entry === 'object' && typeof (entry as SensorItem).entity === 'string'
-            ? (entry as SensorItem)
-            : null,
-      )
-      .filter((item): item is SensorItem => item !== null && item.entity !== '')
-      .slice(0, MOST - 1);
+    return normaliseExtras((this.config as { entities?: unknown } | undefined)?.entities);
   }
 
   /** Watched: the card's own sensor and the others on its chart. */
@@ -610,8 +598,14 @@ export class FluvySensorCard extends Card<SensorCardConfig> {
       [this.t('common.average'), series?.average ?? null],
     ] as const;
     const texts = stats.map(([label, value]) => ({ label, ...this.statText(value, view) }));
-    const size = statsSize(this.ruler, this.contentWidth, texts);
-    return html`<div class="am-cols fv-cols">
+    // as many columns as hold the widest label and figure (fr's "MOYENNE" on a 200 column takes two and one), at
+    // the size the figures fit
+    const columns = statsColumns(this.ruler, this.contentWidth, texts);
+    const size = statsSize(this.ruler, this.contentWidth, texts, columns);
+    return html`<div
+      class="am-cols fv-cols ${texts.length % columns ? 'am-cols--odd' : ''}"
+      style="grid-template-columns:repeat(${columns}, minmax(0, 1fr))"
+    >
       ${texts.map(({ label, value, unit }) => readout({ label, value, unit, size }))}
     </div>`;
   }
@@ -633,6 +627,14 @@ export class FluvySensorCard extends Card<SensorCardConfig> {
     return latest - start > threshold ? 'up' : start - latest > threshold ? 'down' : null;
   }
 
+  /** The word of a sensor's measure in Home Assistant's own words ("Temperature"), '' where it has none. */
+  private measureWord(view: EntityView): string {
+    if (!view.deviceClass) return '';
+    const key = `component.${view.domain}.entity_component.${view.deviceClass}.name`;
+    const named = this.hass?.localize(key) ?? '';
+    return named && named !== key ? named : '';
+  }
+
   /** "Temperature · last 24 h": the context (config, else the device class in Home Assistant's words) and the window. */
   private subLine(view: EntityView, title: string): string {
     const days = this.hours > 24 && this.hours % 24 === 0;
@@ -640,11 +642,9 @@ export class FluvySensorCard extends Card<SensorCardConfig> {
       count: days ? this.hours / 24 : this.hours,
     });
     let context = this.config?.subtitle ?? '';
-    if (this.config?.subtitle === undefined && view.deviceClass) {
-      const key = `component.${view.domain}.entity_component.${view.deviceClass}.name`;
-      const named = this.hass?.localize(key) ?? '';
-      if (named && named !== key && !title.toLocaleLowerCase().includes(named.toLocaleLowerCase()))
-        context = named;
+    if (this.config?.subtitle === undefined) {
+      const named = this.measureWord(view);
+      if (named && !title.toLocaleLowerCase().includes(named.toLocaleLowerCase())) context = named;
     }
     if (!context) return capitalise(window);
     // the head: 44 circle + 12, the titles, 12 + the 44 round; the window is what this card is about, the context the part that may go
@@ -693,17 +693,7 @@ export class FluvySensorCard extends Card<SensorCardConfig> {
    * ends on the end, the others are centred on their fraction (`.fv-axis`).
    */
   private axisHolds(items: ReadonlyArray<readonly [number, string]>): boolean {
-    const w = this.contentWidth;
-    const spans = items.map(([fraction, text], index) => {
-      const width = this.headFit.ruler.width('fv-axis', text);
-      const left =
-        index === 0 ? 0 : index === items.length - 1 ? w - width : fraction * w - width / 2;
-      return [left, left + width] as const;
-    });
-    return (
-      items.length <= 2 ||
-      spans.every(([, end], i) => i === spans.length - 1 || spans[i + 1]![0] - end >= 12)
-    );
+    return axisHolds(this.headFit.ruler, this.contentWidth, items);
   }
 
   /* ---------- variants ---------- */
@@ -940,15 +930,18 @@ export class FluvySensorCard extends Card<SensorCardConfig> {
     const items: SensorItem[] = [
       {
         entity: view.id,
+        ...(this.config?.label ? { name: this.config.label } : {}),
         ...(this.config?.icon ? { icon: this.config.icon } : {}),
         ...(this.config?.color ? { color: this.config.color } : {}),
       },
       ...this.extras(),
     ];
-    // each sensor its measure's tone; a tone the row already shows passes to the next spare one
+    // each sensor its measure's tone; a tone the row already shows passes to the next spare one — unless the sensor
+    // has a colour of its own (`data-accent`), which it wears whatever the others show
     const used = new Set<Tone>();
     const rows = items.map((item, index) => {
       const sensor = this.entity(item.entity);
+      const accent = index > 0 && isUsable(sensor) ? this.accents.item(item.color) : undefined;
       const wanted =
         index === 0
           ? this.toneOf(sensor)
@@ -956,14 +949,16 @@ export class FluvySensorCard extends Card<SensorCardConfig> {
             ? toneOf(item, sensorTone(sensor))
             : 'off';
       const tone =
-        wanted !== 'off' && used.has(wanted)
+        wanted !== 'off' && !accent && used.has(wanted)
           ? (SPARE_TONES.find((t) => !used.has(t)) ?? wanted)
           : wanted;
-      used.add(tone);
+      if (!accent) used.add(tone);
       const series =
         index === 0 ? this.live(sensor) : this.liveOf(sensor, this.extras_[item.entity]);
-      return { item, sensor, tone, series };
+      return { item, sensor, tone, accent, series };
     });
+    // what each readout is called: its own name, else its measure's word where it alone measures it, else its name
+    const measures = rows.map(({ sensor }) => sensor.deviceClass);
     const hours = this.drawn ?? this.hours;
     const width = down4(this.contentWidth);
     // no bubble over the plot (the time goes on the axis row), so no headroom: the curves keep the single chart's band
@@ -971,7 +966,7 @@ export class FluvySensorCard extends Card<SensorCardConfig> {
     const fraction = this.scrubber.value;
     const loaded = rows.every((row) => row.series !== undefined || row.sensor.number === null);
     const texts = rows.map(({ item, sensor, series }) => {
-      const label = item.name ?? nameUnder(sensor.name, title);
+      const label = labelOf(item, sensor, title, this.measureWord(sensor), measures);
       if (sensor.number === null)
         return {
           label,
@@ -1031,10 +1026,10 @@ export class FluvySensorCard extends Card<SensorCardConfig> {
         class="am-pair ${fit.gap === 0 ? 'am-pair--column' : ''}"
         style="--am-pair:${fit.gap === 0 ? 1 : rows.length};--am-gap:${fit.gap}px"
       >
-        ${rows.map(({ item, sensor, tone, series }, index) => {
+        ${rows.map(({ item, sensor, tone, accent, series }, index) => {
           // a key only where there is a curve to key (a word or a sensor gone draws none); the name gives way, never it
           const key = !fit.circles && (series?.values.length ?? 0) > 1;
-          return html`<div class="am-pair__item fv-tone--${tone}">
+          return html`<div class="am-pair__item fv-tone--${tone}" data-accent=${accent ?? nothing}>
             ${fit.circles ? ico(item.icon ?? glyphFor(sensor), tone) : nothing}
             ${readout({
               label: html`<span class="am-name">${texts[index]?.label ?? sensor.name}</span>${
@@ -1065,7 +1060,7 @@ export class FluvySensorCard extends Card<SensorCardConfig> {
                   x2=${at.toFixed(2)}
                   y2=${H}
                 />
-                ${rows.map(({ tone }, index) => {
+                ${rows.map(({ tone, accent }, index) => {
                   const { values, o } = plots[index] as {
                     values: readonly number[];
                     o: PlotOptions;
@@ -1074,7 +1069,7 @@ export class FluvySensorCard extends Card<SensorCardConfig> {
                   if (!line) return nothing;
                   const dot = dots[index] ?? null;
                   const id = `am-fill-${index}`;
-                  return svg`<g class="fv-tone--${tone}">
+                  return svg`<g class="fv-tone--${tone}" data-accent=${accent ?? nothing}>
                       <defs><linearGradient id=${id} x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="curve-fill-a" /><stop offset="1" class="curve-fill-b" /></linearGradient></defs>
                       <path class="curve-area" d=${areaUnder(line, o)} fill="url(#${id})" stroke="none" />
                       <path class="curve-line" d=${line} pathLength="1" />

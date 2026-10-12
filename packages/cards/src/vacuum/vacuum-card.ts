@@ -176,7 +176,7 @@ export class FluvyVacuumCard extends Card<VacuumCardConfig> {
           entityField(['sensor'], 'remaining_entity', false),
           selectField('suction_style', ['full', 'chips']),
         ),
-        colourFields(),
+        ...colourFields(),
         actionFields(),
       ],
       ...editorLabels(

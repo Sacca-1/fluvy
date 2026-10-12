@@ -188,7 +188,14 @@ export class FluvyEnergyBalanceCard extends Card<EnergyBalanceCardConfig> {
   ];
 
   /** A balance of many sensors has no entity of its own: its head's icon, tone and colour, and its actions on the head. */
-  static override base: readonly BaseKey[] = ['icon', 'tone', 'color', 'tap_action', 'hold_action'];
+  static override base: readonly BaseKey[] = [
+    'icon',
+    'tone',
+    'color',
+    'card_color',
+    'tap_action',
+    'hold_action',
+  ];
   static override keys = configKeys<EnergyBalanceCardConfig>()([
     'title',
     'subtitle',
@@ -228,7 +235,7 @@ export class FluvyEnergyBalanceCard extends Card<EnergyBalanceCardConfig> {
         fieldRow(iconField(), selectField('period', BALANCE_PERIODS)),
         fieldRow(boolField('show_period'), boolField('show_phases')),
         boolField('show_cost'),
-        colourFields(),
+        ...colourFields(),
         actionFields(),
       ],
       ...editorLabels(

@@ -16,6 +16,8 @@ const SIDES = 16;
 const GLYPH = 24;
 /** A chip that is its glyph alone. */
 const GLYPH_ALONE = 20;
+/** No chip under a finger's 44: a row of glyphs alone wraps before its chips go narrower (five in a 211 column). */
+const TOUCH = 44;
 
 /** The widest chip of a row, measured in the row's own classes. */
 const widestOf = (items: readonly ChipItem[], ruler: TextRuler): number =>
@@ -23,7 +25,7 @@ const widestOf = (items: readonly ChipItem[], ruler: TextRuler): number =>
     0,
     ...items.map((item) =>
       item.short
-        ? SIDES + GLYPH_ALONE
+        ? Math.max(TOUCH, SIDES + GLYPH_ALONE)
         : ruler.width('fv-chips fv-chips--fill > fv-chip > fv-chip__pill', item.label) +
           SIDES +
           (item.glyph ? GLYPH : 0),

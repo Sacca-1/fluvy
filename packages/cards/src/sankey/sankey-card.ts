@@ -122,7 +122,14 @@ export class FluvyEnergySankeyCard extends Card<EnergySankeyCardConfig> {
     `,
   ];
 
-  static override base: readonly BaseKey[] = ['icon', 'tone', 'color', 'tap_action', 'hold_action'];
+  static override base: readonly BaseKey[] = [
+    'icon',
+    'tone',
+    'color',
+    'card_color',
+    'tap_action',
+    'hold_action',
+  ];
   static override keys = configKeys<EnergySankeyCardConfig>()([
     'title',
     'subtitle',
@@ -156,7 +163,7 @@ export class FluvyEnergySankeyCard extends Card<EnergySankeyCardConfig> {
         titleFields(),
         fieldRow(iconField(), selectField('period', PERIODS)),
         fieldRow(boolField('show_period'), numberField('max_devices', 1, 20)),
-        colourFields(),
+        ...colourFields(),
         actionFields(),
       ],
       ...editorLabels(

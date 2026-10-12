@@ -134,7 +134,14 @@ export class FluvyEnergyScoreCard extends Card<EnergyScoreCardConfig> {
     `,
   ];
 
-  static override base: readonly BaseKey[] = ['icon', 'tone', 'color', 'tap_action', 'hold_action'];
+  static override base: readonly BaseKey[] = [
+    'icon',
+    'tone',
+    'color',
+    'card_color',
+    'tap_action',
+    'hold_action',
+  ];
   static override keys = configKeys<EnergyScoreCardConfig>()([
     'title',
     'subtitle',
@@ -149,7 +156,7 @@ export class FluvyEnergyScoreCard extends Card<EnergyScoreCardConfig> {
         titleFields(),
         fieldRow(iconField(), selectField('period', PERIODS)),
         fieldRow(boolField('show_period'), entityField(['sensor'], 'co2', false)),
-        colourFields(),
+        ...colourFields(),
         actionFields(),
       ],
       ...editorLabels(

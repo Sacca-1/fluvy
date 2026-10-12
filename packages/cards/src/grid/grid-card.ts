@@ -57,7 +57,7 @@ import {
   textField,
   titleFields,
 } from '../shared/form.js';
-import { statsSize } from '../shared/readouts.js';
+import { statsColumns, statsSize } from '../shared/readouts.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 import { connectionOf, gridWay, meanOf, type GridWay } from './grid.js';
 
@@ -168,11 +168,22 @@ export class FluvyGridCard extends Card<GridCardConfig> {
       .ef-cols--stack {
         grid-template-columns: minmax(0, 1fr);
       }
+      /* fewer columns than readouts: the last one, alone on its row, takes the whole row */
+      .ef-cols--odd > :last-child {
+        grid-column: 1 / -1;
+      }
     `,
   ];
 
   /** A meter of several sensors has no entity of its own: its head's icon, tone and colour, and its actions on the head. */
-  static override base: readonly BaseKey[] = ['icon', 'tone', 'color', 'tap_action', 'hold_action'];
+  static override base: readonly BaseKey[] = [
+    'icon',
+    'tone',
+    'color',
+    'card_color',
+    'tap_action',
+    'hold_action',
+  ];
   static override keys = configKeys<GridCardConfig>()([
     'title',
     'subtitle',
@@ -208,7 +219,7 @@ export class FluvyGridCard extends Card<GridCardConfig> {
         entitiesField('voltages', ['sensor']),
         fieldRow(entityField(['sensor'], 'price', false), iconField()),
         entitiesField('readouts', ['sensor']),
-        colourFields(),
+        ...colourFields(),
         actionFields(),
       ],
       ...editorLabels(
@@ -602,17 +613,19 @@ export class FluvyGridCard extends Card<GridCardConfig> {
     const stats = this.todayStats(m);
     if (!stats.length) return nothing;
     const stack = w < STACK_BELOW;
-    const size = statsSize(this.head.ruler, w, stats, stack ? 1 : stats.length);
+    // as many columns as hold the widest label and figure (tr's "Net maliyet" on half a column takes two and one)
+    const columns = stack ? 1 : statsColumns(this.head.ruler, w, stats);
+    const size = statsSize(this.head.ruler, w, stats, columns);
     return this.cols(
       stats.map((stat) => readout({ ...stat, size })),
-      stats.length,
+      columns,
       w,
     );
   }
 
   private cols(items: readonly TemplateResult[], count: number, w: number): TemplateResult {
     return html`<div
-      class="ef-cols fv-cols ${w < STACK_BELOW ? 'ef-cols--stack' : ''}"
+      class="ef-cols fv-cols ${w < STACK_BELOW ? 'ef-cols--stack' : ''} ${items.length % count ? 'ef-cols--odd' : ''}"
       style="--cols:${count}"
       data-align="center"
     >

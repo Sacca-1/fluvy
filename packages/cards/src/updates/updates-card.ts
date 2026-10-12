@@ -106,7 +106,14 @@ export class FluvyUpdatesCard extends Card<UpdatesCardConfig> {
   ];
 
   /** A card of many updates has no entity of its own: its head's icon, tone and colour, and a hold on the head. */
-  static override base: readonly BaseKey[] = ['entities', 'icon', 'tone', 'color', 'hold_action'];
+  static override base: readonly BaseKey[] = [
+    'entities',
+    'icon',
+    'tone',
+    'color',
+    'card_color',
+    'hold_action',
+  ];
   static override keys = configKeys<UpdatesCardConfig>()([
     'title',
     'subtitle',
@@ -121,7 +128,7 @@ export class FluvyUpdatesCard extends Card<UpdatesCardConfig> {
       schema: [
         titleFields(),
         iconField(),
-        colourFields(),
+        ...colourFields(),
         boolField('show_up_to_date'),
         entitiesField('entities', ['update'], true),
         fieldRow(

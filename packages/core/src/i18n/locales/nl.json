@@ -416,6 +416,9 @@
     "live_update": "Bijwerken tijdens het slepen",
     "show_count": "Tonen hoeveel er aan zijn",
     "color": "Kleur",
+    "card_color": "Kaartkleur",
+    "show_color": "Kleur tonen",
+    "colors": "Snelle kleuren",
     "color_help": "Een kleur van het palet, of typ een #rrggbb",
     "show_tilt": "Kanteling tonen",
     "show_favorites": "Favorieten tonen",
@@ -464,10 +467,14 @@
     "camera_view": "Beeld",
     "aspect_ratio": "Beeldverhouding",
     "fit_mode": "Passend maken",
+    "chart_label": "Naam in de grafiek",
+    "chart_label_helper": "Onder zijn meetwaarde wanneer andere sensoren de grafiek delen. Leeg: het woord van zijn meting, anders zijn naam zonder de titel.",
+    "extra_name_helper": "Onder zijn meetwaarde. Leeg: het woord van zijn meting, anders zijn naam zonder de titel.",
     "also_sensors": "Ook in de grafiek (maximaal 2)",
     "people": "Personen",
     "battery": "Telefoonbatterij",
-    "tint": "Kleur tonen"
+    "tint": "Kleur tonen",
+    "when_off": "Wanneer uit"
   },
   "strategy": {
     "home": "Thuis",
@@ -750,6 +757,7 @@
     "self_powered": "{percent} % zelfvoorzienend",
     "import_export": "Afname + teruglevering",
     "unavailable_since": "{name} niet beschikbaar sinds {time}",
+    "since_time": "sinds {time}",
     "updated": "Bijgewerkt {when}",
     "rest_of_house": "Rest van het huis",
     "share_of_house": "{percent} % van het huis",
@@ -1386,7 +1394,16 @@
     "contain": "Hele beeld",
     "on": "Als aan",
     "camera": "Camera",
-    "preview": "Voorbeeld"
+    "preview": "Voorbeeld",
+    "essentials": "De essentie",
+    "red": "Rood",
+    "orange": "Oranje",
+    "yellow": "Geel",
+    "green": "Groen",
+    "blue": "Blauw",
+    "purple": "Paars",
+    "pink": "Roze",
+    "picker": "Kleurkiezer"
   },
   "tone": {
     "accent": "Accent",

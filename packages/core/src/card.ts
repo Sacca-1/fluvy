@@ -25,6 +25,8 @@ export interface FluvyCardConfig extends LovelaceCardConfig {
   icon?: string;
   tone?: Tone;
   color?: string;
+  /** The card's own surface: a quiet wash of this colour as its fill, its edge and dividers in the colour (1.7). */
+  card_color?: string;
   tap_action?: ActionConfig;
   hold_action?: ActionConfig;
 }
@@ -266,6 +268,7 @@ export abstract class FluvyCard<C extends FluvyCardConfig = FluvyCardConfig>
   protected override updated(changed: PropertyValues): void {
     super.updated(changed);
     this.accents.host(this.config?.color);
+    this.accents.surface(this.config?.card_color);
     this.accents.commit();
   }
 

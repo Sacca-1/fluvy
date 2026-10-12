@@ -50,7 +50,7 @@ import type { FluvyKeypad, KeypadAction } from './keypad.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 import { configKeys, ITEM_ALIASES, type AliasSpec } from '../shared/config.js';
 import { chipRow, fitsOneRow } from '../shared/chips.js';
-import { optionColumnsFor } from '../shared/options.js';
+import { optionCell, optionColumnsFor, optionsHold, valuesHold } from '../shared/options.js';
 import { TextRuler } from '../shared/fit.js';
 import { FontsSettled } from '../shared/fonts.js';
 import { alarmHeight } from '../devices-family.js';
@@ -260,7 +260,7 @@ export class FluvyAlarmCard extends RowsCard<AlarmCardConfig> {
         },
         boolField('show_rows'),
         entitiesField('rows'),
-        colourFields(),
+        ...colourFields(),
         actionFields(),
       ],
       ...formLabels({}),
@@ -484,10 +484,27 @@ export class FluvyAlarmCard extends RowsCard<AlarmCardConfig> {
     );
     const gap = this.tileGap(this.contentWidth, columns);
     const narrow = (this.contentWidth - (columns - 1) * gap) / columns < 104;
+    // tiles only while every mode's word holds its cell (fr's "Personnalisé" in a 211 column does not): else the
+    // compact layout's chips, which give way in their order and never cut a word
+    const tiled = optionsHold(
+      modes.map((mode) => s(this.hass, mode.tile)),
+      this.contentWidth,
+      (n) => this.tileGap(this.contentWidth, n),
+      (text) => this.ruler.width('fv-option__label', text),
+    );
+    // the modes' meanings under their names: every tile's or none — not in a narrow cell, nor where a word of one
+    // would be cut (nl's "Overbrugging" in a 266 column)
+    const described =
+      !narrow &&
+      valuesHold(
+        modes.map((mode) => s(this.hass, mode.value)),
+        optionCell(this.contentWidth, gap, columns),
+        (text) => this.ruler.width('fv-option__value', text),
+      );
     const tiles: OptionItem[] = modes.map((mode) => ({
       key: mode.key,
       label: s(this.hass, mode.tile),
-      value: narrow ? '' : s(this.hass, mode.value),
+      value: described ? s(this.hass, mode.value) : '',
       glyph: mode.glyph,
       tone: mode.bit === 0 ? 'neutral' : alerting && !this.pending_ ? 'warning' : 'accent',
       active: !unusable && lit === mode.state,
@@ -531,7 +548,26 @@ export class FluvyAlarmCard extends RowsCard<AlarmCardConfig> {
                 )}
               </div>`
             : html`${label(s(this.hass, 'mode'))}
-              ${options(tiles, unusable ? null : (key) => this.choose(view, key), gap, narrow ? 64 : 84, columns)}
+              ${
+                tiled
+                  ? options(
+                      tiles,
+                      unusable ? null : (key) => this.choose(view, key),
+                      gap,
+                      narrow ? 64 : 84,
+                      columns,
+                    )
+                  : html`<div class="dv-alarm__row">
+                      ${chipRow(
+                        this.chips(tiles),
+                        (key) => {
+                          if (!unusable) this.choose(view, key);
+                        },
+                        'full',
+                        { ruler: this.ruler, width: this.contentWidth },
+                      )}
+                    </div>`
+              }
               ${this.renderRows()}`
         }
       </article>

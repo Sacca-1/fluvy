@@ -222,7 +222,7 @@ export class FluvyTodoCard extends Card<TodoCardConfig> {
         entityField(['todo']),
         fieldRow(textField('name'), textField('subtitle')),
         iconField(),
-        colourFields(),
+        ...colourFields(),
         fieldRow(boolField('show_completed'), boolField('show_add')),
         boolField('show_due'),
         actionFields(),

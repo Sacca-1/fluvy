@@ -142,6 +142,7 @@ export class FluvySceneCard extends Card<SceneCardConfig> {
     'icon',
     'tone',
     'color',
+    'card_color',
     'hold_action',
   ];
   static override keys = configKeys<SceneCardConfig>()(['subtitle', 'show_subtitle']);
@@ -154,7 +155,7 @@ export class FluvySceneCard extends Card<SceneCardConfig> {
         entityField(DOMAINS),
         nameIconFields(),
         fieldRow(textField('subtitle'), boolField('show_subtitle')),
-        colourFields(),
+        ...colourFields(),
         actionField('hold_action'),
       ],
       ...formLabels({}),

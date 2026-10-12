@@ -304,6 +304,24 @@ export class FluvyKeypad extends LitElement {
     const dialog = this.renderRoot.querySelector('dialog');
     if (dialog && !dialog.open && this.request_ && !this.leaving_) dialog.showModal();
     if (changed.has('request_') || changed.has('hass')) this.fitPair();
+    this.fitSub();
+  }
+
+  /**
+   * The head's line gives way from its end ("Enter your code · 29 s" keeps "Enter your code" in a 211 column): the
+   * segments after the first go, one at a time, until the line holds — never a word cut.
+   */
+  private fitSub(): void {
+    const line = this.renderRoot.querySelector<HTMLElement>('.fv-sheet__head .fv-card__sub');
+    if (!line) return;
+    const full = line.textContent ?? '';
+    let text = full;
+    while (line.scrollWidth > line.clientWidth && text.includes(' · ')) {
+      text = text.slice(0, text.lastIndexOf(' · '));
+      line.textContent = text;
+    }
+    if (text !== full) line.setAttribute('aria-label', full);
+    else line.removeAttribute('aria-label');
   }
 
   /**

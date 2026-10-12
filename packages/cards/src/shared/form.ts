@@ -17,6 +17,7 @@ export const SHARED_LABELS: Readonly<Record<string, MessageKey>> = {
   icon: 'editor.icon',
   tone: 'editor.tone',
   color: 'editor.color',
+  card_color: 'editor.card_color',
   entity: 'editor.entity',
   entities: 'editor.entities',
   name: 'editor.name',
@@ -148,14 +149,24 @@ export const selectField = (
 /**
  * An ordered subset of named choices (a compact row's `controls`): Home Assistant's select as chips that are
  * dragged into order, with a box to add the rest. The dropdown mode is asked for: with fewer than six choices the
- * selector would draw check boxes, which keep no order.
+ * selector would draw check boxes, which keep no order. `custom` lets a value of the person's own be typed as well
+ * (a light's quick colour as `#rrggbb`).
  */
 export const orderedField = (
   name: string,
   options: ReadonlyArray<{ readonly value: string; readonly label: string }>,
+  { custom = false }: { custom?: boolean } = {},
 ): HaFormSchemaItem => ({
   name,
-  selector: { select: { multiple: true, reorder: true, mode: 'dropdown', options: [...options] } },
+  selector: {
+    select: {
+      multiple: true,
+      reorder: true,
+      mode: 'dropdown',
+      ...(custom ? { custom_value: true } : {}),
+      options: [...options],
+    },
+  },
 });
 
 export const actionField = (name = 'tap_action'): HaFormSchemaItem => ({
@@ -203,16 +214,22 @@ export const toneField = (): HaFormSchemaItem => ({ name: 'tone', selector: tone
  * A card's or an item's own colour: Home Assistant's colour picker — its named swatches, shown in the palette's
  * colours where the look reaches the editor, or any hex typed — with the palette's accent as its default.
  */
-export const accentField = (name = 'color'): HaFormSchemaItem => ({
+export const accentField = (name = 'color', { none = false } = {}): HaFormSchemaItem => ({
   name,
-  selector: { ui_color: { default_color: 'primary', include_none: false, include_state: false } },
+  selector: { ui_color: { default_color: 'primary', include_none: none, include_state: false } },
 });
 
-/** A tone and a colour, on one row. */
-export const colourFields = (): HaFormSchemaItem => fieldRow(toneField(), accentField());
+/** A tone and a colour on one row, then the card's own surface colour (`card_color`, none by default). */
+export const colourFields = (): HaFormSchemaItem[] => [
+  fieldRow(toneField(), accentField()),
+  accentField('card_color', { none: true }),
+];
 
 /** When an item's colour shows on its surface: while it is on (the default), or always (a quiet wash at rest). */
 export const tintField = (): HaFormSchemaItem => selectField('tint', ['on', 'always']);
+
+/** What a device card shows while the device is off: everything (the default), or the essentials alone. */
+export const whenOffField = (): HaFormSchemaItem => selectField('when_off', ['all', 'essentials']);
 
 /** A card's head: its title and its subtitle, on one row. */
 export const titleFields = (): HaFormSchemaItem =>

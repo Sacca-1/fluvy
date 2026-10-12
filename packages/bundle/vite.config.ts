@@ -89,6 +89,9 @@ const MEDIA = /\/packages\/cards\/src\/(media-cards\.ts|media\/|now-playing\/|sh
 const DEVICES =
   /\/packages\/cards\/src\/(devices-cards\.ts|camera\/|alarm\/|lock\/lock-card\.ts|printer\/)/;
 
+/** The light card's colour controls (the quick colours' table and row, the hue maths): fetched by the first colour bulb drawn. */
+const LIGHT_COLOUR = /\/packages\/cards\/src\/light\/colour\.ts/;
+
 /** The icons a view's name says, for a tab row asked for icons whose views have none: fetched the first time it is. */
 const VIEW_ICONS = /\/packages\/core\/src\/look\/view-icons\.ts/;
 
@@ -119,6 +122,7 @@ const GROUPS: ReadonlyArray<{
   { name: 'media', test: MEDIA },
   { name: 'energy', test: ENERGY },
   { name: 'devices', test: DEVICES },
+  { name: 'light-colour', test: LIGHT_COLOUR },
   { name: 'editor', test: EDITOR },
   { name: 'view-icons', test: VIEW_ICONS },
   { name: 'core', test: (id) => !id.includes('/packages/bundle/src/') },

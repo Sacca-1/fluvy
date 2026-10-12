@@ -383,7 +383,8 @@ export interface ChargePoint {
 }
 
 /**
- * The state of charge as a line on its own scale, 100 % at `top` and 0 % at `bottom`, split where it was not read
+ * The state of charge as a line on its own scale, 100 % at `top` and 0 % at `bottom` (the overview gives it the kW
+ * zero line, so a low battery never shows under it), split where it was not read
  * (`step`: one reading's spacing as a fraction of the day).
  */
 export function chargeLine(

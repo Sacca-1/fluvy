@@ -113,7 +113,14 @@ export class FluvyBatteriesCard extends Card<BatteriesCardConfig> {
   ];
 
   /** A group of batteries has no entity of its own: its head's icon, tone and colour, and its actions on the head. */
-  static override base: readonly BaseKey[] = ['icon', 'tone', 'color', 'tap_action', 'hold_action'];
+  static override base: readonly BaseKey[] = [
+    'icon',
+    'tone',
+    'color',
+    'card_color',
+    'tap_action',
+    'hold_action',
+  ];
   static override keys = configKeys<BatteriesCardConfig>()([
     'title',
     'subtitle',
@@ -158,7 +165,7 @@ export class FluvyBatteriesCard extends Card<BatteriesCardConfig> {
         titleFields(),
         fieldRow(iconField(), numberField('reserve', 0, 100, 1)),
         entityField(['select', 'input_select'], 'mode', false),
-        colourFields(),
+        ...colourFields(),
         actionFields(),
       ],
       ...editorLabels(s, { reserve: 'editor_reserve', mode: 'editor_mode' }),

@@ -160,8 +160,14 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
       .ef-meter__bars {
         min-width: 0;
       }
+      /* one line, fitted in segments; a trouble word longer than its box (fr's "Pas encore de statistiques" by a
+         pixel at 412) ends in an ellipsis rather than leave the card, its whole text in the title */
       .ef-meter__note {
+        display: block;
+        max-width: 100%;
         white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       /* too narrow for the bar beside the figure: under it */
       .ef-meter--stack {
@@ -180,7 +186,14 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
   ];
 
   /** A card of several sensors has no entity of its own: its head's icon, tone and colour, and its actions on the head. */
-  static override base: readonly BaseKey[] = ['icon', 'tone', 'color', 'tap_action', 'hold_action'];
+  static override base: readonly BaseKey[] = [
+    'icon',
+    'tone',
+    'color',
+    'card_color',
+    'tap_action',
+    'hold_action',
+  ];
   static override keys = configKeys<MetersCardConfig>()([
     'title',
     'subtitle',
@@ -225,7 +238,7 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
       schema: [
         titleFields(),
         fieldRow(iconField(), selectField('variant', METERS_VARIANTS)),
-        colourFields(),
+        ...colourFields(),
         actionFields(),
       ],
       ...editorLabels(s, {}),
@@ -527,7 +540,9 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
     const measured = this.head.ruler.width('fv-readout__value', value, 'fv-unit', unit);
     const figure = Math.max(FIGURE_MIN, Math.ceil(measured / 4) * 4);
     const stacked = w - figure - GAP < BARS_MIN;
-    const room = stacked ? w : w - figure - GAP;
+    // one under: the figure's width is rounded up to the 4 grid, the note's measure is not (fr's "Pas encore de
+    // statistiques" left its box by a pixel at 412)
+    const room = (stacked ? w : w - figure - GAP) - 1;
     const note = this.note(m, room);
     const bar = m.typical !== null && !m.trouble;
     const open = (): void => this.tap(m.id, { action: 'more-info' });
@@ -553,7 +568,7 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
               ></span>`
             : nothing
         }
-        ${note ? html`<span class="ef-meter__note">${note}</span>` : nothing}
+        ${note ? html`<span class="ef-meter__note" data-name title=${note}>${note}</span>` : nothing}
       </div>
     </div>`;
   }

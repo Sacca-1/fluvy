@@ -200,6 +200,35 @@ const open = (sheet, options) => suite.sheet(sheet, options);
     c.length === 1 && c[0].s === 'humidifier.turn_off',
     JSON.stringify(c),
   );
+  await reset(page);
+
+  // off: the default keeps presets and fan speeds; `when_off: essentials` keeps the modes alone, and a mode tapped
+  // brings the chips back before Home Assistant answers
+  check(
+    'thermostat: off with the default when_off keeps its preset and fan chips',
+    (await frame(page, 'Off · presets and fan')
+      .locator('fluvy-thermostat-card')
+      .locator('.fv-chips')
+      .count()) === 2,
+  );
+  const standby = frame(page, 'Off · essentials').locator('fluvy-thermostat-card');
+  check(
+    'thermostat: off with when_off: essentials shows its three modes and no chips',
+    (await standby.locator('.fv-chips').count()) === 0 &&
+      (await standby.locator('.fv-option').count()) === 3,
+  );
+  await standby.locator('.fv-option').nth(1).click(); // Heat
+  check(
+    '…tapping Heat shows the preset and fan chips at once',
+    (await standby.locator('.fv-chips').count()) === 2,
+  );
+  await settle(page, 300);
+  c = await calls(page);
+  check(
+    '…and one set_hvac_mode goes out',
+    c.length === 1 && c[0].s === 'climate.set_hvac_mode' && c[0].d.hvac_mode === 'heat',
+    JSON.stringify(c),
+  );
   await page.close();
 }
 
@@ -470,6 +499,29 @@ const open = (sheet, options) => suite.sheet(sheet, options);
     labels.join(' ') === 'Off Low Mid High',
     labels.join(' '),
   );
+
+  // off with `when_off: essentials`: the switch and the ruler alone; the switch brings the rows and the chips back at once
+  const bare = frame(page, 'Fan · off, essentials').locator('fluvy-fan-card');
+  check(
+    'fan: off with when_off: essentials shows neither rows nor chips, its switch off',
+    (await bare.locator('.dv-rows').count()) === 0 &&
+      (await bare.locator('.fv-chips').count()) === 0 &&
+      (await bare.locator('.fv-card__head .fv-switch').getAttribute('aria-checked')) === 'false',
+  );
+  await bare.locator('.fv-card__head .fv-hit').click();
+  check(
+    '…the head switch brings the two rows and the preset chips back at once',
+    (await bare.locator('.dv-rows .fv-row').count()) === 2 &&
+      (await bare.locator('.fv-chips').count()) === 1,
+  );
+  await settle(page, 300);
+  c = await calls(page);
+  check(
+    '…and sends one turn_on',
+    c.length === 1 && c[0].s === 'fan.turn_on',
+    JSON.stringify(c.map((x) => x.s)),
+  );
+  await reset(page);
 
   const bedroom = frame(page, 'Fan · off, presets').locator('fluvy-fan-card');
   await bedroom.locator('.fv-chip').nth(2).click();

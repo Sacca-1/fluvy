@@ -42,6 +42,7 @@ import {
   nameIconFields,
   selectField,
   textField,
+  whenOffField,
 } from '../shared/form.js';
 import {
   Burst,
@@ -51,7 +52,7 @@ import {
   releasePresses,
   StableTemplate,
 } from '../cover/common.js';
-import { configKeys, type RowStyle } from '../shared/config.js';
+import { configKeys, type RowStyle, type WhenOff } from '../shared/config.js';
 import { chipRow } from '../shared/chips.js';
 import { HeadFit, SWITCH_SLOT } from '../energy/head.js';
 import { COMPACT } from '../shared/heights.js';
@@ -70,6 +71,8 @@ export interface FanCardConfig extends FluvyCardConfig {
   preset_style?: RowStyle;
   show_oscillation?: boolean;
   show_direction?: boolean;
+  /** While the fan is off: everything (default), or `essentials` — the switch and the speed ruler; presets, oscillation and direction wait for it to run. */
+  when_off?: WhenOff;
 }
 
 /* fan supported_features */
@@ -94,7 +97,10 @@ function speedCount(view: EntityView): number {
  * percentage sent is the one Home Assistant maps back onto that speed. The head glyph turns while it runs.
  */
 export class FluvyFanCard extends Card<FanCardConfig> {
-  /** The card's height at a 360 column, for the automatic dashboard's columns. */
+  /**
+   * The card's height at a 360 column, for the automatic dashboard's columns. Read from the config alone: a card
+   * that keeps to the essentials while off is reserved its height when on.
+   */
   static override layoutHeight(config: FanCardConfig): number {
     return config.variant === 'compact' ? COMPACT : 364;
   }
@@ -185,6 +191,7 @@ export class FluvyFanCard extends Card<FanCardConfig> {
     'preset_style',
     'show_oscillation',
     'show_direction',
+    'when_off',
   ]);
   /** What the editor shows where the config says nothing: what the card does then. */
   static override defaults: EditorDefaults = () => ({
@@ -193,6 +200,7 @@ export class FluvyFanCard extends Card<FanCardConfig> {
     show_presets: true,
     show_oscillation: true,
     show_direction: true,
+    when_off: 'all',
   });
   static override getConfigForm(): LovelaceConfigForm {
     return {
@@ -202,7 +210,8 @@ export class FluvyFanCard extends Card<FanCardConfig> {
         fieldRow(textField('subtitle'), selectField('variant', ['full', 'compact'])),
         fieldRow(boolField('show_presets'), selectField('preset_style', ['full', 'chips'])),
         fieldRow(boolField('show_oscillation'), boolField('show_direction')),
-        colourFields(),
+        whenOffField(),
+        ...colourFields(),
         actionFields(),
       ],
       ...formLabels({
@@ -357,12 +366,16 @@ export class FluvyFanCard extends Card<FanCardConfig> {
 
     const unusable = !isUsable(view);
     const compact = this.compact;
-    const on = this.stateOf(view) === 'on';
+    const state = this.stateOf(view);
+    const on = state === 'on';
     const count = speedCount(view);
     const step = 100 / count;
     const speed = this.speedOf(view, on);
     const figure = this.dragged ?? speed;
     const tone: Tone = unusable ? 'off' : on ? 'fan' : 'neutral';
+    // the compact card is the head and the ruler; so is the full one while off with `when_off: essentials` —
+    // presets, oscillation and direction wait for the fan to run
+    const bare = compact || (state === 'off' && this.config?.when_off === 'essentials');
 
     const oscillating = this.oscillatingHold.read(
       view.attr<boolean | null>('oscillating') === true,
@@ -382,13 +395,13 @@ export class FluvyFanCard extends Card<FanCardConfig> {
       active: !unusable && item === preset,
     }));
     const showPresets =
-      !compact &&
+      !bare &&
       chipItems.length > 0 &&
       view.supports(PRESET_MODE) &&
       this.config?.show_presets !== false;
 
     const rows: TemplateResult[] = [];
-    if (!compact && view.supports(OSCILLATE) && this.config?.show_oscillation !== false) {
+    if (!bare && view.supports(OSCILLATE) && this.config?.show_oscillation !== false) {
       rows.push(
         listRow({
           icon: 'swing',
@@ -406,7 +419,7 @@ export class FluvyFanCard extends Card<FanCardConfig> {
         }),
       );
     }
-    if (!compact && view.supports(DIRECTION) && this.config?.show_direction !== false) {
+    if (!bare && view.supports(DIRECTION) && this.config?.show_direction !== false) {
       rows.push(
         listRow({
           icon: 'auto',

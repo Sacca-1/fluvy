@@ -28,8 +28,8 @@ import {
 } from '@fluvy/ui';
 import { css, html, nothing, svg, type CSSResultGroup, type TemplateResult } from 'lit';
 
-import { cameraStream, type StreamElement } from '../camera/camera-card.js';
-import { actionGap, sharedGap } from '../cover/common.js';
+import { StreamHolder } from '../camera/stream.js';
+import { sharedGap } from '../cover/common.js';
 import { CAMERA_RATIOS, cameraRatio, plateHeight, printerHeight } from '../devices-family.js';
 import { HeadFit } from '../energy/head.js';
 import { Card, type BaseKey } from '../shared/base.js';
@@ -56,6 +56,7 @@ import {
   PRINTER_PLATFORMS,
   PRINTER_ROLES,
   printerDevice,
+  printerDevices,
   printerEntities,
   printerTrays,
   type PrinterEntities,
@@ -63,6 +64,7 @@ import {
 } from './roles.js';
 import {
   busy,
+  clockSeconds,
   durationSeconds,
   elapsedSeconds,
   finishedAt,
@@ -116,7 +118,7 @@ export interface PrinterCardConfig extends FluvyCardConfig {
   /** The picture's shape (16:9 by default) and fit, as the camera card's; never taller than 360. */
   aspect_ratio?: string;
   fit_mode?: 'cover' | 'contain';
-  /** The filament unit's trays (Bambu Lab's AMS): the filament each holds, the one in use marked. */
+  /** The filament unit's trays (Bambu Lab's AMS, Creality's CFS, Anycubic's ACE): the filament each holds, the one in use marked. */
   show_filament?: boolean;
   /** Pause / resume, stop and the light (`full`); pause or resume in the row (`row`). */
   show_controls?: boolean;
@@ -133,6 +135,8 @@ const MOST_READOUTS = 6;
 /** A still from the printer's camera while it prints (a job moves slowly), and while it rests. */
 const STILL_BUSY = 5_000;
 const STILL_IDLE = 30_000;
+/** A still that has not answered after this long no longer holds the next one back. */
+const STALL_MS = 30_000;
 /** The tallest a picture grows on a wide card. */
 const PLATE_CAP = 360;
 /**
@@ -187,6 +191,16 @@ interface Stat {
 
 /** A swatch before a filament's type: its 12 and its 6. */
 const SWATCH = 18;
+/** The narrowest gap the trays' row and the buttons' share: what the trays' columns are decided at. */
+const TRAY_GAP = 8;
+
+/** How the filament unit's trays are laid out, and whether a given gap still holds them. */
+interface TrayLayout {
+  readonly columns: number;
+  /** The swatches alone, their types as titles: the names would not fit two a row. */
+  readonly bare: boolean;
+  readonly holds: (gap: number) => boolean;
+}
 
 /** What `renderCard` reads once and the variants draw. */
 interface Reading {
@@ -226,11 +240,33 @@ const filamentColour = (value: unknown): string | null =>
     ? `#${value.replace('#', '').slice(0, 6)}`
     : null;
 
+/** What a filament sensor says where it says nothing: no type, no spool. */
+const NO_FILAMENT = /^(unknown|none|-|empty)$/i;
+
+/**
+ * A filament's type from the first of its words that says one — the attributes the integrations use (Bambu Lab's and
+ * Creality's `type`, Anycubic's `material`, a tray's `name`), then the sensor's own state — '' where none does.
+ */
+function filamentType(words: readonly unknown[]): string {
+  for (const word of words)
+    if (typeof word === 'string' && word.trim() && !NO_FILAMENT.test(word.trim()))
+      return word.trim();
+  return '';
+}
+
+/** A filament's swatch: its colour as the integrations name it (`color`, Creality's `color_hex`). */
+const filamentSwatch = (v: EntityView): string | null =>
+  filamentColour(v.attr('color') ?? v.attr('color_hex'));
+
+/** What a status or an error says where there is no failure. */
+const NO_FAILURE = /^(unknown|none|ok|no error|0)$/i;
+
 /**
  * A 3D printer: the job it prints and how far it is, when it will be done and how long it has run, its heaters,
  * layers, speed and filament, the camera or the job's preview, and the buttons to pause, resume and stop it (stop asks
  * first, in Home Assistant's own dialog). Given its device (or any of its entities) it finds the rest: OctoPrint,
- * PrusaLink, Bambu Lab (with its filament unit's trays) and Moonraker by their own words, any other by `roles`.
+ * PrusaLink, Bambu Lab, Moonraker, Creality, Elegoo, Anycubic, Snapmaker and FlashForge by their own words (with
+ * the trays of a filament unit — an AMS, a CFS, an ACE), any other by what it has and by `roles`.
  */
 export class FluvyPrinterCard extends Card<PrinterCardConfig> {
   /** The card's height at a 360 column, for the automatic dashboard's columns. */
@@ -339,8 +375,11 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
       .pr-stat {
         display: flex;
         justify-content: center;
+        align-items: center;
         flex: 0 0 calc((100% - 16px * (var(--pr-cols, 3) - 1)) / var(--pr-cols, 3));
         min-width: 0;
+        /* a readout that opens its entity is a target: 44 tall whatever its size */
+        min-height: 44px;
         border-radius: var(--fluvy-radius-control);
         cursor: pointer;
       }
@@ -475,21 +514,23 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
   private readonly frames = new Crossfade(
     this,
     () => {
-      this.inFlight = false;
+      this.inFlight = 0;
       this.stamp_ = Date.now();
     },
     () => {
-      this.inFlight = false;
+      this.inFlight = 0;
     },
   );
   private timer = 0;
   private period = 0;
-  private inFlight = false;
+  /** When the still in flight was asked for (0: none). */
+  private inFlight = 0;
   /** The job's preview last fetched (its picture's path): fetched again only when it changes. */
   private previewPath = '';
-  /** Home Assistant's stream element, made once when the card asks for it live. */
-  private stream: StreamElement | undefined;
-  private streamReady = false;
+  /** Home Assistant's stream, held as the camera card holds its own: one element, kept while the card is near. */
+  private readonly holder = new StreamHolder(this, () => this.sync());
+  /** Whether the last render drew the stream. */
+  private shownStream = false;
   /** Whether each heater reads "now / target": kept between renders so a reading near its target does not flicker. */
   private readonly heating = new Map<'nozzle' | 'bed', boolean>();
   /** The device, its roles and its trays, found once per registry and config: the search walks every entity. */
@@ -506,6 +547,7 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
     'name',
     'icon',
     'color',
+    'card_color',
     'tap_action',
     'hold_action',
   ];
@@ -578,6 +620,7 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
         selectField('aspect_ratio', CAMERA_RATIOS),
         fieldRow(boolField('show_filament'), boolField('show_controls')),
         accentField(),
+        accentField('card_color', { none: true }),
         actionFields(),
       ],
       ...editorLabels(
@@ -594,14 +637,10 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
     };
   }
 
+  /** A new card takes the house's first printer: a device with a job, never the filament unit hung on one. */
   static getStubConfig(hass: HomeAssistant | undefined): PrinterCardConfig {
-    const entry = Object.values(hass?.entities ?? {}).find((e) =>
-      (PRINTER_PLATFORMS as readonly string[]).includes(e.platform ?? ''),
-    );
-    return {
-      type: 'custom:fluvy-printer-card',
-      ...(entry?.device_id ? { device: entry.device_id } : {}),
-    };
+    const [device] = printerDevices(hass);
+    return { type: 'custom:fluvy-printer-card', ...(device ? { device } : {}) };
   }
 
   override getCardSize(): number {
@@ -677,6 +716,16 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
     return Number.isFinite(at) ? at : null;
   }
 
+  /**
+   * A duration a role holds, in seconds: a figure in its sensor's unit (Bambu Lab's and Anycubic's minutes, Elegoo's
+   * milliseconds, seconds elsewhere), else a clock's "01:02:03" (the older Snapmaker's); null when unknown.
+   */
+  private seconds(role: 'remaining' | 'elapsed'): number | null {
+    const v = this.view(role);
+    if (!v || v.status !== 'ok') return null;
+    return durationSeconds(v.number, v.unit) ?? clockSeconds(v.state);
+  }
+
   private figure(n: number): string {
     return formatNumber(this.hass, n, { digits: 0 });
   }
@@ -727,7 +776,7 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
       picture !== null &&
       !picture.preview &&
       picture.view.domain === 'camera' &&
-      this.streamReady
+      this.holder.playing
     );
   }
 
@@ -758,6 +807,12 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
    */
   private sync(): void {
     const picture = this.picture();
+    // the stream comes and goes with the screen, which is not the card's state: draw it again
+    const streaming = this.streaming;
+    if (streaming !== this.shownStream) {
+      this.shownStream = streaming;
+      this.requestUpdate();
+    }
     if (picture?.preview) {
       window.clearInterval(this.timer);
       this.timer = 0;
@@ -768,14 +823,9 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
       return;
     }
     this.previewPath = '';
-    if (this.config?.camera_view === 'live' && picture && !picture.preview && !this.streamReady)
-      void cameraStream(picture.view.id).then((ready) => {
-        if (ready && !this.streamReady) {
-          this.streamReady = true;
-          this.requestUpdate();
-        }
-      });
-    const period = !picture || this.streaming ? 0 : busy(this.phase()) ? STILL_BUSY : STILL_IDLE;
+    if (this.config?.camera_view === 'live' && picture && picture.view.domain === 'camera')
+      this.holder.ask(picture.view.id);
+    const period = !picture || streaming ? 0 : busy(this.phase()) ? STILL_BUSY : STILL_IDLE;
     if (period === this.period) return;
     window.clearInterval(this.timer);
     this.timer = 0;
@@ -790,8 +840,10 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
   private pull(): boolean {
     const picture = this.picture();
     const path = picture?.view.attr<string | null>('entity_picture');
-    if (!this.hass || !path || this.inFlight || document.visibilityState === 'hidden') return false;
-    this.inFlight = true;
+    if (!this.hass || !path || document.visibilityState === 'hidden') return false;
+    const now = Date.now();
+    if (this.inFlight && now - this.inFlight < STALL_MS) return false;
+    this.inFlight = now;
     const base = this.hass.hassUrl(path);
     const width = Math.ceil(this.contentWidth * (window.devicePixelRatio || 1));
     this.frames.show(
@@ -804,6 +856,15 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
 
   protected override willUpdate(changed: Map<PropertyKey, unknown>): void {
     super.willUpdate(changed);
+    // another printer, or stills instead of the stream: the stream goes, and its session with it
+    const previous = changed.get('config') as PrinterCardConfig | undefined;
+    if (
+      previous &&
+      (previous.camera_view !== this.config?.camera_view ||
+        previous.device !== this.config?.device ||
+        previous.entity !== this.config?.entity)
+    )
+      this.holder.teardown();
     if (changed.has('hass') || changed.has('config')) this.sync();
   }
 
@@ -850,13 +911,24 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
     };
   }
 
-  /** The filament printing now: its type ("PLA"), with its colour where the integration gives one. */
+  /**
+   * The filament printing now: its type ("PLA"), with its colour where the integration gives one — by its attributes,
+   * else by its state (FlashForge's type; Elegoo's state is the colour itself, a swatch and no type).
+   */
   private filament(): Stat | null {
     const v = this.view('filament');
     if (!v) return null;
-    const type = v.attr<string | null>('type') ?? (v.status === 'ok' ? v.state : '');
-    const value = v.status === 'ok' && type ? type : '—';
-    const swatch = filamentColour(v.attr('color'));
+    const state = v.status === 'ok' ? v.state : '';
+    const stated = filamentColour(state);
+    const type = filamentType([
+      v.attr('type'),
+      v.attr('filament'),
+      v.attr('material'),
+      v.attr('name'),
+      stated ? '' : state,
+    ]);
+    const value = type || '—';
+    const swatch = filamentSwatch(v) ?? stated;
     return {
       label: s(this.hass, 'filament'),
       value,
@@ -1024,24 +1096,44 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
   /** The filament unit's trays, in their order. */
   private trays(): Tray[] {
     if (this.config?.show_filament === false) return [];
-    return this.printer().trays.map((id) => {
-      const v = this.entity(id);
-      const type = v.attr<string | null>('type') ?? '';
-      const empty = v.attr<boolean | null>('empty') === true || (!type && v.status === 'ok');
-      return {
-        id,
-        type: empty ? s(this.hass, 'empty') : type || '—',
-        color: empty ? null : filamentColour(v.attr('color')),
-        active: v.attr<boolean | null>('active') === true,
-        empty,
-      };
-    });
+    return this.printer().trays.map((id) => this.trayOf(this.entity(id)));
   }
 
-  /** Why it failed, in the integration's words (Bambu Lab's error and HMS messages); '' when it says nothing. */
+  /**
+   * A tray as its sensor says it: what it holds (by the words the units use, else its state), its colour, whether it
+   * is the one printing (Bambu Lab's `active`, Creality's `selected`, Anycubic's `loaded`), whether it is empty (said
+   * so, or holding no type).
+   */
+  private trayOf(v: EntityView): Tray {
+    const type = filamentType([
+      v.attr('type'),
+      v.attr('filament'),
+      v.attr('material'),
+      v.attr('name'),
+      v.status === 'ok' ? v.state : '',
+    ]);
+    const empty = v.attr<boolean | null>('empty') === true || (!type && v.status === 'ok');
+    return {
+      id: v.id,
+      type: empty ? s(this.hass, 'empty') : type || '—',
+      color: empty ? null : filamentSwatch(v),
+      active: (v.attr('active') ?? v.attr('selected') ?? v.attr('loaded')) === true,
+      empty,
+    };
+  }
+
+  /**
+   * Why it failed, in the integration's words (Bambu Lab's error and HMS messages, FlashForge's code); where the
+   * printer has no error of its own, the code its status carries (Creality's); '' when it says nothing.
+   */
   private failure(): string {
     const v = this.view('error');
-    if (!v || v.status !== 'ok') return '';
+    if (!v) {
+      const code = this.view('status')?.attr<string | number | null>('error_code');
+      const text = code === undefined || code === null ? '' : String(code).trim();
+      return NO_FAILURE.test(text) ? '' : text;
+    }
+    if (v.status !== 'ok') return '';
     if (v.domain === 'binary_sensor') {
       if (v.state !== 'on') return '';
       for (const [key, value] of Object.entries(v.stateObj?.attributes ?? {}))
@@ -1054,7 +1146,7 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
           return value.replace(/^HMS_[0-9A-F_]+:\s*/i, '').trim();
       return '';
     }
-    return /^(unknown|none|ok|no error|0)$/i.test(v.state) ? '' : stateText(this.hass, v);
+    return NO_FAILURE.test(v.state) ? '' : stateText(this.hass, v);
   }
 
   /** While it prepares, the stage it is at ("Heatbed preheating"), as Home Assistant words it. */
@@ -1154,13 +1246,17 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
     return items;
   }
 
-  /** The action row: its cells on the gap the trays above it share. */
-  private controls(items: readonly TemplateResult[], gap: number): TemplateResult | typeof nothing {
+  /** The action row: its cells on the gap the trays above it share, `columns` a row. */
+  private controls(
+    items: readonly TemplateResult[],
+    gap: number,
+    columns: number,
+  ): TemplateResult | typeof nothing {
     if (!items.length) return nothing;
     return html`<div
       class="pr-actions"
       data-fill-row
-      style="--pr-actions:${items.length};--pr-gap:${gap}px"
+      style="--pr-actions:${columns};--pr-gap:${gap}px"
     >
       ${items}
     </div>`;
@@ -1175,11 +1271,20 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
     return entry?.name_by_user || entry?.name || this.view('status')?.name || s(this.hass, 'title');
   }
 
-  /** The job: its file's name without the slicer's extension ("benchy.gcode" → "benchy"). */
+  /**
+   * The job: its file's name without the slicer's extension ("benchy.gcode" → "benchy") — from the file sensor, else
+   * from the status's own attributes (Creality's); a "None" (FlashForge's at rest) is no job.
+   */
   private job(): string {
-    const v = this.view('file');
-    if (!v || v.status !== 'ok' || !v.state) return '';
-    return v.state.replace(/\.(gcode|bgcode|3mf|gco|g)$/i, '');
+    const file = this.view('file');
+    const status = this.view('status');
+    const name = file
+      ? file.status === 'ok'
+        ? file.state
+        : ''
+      : (status?.attr<unknown>('file') ?? status?.attr<unknown>('filename'));
+    if (typeof name !== 'string' || !name.trim() || /^(none|n\/a)$/i.test(name.trim())) return '';
+    return name.trim().replace(/\.(gcode|bgcode|3mf|gco|g)$/i, '');
   }
 
   protected renderCard(): TemplateResult {
@@ -1188,8 +1293,7 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
     const phase = this.phase();
     const status = this.view('status');
     const now = this.now();
-    const remaining = durationSeconds(this.number('remaining'), this.view('remaining')?.unit);
-    const time = timeLeft(remaining, this.moment('finish'), now);
+    const time = timeLeft(this.seconds('remaining'), this.moment('finish'), now);
     const changed = status?.stateObj ? Date.parse(status.stateObj.last_changed) : NaN;
     const reading: Reading = {
       title: this.printerName(),
@@ -1212,11 +1316,7 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
             ? time.at
             : null,
       elapsed: busy(phase)
-        ? elapsedSeconds(
-            durationSeconds(this.number('elapsed'), this.view('elapsed')?.unit),
-            this.moment('start'),
-            now,
-          )
+        ? elapsedSeconds(this.seconds('elapsed'), this.moment('start'), now)
         : null,
       failure: phase === 'error' ? this.failure() : '',
       unavailable: phase === 'offline',
@@ -1277,17 +1377,15 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
     // capped on a wide card, the picture keeps its shape: as wide as its height asks, centred on the page's fill
     const width = height === PLATE_CAP ? Math.round((PLATE_CAP * ratio) / 4) * 4 : 0;
     const contain = this.config?.fit_mode === 'contain';
-    let stream: StreamElement | undefined;
-    if (this.streaming) {
-      stream = this.stream ??= document.createElement('ha-camera-stream') as StreamElement;
-      stream.classList.add('pr-stream');
-      stream.hass = this.hass;
-      stream.stateObj = picture.view.stateObj;
-      stream.muted = true;
-      stream.controls = false;
-      stream.fitMode = contain ? 'contain' : 'cover';
-      stream.aspectRatio = ratio;
-    }
+    const stream = this.streaming
+      ? this.holder.draw({
+          hass: this.hass,
+          stateObj: picture.view.stateObj,
+          fitMode: contain ? 'contain' : 'cover',
+          aspectRatio: ratio,
+          className: 'pr-stream',
+        })
+      : undefined;
     return html`<div
       class="pr-plate dv-cam fv-plate ${picture.preview ? 'is-preview' : ''} ${
         contain ? 'is-contain' : ''
@@ -1402,13 +1500,18 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
     const items = compact || r.unavailable ? [] : this.actionItems(r.phase);
     // the trays over the buttons share one gap, 8 to 16 (never wider than the 16 between the two groups): both rows'
     // cells on whole pixels; 4 only where nothing wider keeps every cell 44 (three buttons in half a phone's column)
-    const layout = trays.length ? this.trayLayout(trays) : { columns: 0, bare: false };
-    const counts = [layout.columns, items.length].filter((n) => n > 0);
-    const touchable = (g: number): boolean =>
-      counts.every((n) => (this.contentWidth - g * (n - 1)) / n >= 44);
-    const wide = sharedGap(this.contentWidth, counts, [16, 12, 8]);
+    const layout: TrayLayout = trays.length
+      ? this.trayLayout(trays)
+      : { columns: 0, bare: false, holds: () => true };
+    // three buttons that would be under 44 even 4 apart (a card under 180) go two a row, the third under them
+    const cell = (g: number, n: number): number => (this.contentWidth - g * (n - 1)) / n;
+    const buttons = items.length === 3 && cell(4, 3) < 44 ? 2 : items.length;
+    const counts = [layout.columns, buttons].filter((n) => n > 0);
+    const touchable = (g: number): boolean => counts.every((n) => cell(g, n) >= 44);
+    // the trays' columns were decided at the narrowest gap: a wider one is taken only where they still hold
+    const wide = sharedGap(this.contentWidth, counts, [16, 12, 8].filter(layout.holds));
     const narrow = sharedGap(this.contentWidth, counts, [4]);
-    const gap = touchable(wide) ? wide : touchable(narrow) ? narrow : 4;
+    const gap = touchable(wide) && layout.holds(wide) ? wide : touchable(narrow) ? narrow : 4;
     return html`<article
       class="fv-card dv-card pr-card ${r.unavailable ? 'is-unavailable is-off' : ''}"
       data-card
@@ -1453,7 +1556,7 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
           : nothing
       }
       ${trays.length ? this.renderTrays(trays, layout, gap) : nothing}
-      ${compact || r.unavailable ? nothing : this.controls(items, gap)}
+      ${compact || r.unavailable ? nothing : this.controls(items, gap, buttons)}
     </article>`;
   }
 
@@ -1485,17 +1588,20 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
    * one; where not even two hold their words, the swatches alone (the type is each one's label and its tip), four
    * across where each cell keeps its 44, else two by two.
    */
-  private trayLayout(trays: readonly Tray[]): { columns: number; bare: boolean } {
+  private trayLayout(trays: readonly Tray[]): TrayLayout {
     const w = this.contentWidth;
     const widest = Math.max(...trays.map((tray) => this.head.ruler.width('pr-tray', tray.type)));
     const needs = widest + SWATCH + 16;
-    const fits = (n: number, room: number): boolean =>
-      n <= trays.length && (w - actionGap(w, n) * (n - 1)) / n >= room;
+    // decided at the narrowest gap the rows share (8), never at the gap a width happens to land on: the columns
+    // then only grow as the card widens (a 4 ↔ 2 flip between 380 and 404 was the gap's doing, not the room's)
+    const fits = (n: number, room: number, gap = TRAY_GAP): boolean =>
+      n <= trays.length && (w - gap * (n - 1)) / n >= room;
     const bare = !fits(2, needs);
+    const room = bare ? 44 : needs;
     const columns = bare
-      ? ([4, 2].find((n) => fits(n, 44)) ?? 2)
-      : ([4, 2, 1].find((n) => fits(n, needs)) ?? 1);
-    return { columns, bare };
+      ? ([4, 2].find((n) => fits(n, room)) ?? 2)
+      : ([4, 2, 1].find((n) => fits(n, room)) ?? 1);
+    return { columns, bare, holds: (gap) => fits(columns, room, gap) };
   }
 
   /**

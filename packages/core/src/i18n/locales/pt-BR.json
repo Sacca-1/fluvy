@@ -416,6 +416,9 @@
     "live_update": "Atualizar ao arrastar",
     "show_count": "Mostrar quantos estão ligados",
     "color": "Cor",
+    "card_color": "Cor do cartão",
+    "show_color": "Mostrar a cor",
+    "colors": "Cores rápidas",
     "color_help": "Uma cor da paleta, ou digite qualquer #rrggbb",
     "show_tilt": "Mostrar a inclinação",
     "show_favorites": "Mostrar os favoritos",
@@ -464,10 +467,14 @@
     "camera_view": "Imagem",
     "aspect_ratio": "Proporção",
     "fit_mode": "Ajuste",
+    "chart_label": "Nome no gráfico",
+    "chart_label_helper": "Sob sua leitura quando outros sensores compartilham o gráfico. Vazio: a palavra da sua medida, ou seu nome sem o título.",
+    "extra_name_helper": "Sob sua leitura. Vazio: a palavra da sua medida, ou seu nome sem o título.",
     "also_sensors": "Também no gráfico (até 2)",
     "people": "Pessoas",
     "battery": "Bateria do celular",
-    "tint": "Mostrar a cor"
+    "tint": "Mostrar a cor",
+    "when_off": "Quando desligado"
   },
   "strategy": {
     "home": "Início",
@@ -750,6 +757,7 @@
     "self_powered": "{percent} % autossuficiente",
     "import_export": "Importa + exporta",
     "unavailable_since": "{name} indisponível desde {time}",
+    "since_time": "desde {time}",
     "updated": "Atualizado {when}",
     "rest_of_house": "Resto da casa",
     "share_of_house": "{percent} % da casa",
@@ -1386,7 +1394,16 @@
     "contain": "Imagem inteira",
     "on": "Quando ligado",
     "camera": "Câmera",
-    "preview": "Prévia"
+    "preview": "Prévia",
+    "essentials": "O essencial",
+    "red": "Vermelho",
+    "orange": "Laranja",
+    "yellow": "Amarelo",
+    "green": "Verde",
+    "blue": "Azul",
+    "purple": "Roxo",
+    "pink": "Rosa",
+    "picker": "Seletor de cor"
   },
   "tone": {
     "accent": "Destaque",

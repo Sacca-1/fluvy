@@ -223,6 +223,7 @@ export class FluvyHelpersCard extends Card<HelpersCardConfig> {
     'icon',
     'tone',
     'color',
+    'card_color',
     'tap_action',
     'hold_action',
   ];
@@ -257,7 +258,7 @@ export class FluvyHelpersCard extends Card<HelpersCardConfig> {
       schema: [
         titleFields(),
         fieldRow(iconField(), selectField('options_style', ['full', 'chips'])),
-        colourFields(),
+        ...colourFields(),
         entitiesField('entities', undefined, true),
         actionFields(),
       ],

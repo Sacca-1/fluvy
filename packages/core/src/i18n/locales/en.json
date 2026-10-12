@@ -416,6 +416,9 @@
     "live_update": "Update while dragging",
     "show_count": "Show how many are on",
     "color": "Colour",
+    "card_color": "Card colour",
+    "show_color": "Show colour",
+    "colors": "Quick colours",
     "color_help": "A colour of the palette, or type any #rrggbb",
     "show_tilt": "Show tilt",
     "show_favorites": "Show favourites",
@@ -464,10 +467,14 @@
     "camera_view": "Picture",
     "aspect_ratio": "Shape",
     "fit_mode": "Fit",
+    "chart_label": "Name on the chart",
+    "chart_label_helper": "Under its readout when other sensors share the chart. Empty: its measure's word, or its name beyond the title.",
+    "extra_name_helper": "Under its readout. Empty: its measure's word, or its name beyond the title.",
     "also_sensors": "Also on the chart (up to 2)",
     "people": "People",
     "battery": "Phone battery",
-    "tint": "Show its colour"
+    "tint": "Show its colour",
+    "when_off": "When off"
   },
   "strategy": {
     "home": "Home",
@@ -750,6 +757,7 @@
     "self_powered": "{percent} % self-powered",
     "import_export": "Import + export",
     "unavailable_since": "{name} unavailable since {time}",
+    "since_time": "since {time}",
     "updated": "Updated {when}",
     "rest_of_house": "Rest of the house",
     "share_of_house": "{percent} % of the house",
@@ -1386,7 +1394,16 @@
     "contain": "Whole picture",
     "on": "When on",
     "camera": "Camera",
-    "preview": "Job preview"
+    "preview": "Job preview",
+    "essentials": "The essentials",
+    "red": "Red",
+    "orange": "Orange",
+    "yellow": "Yellow",
+    "green": "Green",
+    "blue": "Blue",
+    "purple": "Purple",
+    "pink": "Pink",
+    "picker": "Colour picker"
   },
   "tone": {
     "accent": "Accent",

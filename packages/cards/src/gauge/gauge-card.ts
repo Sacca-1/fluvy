@@ -211,7 +211,7 @@ export class FluvyGaugeCard extends Card<GaugeCardConfig> {
         entityField(['sensor', 'number', 'input_number', 'counter']),
         fieldRow(textField('name'), textField('subtitle')),
         fieldRow(iconField(), selectField('variant', GAUGE_VARIANTS)),
-        colourFields(),
+        ...colourFields(),
         fieldRow(
           numberField('min', -1_000_000, 1_000_000, 0.1),
           numberField('max', -1_000_000, 1_000_000, 0.1),

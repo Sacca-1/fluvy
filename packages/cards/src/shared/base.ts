@@ -21,6 +21,7 @@ export const ENTITY_BASE: readonly BaseKey[] = [
   'hold_action',
   'tone',
   'color',
+  'card_color',
 ];
 
 /**

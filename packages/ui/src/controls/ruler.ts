@@ -19,6 +19,11 @@ export interface RulerWindowDetail {
 
 const HOLD_MS = 450;
 
+/** The hue circle along the axis: a stop every 60°, red to red, each the full-saturation hue itself (no token has it). */
+const HUE_STOPS = [0, 1, 2, 3, 4, 5, 6].map(
+  (k) => svg`<stop offset=${k / 6} stop-color="hsl(${k * 60} 100% 50%)" />`,
+);
+
 /**
  * The fluvy ruler: a linear scale of ticks with the one knob riding it. Ticks are placed by VALUE on
  * whole CSS pixels (crisp at every DPR), lit from the origin up to the knob, and the ticks the knob's
@@ -88,7 +93,10 @@ export class FluvyRuler extends LitElement {
   declare max: number;
   declare step: number;
   declare tone: string;
-  /** 'warm-cool': the ticks take a faint warm → cool gradient along the axis (colour temperature) instead of lighting up to the knob. */
+  /**
+   * The ticks take a gradient along the axis instead of lighting up to the knob, and the knob's dot the colour under
+   * it: 'warm-cool' a faint warm → cool one (colour temperature), 'hue' the whole hue circle (a colour's hue, 0–360).
+   */
   declare tint: string;
   /** Length of the scale in CSS px (the card passes its measured content width). */
   declare length: number;
@@ -178,6 +186,13 @@ export class FluvyRuler extends LitElement {
 
   private get interactive(): boolean {
     return !this.marker && !this.disabled && (!this.inactive || this.wake);
+  }
+
+  /** The colour under the knob at `f` (0..1) of a tinted ruler: the hue there, or the warm → cool mix there. */
+  private dotAt(f: number): string {
+    return this.tint === 'hue'
+      ? `hsl(${Math.round(f * 360)} 100% 50%)`
+      : `color-mix(in oklab, var(--fluvy-tint-warm, #d1a24c) ${Math.round((1 - f) * 100)}%, var(--fluvy-tint-cool, #a9bdd0))`;
   }
 
   /** 0..1 along the scale currently shown; an empty range or a non-finite value sits at the origin. */
@@ -512,9 +527,9 @@ export class FluvyRuler extends LitElement {
       @keydown=${this.onKey}
     >
       <svg width=${w} height=${h} viewBox="0 0 ${w} ${h}" aria-hidden="true">
-        ${this.tint ? svg`<defs><linearGradient id="fv-tint" gradientUnits="userSpaceOnUse" x1="0" y1=${this.vertical ? len : 0} x2=${this.vertical ? 0 : len} y2="0"><stop offset="0" class="tint-a" /><stop offset="1" class="tint-b" /></linearGradient></defs>` : nothing}${lines}
+        ${this.tint ? svg`<defs><linearGradient id="fv-tint" gradientUnits="userSpaceOnUse" x1="0" y1=${this.vertical ? len : 0} x2=${this.vertical ? 0 : len} y2="0">${this.tint === 'hue' ? HUE_STOPS : svg`<stop offset="0" class="tint-a" /><stop offset="1" class="tint-b" />`}</linearGradient></defs>` : nothing}${lines}
       </svg>
-      ${active ? html`<span class="fv-knob fv-knob--${this.tone}${this.marker ? ' fv-knob--marker' : ''}${this.tint ? ' fv-knob--tinted' : ''}" data-measure="value" style="translate:${settle(kx)}px ${settle(ky)}px;width:${size}px;height:${size}px${this.tint ? `;--knob-dot:color-mix(in oklab, var(--fluvy-tint-warm, #d1a24c) ${Math.round((1 - pos / Math.max(1, len)) * 100)}%, var(--fluvy-tint-cool, #a9bdd0))` : ''}"></span>` : nothing}
+      ${active ? html`<span class="fv-knob fv-knob--${this.tone}${this.marker ? ' fv-knob--marker' : ''}${this.tint ? ' fv-knob--tinted' : ''}" data-measure="value" style="translate:${settle(kx)}px ${settle(ky)}px;width:${size}px;height:${size}px${this.tint ? `;--knob-dot:${this.dotAt(pos / Math.max(1, len))}` : ''}"></span>` : nothing}
       ${this.interactive && !this.vertical ? html`<span class="fv-bubble" data-measure="value" style="left:${bubbleLeft.toFixed(1)}px;width:${bubbleW}px;--tail:${Math.round(pos - bubbleLeft - 6)}px"><b>${this.text(current)}</b>${this.unit}</span>` : nothing}
     </div>`;
   }

@@ -5,7 +5,6 @@ import { Card, type BaseKey } from '../shared/base.js';
 import { FontsSettled } from '../shared/fonts.js';
 import {
   accentField,
-  colourFields,
   editorLabels,
   entitiesField,
   entityField,
@@ -13,6 +12,7 @@ import {
   numberField,
   selectField,
   textField,
+  toneField,
 } from '../shared/form.js';
 import {
   calendarsOf,
@@ -144,7 +144,7 @@ export class FluvyCalendarCard extends Card<CalendarCardConfig> {
   /* ---------- Lovelace ---------- */
 
   /** A calendar card has no entity of its own: its calendars are its list, its colour the accent (today, the selection). */
-  static override base: readonly BaseKey[] = ['entities', 'color'];
+  static override base: readonly BaseKey[] = ['entities', 'color', 'card_color'];
   static override keys = configKeys<CalendarCardConfig>()([
     'calendars',
     'variant',
@@ -162,7 +162,7 @@ export class FluvyCalendarCard extends Card<CalendarCardConfig> {
       title: 'editor.rows',
       domains: ['calendar'],
       keys: ['entity', 'name', 'tone', 'color'],
-      schema: [entityField(['calendar']), textField('name'), colourFields()],
+      schema: [entityField(['calendar']), textField('name'), fieldRow(toneField(), accentField())],
     },
   ];
   /** What the editor shows where the config says nothing: what the card does then. */
@@ -181,7 +181,11 @@ export class FluvyCalendarCard extends Card<CalendarCardConfig> {
           selectField('first_weekday', ['language', ...WEEKDAYS]),
         ),
         fieldRow(numberField('days', 1, 31), numberField('start_hour', 0, 23)),
-        fieldRow(numberField('end_hour', 1, 24), accentField()),
+        fieldRow(
+          numberField('end_hour', 1, 24),
+          accentField(),
+          accentField('card_color', { none: true }),
+        ),
       ],
       ...editorLabels(s, EDITOR_LABELS, { days: 'editor.days' }),
     };

@@ -33,6 +33,7 @@ import { css, html, nothing, type CSSResultGroup, type TemplateResult } from 'li
 import { Card } from '../shared/base.js';
 
 import { currentTone, glyphFor, toneFor } from '../shared/domain.js';
+import { DIMMABLE } from '../shared/light.js';
 import { fitLine, TextRuler } from '../shared/fit.js';
 import { FontsSettled } from '../shared/fonts.js';
 
@@ -74,16 +75,6 @@ export interface TileCardConfig extends FluvyCardConfig, Omit<TileItem, 'entity'
   tint?: Tint;
 }
 
-const LIGHT_BRIGHTNESS_MODES = new Set([
-  'brightness',
-  'color_temp',
-  'hs',
-  'xy',
-  'rgb',
-  'rgbw',
-  'rgbww',
-  'white',
-]);
 const COVER_SET_POSITION = 4;
 const FAN_SET_SPEED = 1;
 const MORE_INFO: ActionConfig = { action: 'more-info' };
@@ -174,7 +165,7 @@ export class FluvyTileCard extends Card<TileCardConfig> {
         entityField(),
         nameIconFields(),
         selectField('size', TILE_SIZES),
-        colourFields(),
+        ...colourFields(),
         tintField(),
         entitiesField('readouts', ['sensor']),
         actionFields(),
@@ -224,7 +215,7 @@ export class FluvyTileCard extends Card<TileCardConfig> {
   ): { value: number; commit: (value: number) => void; label: string } | null {
     if (view.domain === 'light') {
       const modes = view.attr<string[]>('supported_color_modes') ?? [];
-      if (!modes.some((m) => LIGHT_BRIGHTNESS_MODES.has(m))) return null;
+      if (!modes.some((m) => DIMMABLE.has(m))) return null;
       const brightness = view.attr<number>('brightness');
       return {
         value: brightness ? Math.round((brightness / 255) * 100) : 0,
@@ -509,26 +500,36 @@ export class FluvyTileCard extends Card<TileCardConfig> {
         @click=${(e: Event) => e.stopPropagation()}
       ></fluvy-ruler>`;
     } else if (item.readouts?.length) {
+      const stats = item.readouts.map((id) => {
+        const r = this.entity(id);
+        const p = valueParts(this.hass, r);
+        const short =
+          r.deviceClass === 'power'
+            ? this.t('energy.power')
+            : r.deviceClass === 'energy'
+              ? this.t('energy.today')
+              : r.deviceClass === 'monetary'
+                ? this.t('energy.cost')
+                : r.name.replace(name, '').trim() || r.name;
+        return { label: short, value: p.value, unit: p.unit };
+      });
+      // two share the foot's 64 and 76 cells (tiles.css), three equal thirds, while every label holds its cell (fr's
+      // "PUISSANCE" and "AUJOURD'HUI" do not on a phone): else the first has the foot to itself
+      const cells = (n: number): number[] => (n === 2 ? [64, 76] : Array(n).fill(inner / n));
+      const holds = (n: number): boolean =>
+        stats
+          .slice(0, n)
+          .every(
+            ({ label }, i) => this.ruler.width('fv-readout__label', label) <= (cells(n)[i] ?? 0),
+          );
       const shown = Math.min(
-        item.readouts.length,
-        inner >= THREE_READOUTS ? 3 : inner >= TWO_READOUTS ? 2 : 1,
+        stats.length,
+        inner >= THREE_READOUTS && holds(3) ? 3 : inner >= TWO_READOUTS && holds(2) ? 2 : 1,
       );
       foot = html`<div
         class="fv-tile__foot ${shown === 1 ? 'fv-tile__foot--one' : shown === 3 ? 'fv-tile__foot--three' : ''}"
       >
-        ${item.readouts.slice(0, shown).map((id) => {
-          const r = this.entity(id);
-          const p = valueParts(this.hass, r);
-          const short =
-            r.deviceClass === 'power'
-              ? this.t('energy.power')
-              : r.deviceClass === 'energy'
-                ? this.t('energy.today')
-                : r.deviceClass === 'monetary'
-                  ? this.t('energy.cost')
-                  : r.name.replace(name, '').trim() || r.name;
-          return readout({ label: short, value: p.value, unit: p.unit, size: 'xs' });
-        })}
+        ${stats.slice(0, shown).map((stat) => readout({ ...stat, size: 'xs' }))}
       </div>`;
     }
 

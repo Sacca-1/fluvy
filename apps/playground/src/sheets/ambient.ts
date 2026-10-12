@@ -268,6 +268,27 @@ export const sheet: SheetSpec = {
         state_class: 'measurement',
       },
     ],
+    // a room's pair as an integration names them: the readouts say "Temperature" and "Humidity" with nothing set
+    [
+      'sensor.am_office_temperature',
+      '24.5',
+      {
+        friendly_name: 'Office climate temperature',
+        unit_of_measurement: '°C',
+        device_class: 'temperature',
+        state_class: 'measurement',
+      },
+    ],
+    [
+      'sensor.am_office_humidity',
+      '40.9',
+      {
+        friendly_name: 'Office climate humidity',
+        unit_of_measurement: '%',
+        device_class: 'humidity',
+        state_class: 'measurement',
+      },
+    ],
     [
       'sensor.am_no_history',
       '17.2',
@@ -464,6 +485,9 @@ export const sheet: SheetSpec = {
   history: {
     'sensor.am_living_temperature': TEMPERATURE,
     'sensor.am_living_humidity': HUMIDITY,
+    // the office runs warmer and drier than the living room, by the same day
+    'sensor.am_office_temperature': TEMPERATURE.map((v) => Math.round((v + 2.6) * 10) / 10),
+    'sensor.am_office_humidity': HUMIDITY.map((v) => Math.round((v - 5.5) * 10) / 10),
     'sensor.am_house_power': POWER,
     'sensor.am_pressure': PRESSURE,
     'sensor.am_no_history': [],
@@ -620,6 +644,34 @@ export const sheet: SheetSpec = {
           entity: 'sensor.am_living_temperature',
           name: 'Living room',
           entities: ['sensor.am_living_humidity'],
+          _now,
+        },
+      ],
+    },
+    {
+      title: 'Sensors · the measures name themselves',
+      cards: [
+        {
+          type: 'custom:fluvy-sensor-card',
+          entity: 'sensor.am_office_temperature',
+          name: 'Office',
+          entities: ['sensor.am_office_humidity'],
+          _now,
+        },
+      ],
+    },
+    {
+      title: 'Sensors · three, named and coloured',
+      cards: [
+        {
+          type: 'custom:fluvy-sensor-card',
+          entity: 'sensor.am_living_temperature',
+          name: 'Living room',
+          label: 'Inside',
+          entities: [
+            { entity: 'sensor.am_house_power', name: 'Power', color: '#e07a1f' },
+            'sensor.am_washer',
+          ],
           _now,
         },
       ],

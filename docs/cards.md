@@ -5,8 +5,9 @@ the reference for a card's options: it shows what the card does by default, and 
 written into the configuration. In YAML, a card is `type: custom:<tag>` plus the entity or entities it draws and any
 option the editor offers; the *Options* column below names them (a select's values in brackets, a list with its item
 keys), and *Reads* the older names a card still accepts (read, never written back). Every entity card also takes
-`entity`, `name`, `icon`, `tap_action`, `hold_action`, `tone` and `color`; a list card takes `title`. The tables are
-generated from the code (`pnpm docs:cards`).
+`entity`, `name`, `icon`, `tap_action`, `hold_action`, `tone`, `color` and `card_color` (a quiet wash of a colour as
+the card's own surface, its edge and dividers in it — see [the theme guide](theme.md#a-colour-per-card-and-per-item));
+a list card takes `title`. The tables are generated from the code (`pnpm docs:cards`).
 
 Every card holds from 300 to 520 px wide, in light and dark, in every language Fluvy speaks; `unavailable`, `unknown` and a
 missing entity are drawn on purpose (a quiet surface, inert controls, a dash for the value), never as an error. Names
@@ -24,7 +25,23 @@ card moves before the answer.
 Every card exposes what to show (section switches such as `show_fan`), which items appear and in which order (subset
 lists such as `modes: [off, heat, cool]`), and at least one other layout through `variant`. Chip rows fill the row by
 default and are content-sized on request (`preset_style`, `fan_style`, `suction_style: chips`). Cards that list rows
-(lock, alarm, camera, bars, stat tiles) take a `rows` list edited with Fluvy's own rows editor.
+(lock, alarm, camera, bars, stat tiles) take a `rows` list edited with Fluvy's own rows editor. While a device is off,
+the thermostat and the fan can keep to the essentials (`when_off: essentials`) — the thermostat its head, value and
+modes, the fan its switch and speed ruler — and presets, fan speeds, oscillation and direction come back the moment a
+mode or the switch wakes it (the water heater and the humidifier only have modes, so nothing hides on them).
+
+A sensor card's readouts are named by their measure when nothing is set ("Temperature", "Humidity"); `label` names
+the card's own sensor, an entry's `name` names that entry, and each entry may take its own `color`:
+
+```yaml
+type: custom:fluvy-sensor-card
+entity: sensor.office_climate_temperature
+label: Inside
+entities:
+  - entity: sensor.office_climate_humidity
+    name: Humidity
+    color: teal
+```
 
 ## Templates in row text
 
@@ -49,21 +66,21 @@ rows:
 | --- | --- | --- | --- | --- |
 | **Tile** | `custom:fluvy-tile-card` | A light, switch, cover, fan or sensor as a tile: large with a precision ruler or two readouts, compact row, or mini. | `size` (`large`, `compact`, `mini`), `tint` (`on`, `always`), `readouts` | — |
 | **Tiles** | `custom:fluvy-tiles-card` | A group of compact or mini tiles, two to four per row, 8 px apart. | `size` (`compact`, `mini`, `large`), `columns` (`1`, `2`, `3`, `4`, `auto`), `tint` (`on`, `always`), `readouts`, `tiles` (a list: `entity`, `name`, `icon`, `tone`, `color`, `readouts`, `tap_action`, `hold_action`) | `entities` → `tiles` |
-| **Light** | `custom:fluvy-light-card` | The precision dimmer: relative drag, slide away to slow down, hold for the 1 % scale, colour temperature. | `variant` (`auto`, `full`, `compact`), `show_temperature`, `temperature_tint`, `live_update` | — |
+| **Light** | `custom:fluvy-light-card` | The precision dimmer: relative drag, slide away to slow down, hold for the 1 % scale, colour temperature. | `variant` (`auto`, `full`, `compact`), `show_temperature`, `show_color`, `colors` (`warm`, `cool`, `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink`, `picker`), `temperature_tint`, `live_update` | — |
 | **Room lights** | `custom:fluvy-lights-card` | A room’s lights on one card: one tap for the whole room, a round, chip or tile for each light, in its colour. | `area`, `variant` (`row`, `chips`, `tiles`), `show_brightness`, `show_count`, `show_level`, `light_colors`, `tint` (`on`, `always`), `lights` (a list: `entity`, `name`, `icon`, `color`) | `entities` → `lights` |
-| **Thermostat** | `custom:fluvy-thermostat-card` | Climate, water heater or humidifier on a dial, with modes, presets and fan speeds. | `variant` (`dial`, `compact`, `ruler`), `modes_style` (`tiles`, `chips`, `full`), `modes` (`off`, `heat`, `cool`, `heat_cool`, `auto`, `dry`, `fan_only`), `show_presets`, `preset_style` (`full`, `chips`), `show_fan`, `fan_style` (`full`, `chips`) | — |
+| **Thermostat** | `custom:fluvy-thermostat-card` | Climate, water heater or humidifier on a dial, with modes, presets and fan speeds. | `variant` (`dial`, `compact`, `ruler`), `modes_style` (`tiles`, `chips`, `full`), `modes` (`off`, `heat`, `cool`, `heat_cool`, `auto`, `dry`, `fan_only`), `show_presets`, `preset_style` (`full`, `chips`), `show_fan`, `fan_style` (`full`, `chips`), `when_off` (`all`, `essentials`) | — |
 | **Entities** | `custom:fluvy-entities-card` | Rows of entities: a switch for what toggles, the value for what is measured. | `title`, `subtitle`, `variant` (`rows`, `compact`), `show_count`, `rows` (a list: `entity`, `name`, `icon`, `secondary`, `tone`, `color`, `tap_action`) | `entities` → `rows` |
 | **Media** | `custom:fluvy-media-card` | A media player: artwork, seek bar, transport and volume — full, compact row or hero. | `variant` (`full`, `mini`, `hero`), `source_style` (`full`, `chips`), `show_source`, `show_volume`, `show_power`, `controls` (`power`, `previous`, `play`, `next`, `volume`) | — |
 | **Now playing** | `custom:fluvy-now-playing-card` | The compact player of the home screen: artwork, thin progress, transport and volume. | `show_volume`, `show_power`, `controls` (`power`, `previous`, `play`, `next`, `volume`) | — |
 | **Cover** | `custom:fluvy-cover-card` | Blinds, shutters, garage doors and valves: vertical position ruler, tilt, open · stop · close, favourites. | `subtitle`, `tilt_angle`, `variant` (`full`, `compact`), `favorites_style` (`full`, `chips`), `show_tilt`, `show_favorites`, `favorites` (a list: `name`, `position`, `tilt`) | — |
-| **Fan** | `custom:fluvy-fan-card` | Speed ruler with steps, oscillation, direction and presets. | `subtitle`, `variant` (`full`, `compact`), `show_presets`, `preset_style` (`full`, `chips`), `show_oscillation`, `show_direction` | — |
+| **Fan** | `custom:fluvy-fan-card` | Speed ruler with steps, oscillation, direction and presets. | `subtitle`, `variant` (`full`, `compact`), `show_presets`, `preset_style` (`full`, `chips`), `show_oscillation`, `show_direction`, `when_off` (`all`, `essentials`) | — |
 | **Vacuum** | `custom:fluvy-vacuum-card` | Robot vacuum or mower: battery, start · stop · dock · locate, suction. | `subtitle`, `variant` (`full`, `compact`), `show_battery`, `battery_entity`, `area_entity`, `duration_entity`, `remaining_entity`, `suction_style` (`full`, `chips`) | — |
 | **Lock** | `custom:fluvy-lock-card` | Slide to unlock, never one accidental tap; codes, jammed state, related rows. | `subtitle`, `variant` (`full`, `compact`), `show_rows`, `rows` (a list: `entity`, `name`, `icon`, `secondary`, `tone`, `color`, `tap_action`) | — |
 | **Alarm** | `custom:fluvy-alarm-card` | Arm modes as tiles and the keypad sheet for codes. | `subtitle`, `variant` (`tiles`, `compact`), `modes` (`disarm`, `arm_home`, `arm_away`, `arm_night`, `arm_vacation`, `arm_custom_bypass`), `show_rows`, `rows` (a list: `entity`, `name`, `icon`, `secondary`, `tone`, `color`, `tap_action`) | — |
 | **Camera** | `custom:fluvy-camera-card` | A still that refreshes itself, or Home Assistant’s live stream, in the shape you choose; tap for the stream. | `subtitle`, `camera_view` (`auto`, `live`), `refresh`, `aspect_ratio` (`16:9`, `4:3`, `3:2`, `1:1`, `2:1`, `21:9`, `native`), `fit_mode` (`cover`, `contain`), `show_rows`, `rows` (a list: `entity`, `name`, `icon`, `secondary`, `tone`, `color`, `tap_action`) | `sub` → `subtitle` |
-| **3D printer** | `custom:fluvy-printer-card` | A 3D printer’s job: progress, time left, heaters, layers, filament and the camera; pause, resume and stop. OctoPrint, PrusaLink, Bambu Lab, Moonraker. | `device`, `variant` (`full`, `compact`, `row`), `readouts` (`nozzle`, `bed`, `chamber`, `layer`, `speed`, `filament`, `elapsed`), `show_image`, `image` (`auto`, `camera`, `preview`), `camera_view` (`auto`, `live`), `fit_mode` (`cover`, `contain`), `aspect_ratio` (`16:9`, `4:3`, `3:2`, `1:1`, `2:1`, `21:9`, `native`), `show_filament`, `show_controls`, `sensors` (a list: `entity`, `name`), `roles` (a list: `role`, `entity`) | — |
+| **3D printer** | `custom:fluvy-printer-card` | A 3D printer’s job: progress, time left, heaters, layers, filament and the camera; pause, resume and stop. OctoPrint, PrusaLink, Bambu Lab, Moonraker, Creality, Elegoo, Anycubic, Snapmaker and FlashForge. | `device`, `variant` (`full`, `compact`, `row`), `readouts` (`nozzle`, `bed`, `chamber`, `layer`, `speed`, `filament`, `elapsed`), `show_image`, `image` (`auto`, `camera`, `preview`), `camera_view` (`auto`, `live`), `fit_mode` (`cover`, `contain`), `aspect_ratio` (`16:9`, `4:3`, `3:2`, `1:1`, `2:1`, `21:9`, `native`), `show_filament`, `show_controls`, `sensors` (a list: `entity`, `name`), `roles` (a list: `role`, `entity`) | — |
 | **Weather** | `custom:fluvy-weather-card` | Condition, temperature, feels-like, wind and the daily or hourly forecast. | `variant` (`full`, `compact`), `forecast` (`daily`, `hourly`, `both`), `days`, `show_forecast` | `forecast` → `show_forecast` |
-| **Sensor** | `custom:fluvy-sensor-card` | A sensor with its 24 h curve, trend, min, max and average, or up to three sensors on one chart. | `subtitle`, `variant` (`chart`, `tile`), `hours`, `show_stats`, `entities` (a list: `entity`, `name`, `icon`, `color`) | — |
+| **Sensor** | `custom:fluvy-sensor-card` | A sensor with its 24 h curve, trend, min, max and average, or up to three sensors on one chart. | `subtitle`, `variant` (`chart`, `tile`), `hours`, `show_stats`, `label`, `entities` (a list: `entity`, `name`, `icon`, `color`) | — |
 | **Readouts** | `custom:fluvy-readouts-card` | Up to four values side by side with their trends. | `hours`, `variant` (`grid`, `row`), `rows` (a list: `entity`, `name`, `tap_action`) | `entities` → `rows` |
 | **People** | `custom:fluvy-people-card` | Who is home: avatars, zones, times and phone batteries, each person with a tap of their own. | `title`, `variant` (`grid`, `rows`), `map_path`, `show_zone`, `show_time`, `show_battery`, `people` (a list: `entity`, `name`, `battery`, `color`, `tap_action`, `hold_action`) | `layout` → `variant`, `entities` → `people` |
 | **Openings** | `custom:fluvy-openings-card` | Doors, windows and motion at a glance, with what is open counted. | `title`, `subtitle`, `variant` (`rows`, `compact`, `tiles`), `max_rows`, `show_count`, `show_time`, `rows` (a list: `entity`, `name`, `icon`, `color`, `tap_action`, `hold_action`) | `entities` → `rows` |
