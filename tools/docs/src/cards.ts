@@ -59,6 +59,7 @@ const SECTIONS: ReadonlyArray<readonly [title: string, tags: readonly string[]]>
       'fluvy-appliances-card',
       'fluvy-weather-card',
       'fluvy-sensor-card',
+      'fluvy-sensor-band-card',
       'fluvy-readouts-card',
       'fluvy-people-card',
       'fluvy-openings-card',

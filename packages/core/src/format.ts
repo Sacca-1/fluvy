@@ -52,7 +52,7 @@ export function formatNumber(
   }
 }
 
-/** `Intl.NumberFormat` construction is the expensive part of formatting; fifty-five cards share one per locale and option set. */
+/** `Intl.NumberFormat` construction is the expensive part of formatting; fifty-six cards share one per locale and option set. */
 const formatters = new Map<string, Intl.NumberFormat>();
 function numberFormat(
   locale: string | undefined,

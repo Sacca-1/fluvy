@@ -5,6 +5,10 @@ and the versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.9.1-homelab.1] — 2026-10-19
+
+- Homelab fork: native sensor band card with configurable ranges, reference markers and responsive captions.
+
 ## [1.9.0] — 2026-10-19
 
 ### Fixed

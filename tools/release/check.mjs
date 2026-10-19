@@ -64,6 +64,7 @@ const BUDGETS = {
   weather: 12_288,
   editor: 8192,
   'view-icons': 4096,
+  'sensor-band': 4096,
   pages: 8192,
   activity: 32_768,
   history: 16_384,

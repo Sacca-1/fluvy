@@ -142,6 +142,7 @@ export const GROUPS = [
   { name: 'light-colour', test: LIGHT_COLOUR },
   { name: 'editor', test: EDITOR },
   { name: 'view-icons', test: VIEW_ICONS },
+  { name: 'sensor-band', test: /\/packages\/cards\/src\/(sensor-band-cards\.ts|sensor-band\/)/ },
   { name: 'core', test: (id) => !id.includes('/packages/bundle/src/') },
 ];
 

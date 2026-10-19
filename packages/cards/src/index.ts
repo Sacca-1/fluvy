@@ -39,6 +39,7 @@ import { AUTOMATIONS_FAMILY } from './automations-family.js';
 import { DEVICES_FAMILY } from './devices-family.js';
 import { ENERGY_FAMILY, type FamilyEntry } from './energy-family.js';
 import { MEDIA_FAMILY } from './media-family.js';
+import { SENSOR_BAND_FAMILY } from './sensor-band-family.js';
 import { WEATHER_FAMILY } from './weather-family.js';
 
 /** A card of the catalogue: its tag, its element, and what the card picker lists it as. */
@@ -254,6 +255,7 @@ type Family = readonly [
 
 /** The weather card and the media, energy, devices, automations, appliances and alerts families. */
 const FAMILIES: readonly Family[] = [
+  [SENSOR_BAND_FAMILY, () => import('./sensor-band-cards.js')],
   [WEATHER_FAMILY, () => import('./weather-cards.js')],
   [MEDIA_FAMILY, () => import('./media-cards.js')],
   [ENERGY_FAMILY, () => import('./energy-cards.js')],
