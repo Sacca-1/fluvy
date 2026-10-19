@@ -209,7 +209,7 @@ export class FluvySensorBandCard extends Card<SensorBandCardConfig> {
           .value=${value ?? min}
           .min=${min}
           .max=${max}
-          .step=${(max - min) / 1000}
+          .step=${(max - min) / 1_000_000}
           .length=${width}
           .knob=${36}
           .tone=${tone}
@@ -217,7 +217,7 @@ export class FluvySensorBandCard extends Card<SensorBandCardConfig> {
           aria-hidden=${value === null ? 'true' : nothing}
           unit=${view.unit}
           .label=${name}
-          .format=${format}
+          .format=${() => (value === null ? stateText(this.hass, view) : parts.value)}
         ></fluvy-ruler>
         ${refs.map((ref) => html`<span class="sb-reference" aria-hidden="true" style="left:${fraction(ref.value, min, max) * width}px"></span>`)}
       </div>

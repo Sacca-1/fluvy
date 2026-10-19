@@ -64,6 +64,9 @@ describe('sensor band card', () => {
     const { element, ruler, callService } = await draw('2');
     expect(ruler.value).toBe(2);
     expect(ruler.marker).toBe(true);
+    expect(ruler.shadowRoot!.querySelector('[role=img]')!.getAttribute('aria-label')).toContain(
+      '2 µg/m³',
+    );
     expect(ruler.inactive).toBe(false);
     expect(element.shadowRoot!.querySelectorAll('.so-band__zone')).toHaveLength(2);
     expect(element.shadowRoot!.querySelector('.sb-reference')!.getAttribute('style')).toContain(
