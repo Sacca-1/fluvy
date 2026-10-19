@@ -91,9 +91,9 @@ export const panelStyles = css`
   }
   /* every row of equal cells (the gallery, options, filling chips, pairs): whole-pixel cells on the exact gap, the
      pixel or two a division leaves over as a tail at the end (0.01 px keeps an exact division from losing a pixel
-     to floating point) */
+     to floating point); three laid out two and one (the third across both) take a pair's cells */
   .pn-gallery,
-  .pn :is(.fv-options, .fv-chips--fill):has(> :nth-child(3):last-child) {
+  .pn :is(.fv-options, .fv-chips--fill)[style*='repeat(3,']:has(> :nth-child(3):last-child) {
     grid-template-columns: repeat(
       3,
       round(down, calc((100% - 2 * var(--pn-gap)) / 3 + 0.01px), 1px)
@@ -101,7 +101,8 @@ export const panelStyles = css`
     column-gap: var(--pn-gap) !important;
     justify-content: start;
   }
-  .pn :is(.fv-options, .fv-chips--fill):has(> :nth-child(2):last-child) {
+  .pn :is(.fv-options, .fv-chips--fill)[style*='repeat(2,']:has(> :nth-child(2):last-child),
+  .pn :is(.fv-options, .fv-chips--fill)[style*='repeat(2,']:has(> :nth-child(3):last-child) {
     grid-template-columns: repeat(
       2,
       round(down, calc((100% - var(--pn-gap)) / 2 + 0.01px), 1px)
@@ -853,11 +854,16 @@ export const panelStyles = css`
     row-gap: 8px;
     justify-items: center;
   }
-  /* twelve a row once they keep the 8 between them (a 616 content, from 704); six a row below that */
+  /* twelve a row once they keep the 8 between them (a 616 content, from 704); six a row below that — a row of six of
+     its own (a status's colours) keeps its six and fills the width */
   @container pn (min-width: 704px) {
-    .pn-dots {
+    .pn-dots:not(.pn-dots--six) {
       --n: 12;
     }
+  }
+  /* colours shown to someone who may not change them */
+  .pn-dots--static .pn-dot {
+    pointer-events: none;
   }
   .pn-dot {
     display: inline-flex;
@@ -1074,6 +1080,11 @@ export const panelStyles = css`
   .pn-bar__pair:has(> :nth-child(2)) {
     grid-template-columns: repeat(2, round(down, calc((100% - 8px) / 2), 1px));
     justify-content: space-between;
+  }
+  /* a label longer than its half: the pair one over the other, each as wide as the bar */
+  .pn-bar__pair.pn-bar__pair--stack {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
   }
   @container pn (min-width: 760px) {
     .pn-bar {

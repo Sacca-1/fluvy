@@ -47,23 +47,43 @@ export const rowStyles = css`
     white-space: normal;
   }
 
+  /* at its words, never inside one: the rows' rule leaves a name its 96 (or the whole name) beside what ends it */
   .fv-row__title,
   .fv-row__sub {
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     white-space: normal;
-    overflow-wrap: anywhere;
   }
 
   .fv-row__sub {
     -webkit-line-clamp: 3;
   }
 
+  /* where even without its circle a row's button would leave the name under its room, the button goes under the name,
+     at the words' start, as wide as its words */
+  .fv-row--stack {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .fv-row--stack > .fv-row__text {
+    flex-basis: 100%;
+  }
+
+  .fv-row--bare.fv-row--stack > .in-value {
+    max-width: 100%;
+  }
+
   /* an editable value wears the link-button shape; a very long one gives way to the name, never the reverse — its
      cap on the 4 grid, so a capped button keeps whole pixels */
   .in-value {
     max-width: round(down, calc(68% - 68px), 4px);
+  }
+
+  /* a row that gave its circle to its name gives the button the circle's room too */
+  .fv-row--bare > .in-value:not(.in-value--action) {
+    max-width: round(down, calc(68% - 12px), 4px);
   }
 
   /* an action's word ("Install", "Run") is never cut: its button keeps its measured width, uncapped */

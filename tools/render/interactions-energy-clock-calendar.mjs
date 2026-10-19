@@ -10,7 +10,7 @@
  * and its days work from the keyboard; a humidifier switch flips before Home Assistant answers;
  * rows open more-info from the keyboard, once.
  */
-import { BASE, calls, frame, reset, startSuite } from './lib/suite.mjs';
+import { BASE, calls, frame, reset, startSuite, tapHead } from './lib/suite.mjs';
 
 const suite = await startSuite();
 const { browser, check } = suite;
@@ -473,10 +473,10 @@ async function moreInfos(page, run) {
 
   const gauge = frame(page, 'Solar power').locator('fluvy-gauge-card').first();
   const fromGauge = await moreInfos(page, async () => {
-    await gauge.locator('.fv-card__head button').first().click();
+    await tapHead(gauge, 'icon');
   });
   check(
-    'gauge: the icon opens more-info',
+    'gauge: the head (its icon) opens more-info',
     fromGauge.length === 1 && fromGauge[0] === 'sensor.so_solar_power',
     JSON.stringify(fromGauge),
   );

@@ -1,14 +1,13 @@
 import { balanceHeight } from '../energy-family.js';
 import {
   formatNumber,
-  formatTime,
   strings,
   type FluvyCardConfig,
   type HomeAssistant,
   type LovelaceConfigForm,
   type LovelaceGridOptions,
 } from '@fluvy/core';
-import { head, readout, sheetStyles, type Tone } from '@fluvy/ui';
+import { head, sheetStyles, type Tone } from '@fluvy/ui';
 import {
   css,
   html,
@@ -28,6 +27,7 @@ import {
   type Money,
 } from '../energy-model/costs.js';
 import { fetchPrefs } from '../energy-model/house.js';
+import { downLine } from '../energy-model/outage.js';
 import { fetchPeriod, PERIODS, type Period, type PeriodEnergy } from '../energy-model/period.js';
 import { readPrefs, type EnergyPrefs, type SourceKind } from '../energy-model/prefs.js';
 import { readMeasure, type Directed } from '../energy-model/reading.js';
@@ -40,11 +40,19 @@ import {
   type SourceConfig,
 } from '../energy-model/sources.js';
 import { KIND_INK, oneWay } from '../energy-flow/scene.js';
-import { bucketOf, isStale, liveWords, newestReport, Ticker } from '../energy/freshness.js';
+import {
+  bucketOf,
+  isStale,
+  LIVE_TICK,
+  liveWords,
+  newestReport,
+  staleShorter,
+} from '../energy/freshness.js';
 import { HeadFit } from '../energy/head.js';
 import { phaseBlock, phaseStyles, phaseWatts } from '../energy/phases.js';
 import { scaled, scaleOf, type Scale } from '../energy/power.js';
 import { kindField, MEASURE_WORDS, measureFields, PHASES_ALIAS } from '../energy/sources-editor.js';
+import { statsCols, statsStyles } from '../energy/stats.js';
 import { Card, type BaseKey } from '../shared/base.js';
 import { chipRow } from '../shared/chips.js';
 import { toneOf } from '../shared/colour.js';
@@ -59,11 +67,12 @@ import {
   iconField,
   numberField,
   selectField,
+  showIconField,
   textField,
   titleFields,
 } from '../shared/form.js';
-import { statsSize } from '../shared/readouts.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
+import { Ticker } from '../shared/ticker.js';
 import { gridWay, type GridWay } from '../grid/grid.js';
 import {
   balanceOf,
@@ -105,8 +114,6 @@ const BALANCE_SOURCE_KEYS = SOURCE_KEYS.filter((key) =>
   ),
 );
 
-/** Three readouts need this much of a column; below it they stand one above the other (the flow's rule). */
-const STACK_BELOW = 240;
 /** The least room between a block's title and its total. */
 const HEAD_GAP = 12;
 
@@ -146,20 +153,10 @@ export class FluvyEnergyBalanceCard extends Card<EnergyBalanceCardConfig> {
     ...(Card.styles as CSSResultGroup[]),
     sheetStyles.energy,
     phaseStyles,
+    statsStyles,
     css`
       .ef-card {
         width: 100%;
-      }
-      .ef-cols {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-      }
-      .ef-cols .fv-readout {
-        min-width: 0;
-      }
-      .ef-cols .fv-readout__label {
-        overflow: hidden;
-        white-space: nowrap;
-        text-overflow: ellipsis;
       }
       /* a figure that cannot be read draws no proportions: the bar's track alone */
       .en-bar12 > .en-bar12__track {
@@ -169,9 +166,6 @@ export class FluvyEnergyBalanceCard extends Card<EnergyBalanceCardConfig> {
       /* the dark page's alt fill is the card's own: the hairline's ink, as every energy track takes */
       :host([dark]) .en-bar12 > .en-bar12__track {
         background: var(--fluvy-border);
-      }
-      .ef-cols--stack {
-        grid-template-columns: minmax(0, 1fr);
       }
       /* a narrow column: the total under its title, both on the column's start; a title longer than the column takes a
          second line ("Komt / binnen"), and the head grows by it */
@@ -195,6 +189,7 @@ export class FluvyEnergyBalanceCard extends Card<EnergyBalanceCardConfig> {
     'card_color',
     'tap_action',
     'hold_action',
+    'show_icon',
   ];
   static override keys = configKeys<EnergyBalanceCardConfig>()([
     'title',
@@ -233,6 +228,7 @@ export class FluvyEnergyBalanceCard extends Card<EnergyBalanceCardConfig> {
       schema: [
         titleFields(),
         fieldRow(iconField(), selectField('period', BALANCE_PERIODS)),
+        showIconField(),
         fieldRow(boolField('show_period'), boolField('show_phases')),
         boolField('show_cost'),
         ...colourFields(),
@@ -276,6 +272,7 @@ export class FluvyEnergyBalanceCard extends Card<EnergyBalanceCardConfig> {
         (this.periodOf() !== null
           ? bucketOf(this.now()) !== this.asked
           : this.config.subtitle === undefined && this.freshness() !== this.shownSub),
+      LIVE_TICK,
     );
   }
 
@@ -465,17 +462,7 @@ export class FluvyEnergyBalanceCard extends Card<EnergyBalanceCardConfig> {
   private sub(m: Model): string {
     if (this.config?.subtitle !== undefined) return this.config.subtitle;
     if (m.empty) return ''; // nothing to be fresh about
-    if (m.dead) {
-      const changed = m.dead.entity
-        ? Date.parse(this.hass?.states[m.dead.entity]?.last_changed ?? '')
-        : NaN;
-      return Number.isFinite(changed)
-        ? f(this.hass, 'unavailable_since', {
-            name: m.dead.label,
-            time: formatTime(this.hass, new Date(changed)),
-          })
-        : `${m.dead.label} · ${this.t('state.unavailable').toLocaleLowerCase(this.hass?.language)}`;
-    }
+    if (m.dead) return downLine(this.hass, m.dead.label, m.dead.entity);
     return this.freshness();
   }
 
@@ -504,7 +491,17 @@ export class FluvyEnergyBalanceCard extends Card<EnergyBalanceCardConfig> {
         ? f(this.hass, 'period_day')
         : said;
     this.shownSub = this.config?.subtitle === undefined ? this.freshness() : '';
-    const fitted = this.head.fit({ width: w, title, sub, badge: this.badge(m) });
+    const fitted = this.head.fit({
+      width: w,
+      title,
+      sub,
+      badge: this.badge(m),
+      // stale, "Updated 32 days ago" says its age alone where the column cannot hold it
+      shorter:
+        sub === this.shownSub && m.stale && !m.period
+          ? staleShorter(this.hass, this.newest(), this.now())
+          : [],
+    });
     const period = m.period;
     const body =
       m.empty === 'sources'
@@ -530,8 +527,8 @@ export class FluvyEnergyBalanceCard extends Card<EnergyBalanceCardConfig> {
         sub: fitted.sub,
         trailing: fitted.badge,
         name: true,
-        onIconTap: () => this.tap(),
-        onHold: () => this.hold(),
+        cut: fitted.cut,
+        ...this.headActions(),
       })}
       ${
         period && this.config?.show_period !== false
@@ -698,10 +695,6 @@ export class FluvyEnergyBalanceCard extends Card<EnergyBalanceCardConfig> {
       { label: s(this.hass, 'feed_in'), ...money(m.money?.feedIn) },
       { label: s(this.hass, 'net'), ...money(m.money?.net) },
     ];
-    const stack = w < STACK_BELOW;
-    const size = statsSize(this.head.ruler, w, stats, stack ? 1 : 3);
-    return html`<div class="ef-cols fv-cols ${stack ? 'ef-cols--stack' : ''}" data-align="center">
-      ${stats.map((stat) => readout({ ...stat, size }))}
-    </div>`;
+    return statsCols(this.head.ruler, w, stats);
   }
 }

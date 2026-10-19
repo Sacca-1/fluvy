@@ -1,5 +1,7 @@
+import { LIMITS } from '../build/derive/limits.js';
 import { meshOf } from '../build/mesh.js';
 import { composite, contrastRatio } from '../color/contrast.js';
+import { fromHex } from '../color/oklch.js';
 import { cssVar, DEFAULT_MODE, DEFAULT_PALETTE, PALETTE_TOKEN } from '../config.js';
 import type { AccentFamily } from '../build/derive/accent.js';
 import {
@@ -31,6 +33,7 @@ import {
   type Hex,
   type Palette,
   type PaletteModeColors,
+  type RoleColors,
 } from '../types.js';
 
 /**
@@ -124,6 +127,18 @@ export function identityVars(palette: Pick<Palette, 'key'>): readonly VarGroup[]
   return [{ title: 'Identity', declarations: [[PALETTE_TOKEN, palette.key]] }];
 }
 
+/** Whether a page's words read on a wash: the primary and the secondary ink at 4.5. */
+const wordsRead = (colors: PaletteModeColors, wash: Hex): boolean =>
+  contrastRatio(colors.text.secondary, wash) >= 4.5 &&
+  contrastRatio(colors.text.primary, wash) >= 4.5;
+
+/** The most of `fill` over `ground`, in fiftieths from `from` down, at which `reads` holds; 0: none. */
+function washStep(fill: Hex, ground: Hex, from: number, reads: (wash: Hex) => boolean): number {
+  let step = from;
+  while (step > 0 && !reads(composite(fill, ground, step / 50))) step--;
+  return step;
+}
+
 /**
  * An item's colour at rest (`tint: always`): its fill washed into the ground it sits on, as much of it as keeps the
  * words on it — the primary and the secondary ink — at 4.5, up to 40 %. A tint palette's fill is pale enough to take
@@ -131,16 +146,21 @@ export function identityVars(palette: Pick<Palette, 'key'>): readonly VarGroup[]
  */
 export function restWash(fill: Hex, ground: Hex, colors: PaletteModeColors): Hex {
   // from 40 % down, two points a step
-  for (let step = 20; step > 0; step--) {
-    const wash = composite(fill, ground, step / 50);
-    if (
-      contrastRatio(colors.text.secondary, wash) >= 4.5 &&
-      contrastRatio(colors.text.primary, wash) >= 4.5
-    )
-      return wash;
-  }
-  return ground;
+  return composite(
+    fill,
+    ground,
+    washStep(fill, ground, 20, (wash) => wordsRead(colors, wash)) / 50,
+  );
 }
+
+/** The share of a card's own surface (`surfaceWash`), in fiftieths. */
+const surfaceStep = (family: AccentFamily, colors: PaletteModeColors): number =>
+  washStep(
+    family.fill,
+    colors.surface.card,
+    20,
+    (wash) => wordsRead(colors, wash) && contrastRatio(family.fillBorder, wash) >= 1.35,
+  );
 
 /**
  * A card's own surface (`card_color`, 1.7): its fill washed into the palette's card as far as everything on it still
@@ -149,17 +169,65 @@ export function restWash(fill: Hex, ground: Hex, colors: PaletteModeColors): Hex
  * the palette's, so what is on a tinted card reads as it does on any other.
  */
 export function surfaceWash(family: AccentFamily, colors: PaletteModeColors): Hex {
-  const ground = colors.surface.card;
-  for (let step = 20; step > 0; step--) {
-    const wash = composite(family.fill, ground, step / 50);
-    if (
-      contrastRatio(colors.text.secondary, wash) >= 4.5 &&
-      contrastRatio(colors.text.primary, wash) >= 4.5 &&
-      contrastRatio(family.fillBorder, wash) >= 1.35
-    )
-      return wash;
-  }
-  return ground;
+  return composite(family.fill, colors.surface.card, surfaceStep(family, colors) / 50);
+}
+
+/**
+ * What sits inside a washed surface where the page's fill would (`--fluvy-inset`, 1.9: a round, an action, the
+ * stepper, an option, a chip, a resting neutral circle): the same share of the fill over the page — the wash's own
+ * deeper step, never a hole of the page's colour in it. Where the words would not read on it at 4.5, it gives up some
+ * of its colour while it keeps half of it (a grey, any of it: it has only its depth to keep); past that — a page as
+ * deep as Volt's light one leaves a colour no room over it — it keeps the colour whole and gives up depth instead:
+ * the share over a ground lifted from the page toward the card, as far as the words need (at the most, flush).
+ */
+function insetWash(fill: Hex, step: number, colors: PaletteModeColors): Hex {
+  const { page, card } = colors.surface;
+  const reads = (wash: Hex): boolean => wordsRead(colors, wash);
+  const kept = washStep(fill, page, step, reads);
+  if (kept * 2 >= step || (kept > 0 && fromHex(fill).c < COLOUR))
+    return composite(fill, page, kept / 50);
+  const lift = washStep(page, card, 50, (ground) => reads(composite(fill, ground, step / 50)));
+  return composite(fill, composite(page, card, lift / 50), step / 50);
+}
+
+/** The least chroma a colour has (a soft palette's accent band starts here): under it, a grey. */
+const COLOUR = LIMITS.soft.accentChroma[0];
+
+/** A card's own surface's inner fill (`card_color`): its wash's deeper step (`insetWash`). */
+export const surfaceInset = (family: AccentFamily, colors: PaletteModeColors): Hex =>
+  insetWash(family.fill, surfaceStep(family, colors), colors);
+
+/** The share of its cap a lit surface takes at rest (`tint: always`), and the least it takes lit (a dim lamp). */
+export const LIT_REST = 0.4;
+export const LIT_FLOOR = 0.6;
+
+/**
+ * A light card's lit surface (`tint_strength: soft | brightness`, 1.9): the role's fill washed into the card. Its cap
+ * is the most of the fill at which everything on it reads — the words at 4.5 (a ruler's labels then take the
+ * secondary ink), the role's ink (the glyph, the switch's track, the ruler) at 3, the fill's hairline (the card's edge,
+ * a ruler's resting ticks) at 1.35 —; at rest (`level` 0) it takes two fifths of the cap, lit `rest + (cap − rest) ×
+ * max(0.6, level)`, so a dim lamp reads lit and lit never reads as rest. Its inner fills take the wash's deeper step.
+ */
+export function litSurface(
+  role: RoleColors,
+  colors: PaletteModeColors,
+  level: number,
+): readonly CssDeclaration[] {
+  const { card } = colors.surface;
+  const reads = (wash: Hex): boolean =>
+    wordsRead(colors, wash) &&
+    contrastRatio(role.ink, wash) >= 3 &&
+    contrastRatio(role.fillBorder, wash) >= 1.35;
+  const cap = washStep(role.fill, card, 50, reads);
+  const share =
+    level > 0 ? LIT_REST + (1 - LIT_REST) * Math.min(1, Math.max(LIT_FLOOR, level)) : LIT_REST;
+  const step = washStep(role.fill, card, Math.round(cap * share), reads);
+  const wash = composite(role.fill, card, step / 50);
+  return [
+    ['--fluvy-card', wash],
+    ['--fluvy-border', role.fillBorder],
+    ['--fluvy-inset', insetWash(role.fill, step, colors)],
+  ];
 }
 
 /**
@@ -207,6 +275,8 @@ export function accentFamilyVars(
     [cssVar('state-light-active-fill'), family.fill],
     [cssVar('state-light-active-fill-border'), family.fillBorder],
     [cssVar('state-light-active-on-fill'), family.onFill],
+    // always said, so an item inside a white card takes no ring of the card's
+    [cssVar('accent-ring'), family.ring ?? 'transparent'],
   ];
 }
 
@@ -331,16 +401,17 @@ export function brandColorVars(colors: PaletteModeColors): readonly VarGroup[] {
       ],
     },
     {
+      // and information as a tone (`notice`): the accent where it stands apart from the warning and the danger
       title: 'Status',
-      declarations: SEMANTIC_ROLES.flatMap((role): CssDeclaration[] => {
-        const value = colors.semantic[role];
-        return [
-          [cssVar(role), value.ink],
-          [cssVar(`${role}-fill`), value.fill],
-          [cssVar(`${role}-fill-border`), value.fillBorder],
-          [cssVar(`${role}-on-fill`), value.onFill],
-        ];
-      }),
+      declarations: [
+        ...SEMANTIC_ROLES.map((role) => [role, colors.semantic[role]] as const),
+        ['notice', colors.notice] as const,
+      ].flatMap(([role, value]): CssDeclaration[] => [
+        [cssVar(role), value.ink],
+        [cssVar(`${role}-fill`), value.fill],
+        [cssVar(`${role}-fill-border`), value.fillBorder],
+        [cssVar(`${role}-on-fill`), value.onFill],
+      ]),
     },
     {
       title: 'Domain states',

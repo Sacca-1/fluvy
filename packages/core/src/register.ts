@@ -1,5 +1,5 @@
-import type { CustomCardEntry, LovelaceCardConfig } from './ha/types.js';
-import { declareHeight } from './layout-heights.js';
+import type { CustomCardEntry } from './ha/types.js';
+import { declareHeight, type LayoutHeight } from './layout-heights.js';
 
 export interface CardMeta extends Omit<CustomCardEntry, 'type'> {
   /** Custom element tag, which is also the card type after the `custom:` prefix. */
@@ -16,9 +16,7 @@ export function registerCard(meta: CardMeta, element: CustomElementConstructor):
   const { layoutHeight } = element as { layoutHeight?: unknown };
   announceCard(
     meta,
-    typeof layoutHeight === 'function'
-      ? (layoutHeight as (config: LovelaceCardConfig) => number)
-      : undefined,
+    typeof layoutHeight === 'function' ? (layoutHeight as LayoutHeight) : undefined,
   );
 }
 
@@ -27,10 +25,7 @@ export function registerCard(meta: CardMeta, element: CustomElementConstructor):
  * its height now, its element when the chunk lands. Home Assistant keeps a card of a tag not yet defined hidden and
  * builds it again the moment the tag is defined (`customElements.whenDefined`), so nothing is lost on the way.
  */
-export function announceCard(
-  meta: CardMeta,
-  layoutHeight?: (config: LovelaceCardConfig) => number,
-): void {
+export function announceCard(meta: CardMeta, layoutHeight?: LayoutHeight): void {
   if (layoutHeight) declareHeight(meta.tag, layoutHeight);
   const cards = (window.customCards ??= []);
   if (!cards.some((card) => card.type === meta.tag)) {

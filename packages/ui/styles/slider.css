@@ -27,6 +27,30 @@
   font-weight: 500;
 }
 
+/* a light card on a wash of its light's colour (1.9: tint_strength soft or brightness, or always at rest; the whole
+   fill is a lit tile's skin, .fv-card.is-lit): a ruler's words take the secondary ink and its resting ticks half the
+   wash's hairline, so both read on it (the tokens' gates hold the secondary ink and the hairline); lit, the circle and
+   the switch's thumb stand on it as plain-card discs, a lit tile's */
+.fv-frame {
+  --fv-card-plain: var(--fluvy-card);
+}
+
+.sl-card[data-surface] {
+  --fv-tick-off: color-mix(in srgb, var(--fluvy-border-strong) 50%, var(--fluvy-border));
+}
+
+.sl-card[data-surface] fluvy-ruler {
+  --fluvy-border-strong: var(--fv-tick-off);
+}
+
+.sl-card[data-surface] .fv-ruler-labels span {
+  color: var(--fluvy-text-secondary);
+}
+
+.sl-card.is-glow :is(.fv-card__head > .fv-ico, .fv-switch.is-on .fv-switch__thumb) {
+  background: var(--fv-card-plain);
+}
+
 /* dark vertical ruler */
 .sl-dark {
   width: 392px;

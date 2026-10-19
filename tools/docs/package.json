@@ -2,7 +2,7 @@
   "name": "@fluvy/docs",
   "version": "1.8.0",
   "private": true,
-  "description": "The documentation generated from the code: the cards' tables in docs/cards.md from the catalogue and the editors' contract",
+  "description": "The documentation generated from the code and held to it: the cards' tables in docs/cards.md from the catalogue and the editors' contract, and the facts guard that holds every spelled count and budget in the prose to the code",
   "license": "GPL-3.0-only",
   "author": {
     "name": "acosta290",
@@ -25,16 +25,19 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsx src/cards.ts",
-    "check": "tsx src/cards.ts --check"
+    "check": "tsx src/cards.ts --check && tsx src/facts.ts --check",
+    "test": "vitest run"
   },
   "dependencies": {
     "@fluvy/cards": "workspace:*",
-    "@fluvy/core": "workspace:*"
+    "@fluvy/core": "workspace:*",
+    "@fluvy/tokens": "workspace:*"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.14.6",
     "@types/node": "^24.19.1",
     "tsx": "^4.23.15",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.3"
   }
 }

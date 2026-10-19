@@ -165,5 +165,108 @@ export const sheet: SheetSpec = {
         },
       ],
     },
+    // #48: a card of a list with nothing in it (a filter that matches nothing yet, the last entry taken out in the
+    // editor) draws its head and the empty panel where its list would be, never a configuration error
+    {
+      title: 'Empty · rows',
+      cards: [
+        { type: 'custom:fluvy-bars-card', title: 'Batteries', rows: [] },
+        { type: 'custom:fluvy-entities-card', title: 'Kitchen', show_count: true, entities: [] },
+        { type: 'custom:fluvy-helpers-card', entities: [] },
+        { type: 'custom:fluvy-openings-card', entities: [] },
+      ],
+    },
+    {
+      title: 'Empty · people',
+      cards: [
+        { type: 'custom:fluvy-people-card', entities: [] },
+        { type: 'custom:fluvy-map-card', entities: [] },
+      ],
+    },
+    {
+      title: 'Empty · figures',
+      cards: [
+        { type: 'custom:fluvy-distribution-card', entities: [] },
+        { type: 'custom:fluvy-stat-tiles-card', tiles: [] },
+        { type: 'custom:fluvy-readouts-card', entities: [] },
+      ],
+    },
+    {
+      title: 'Empty · actions',
+      cards: [
+        { type: 'custom:fluvy-actions-card', entities: [], columns: 2 },
+        { type: 'custom:fluvy-updates-card', entities: [] },
+        { type: 'custom:fluvy-lights-card', lights: [] },
+      ],
+    },
+    // no card around them: the panel stands on the page, in its other fill
+    {
+      title: 'Empty · on the page',
+      cards: [
+        { type: 'custom:fluvy-tiles-card', entities: [] },
+        { type: 'custom:fluvy-scenes-card', title: 'Scenes', entities: [] },
+        { type: 'custom:fluvy-chips-card', chips: [] },
+        { type: 'custom:fluvy-entities-card', entities: [] },
+      ],
+    },
+    {
+      title: 'Empty · half a section',
+      cards: [
+        { type: 'custom:fluvy-people-card', entities: [], cols: 6 },
+        { type: 'custom:fluvy-openings-card', entities: [], cols: 6 },
+        { type: 'custom:fluvy-tiles-card', entities: [], cols: 6 },
+        { type: 'custom:fluvy-scenes-card', entities: [], cols: 6 },
+      ],
+    },
+    // the card's own words for what nothing means here (a filter of open windows that matches none)
+    {
+      title: 'Empty · own words',
+      cards: [
+        {
+          type: 'custom:fluvy-openings-card',
+          title: 'Open windows',
+          entities: [],
+          empty_text: 'All closed',
+        },
+        { type: 'custom:fluvy-people-card', entities: [], empty_text: 'Nobody home' },
+      ],
+    },
+    // what auto-entities hands over: its matches as objects under `entities`, a section's title and a divider among them
+    {
+      title: 'Auto-entities',
+      cards: [
+        {
+          type: 'custom:fluvy-bars-card',
+          title: 'Plants',
+          entities: [
+            { type: 'section', label: 'Living room' },
+            { entity: 'sensor.ls_moisture', secondary_info: 'last-changed' },
+            { type: 'divider' },
+          ],
+        },
+        {
+          type: 'custom:fluvy-stat-tiles-card',
+          entities: [{ entity: 'sensor.ls_temperature' }, { entity: 'sensor.ls_humidity' }],
+        },
+        {
+          type: 'custom:fluvy-entities-card',
+          title: 'Found',
+          entities: [
+            { type: 'section', label: 'Kitchen' },
+            { entity: 'switch.kitchen_light' },
+            { type: 'divider' },
+            { entity: 'binary_sensor.kitchen_window' },
+          ],
+        },
+        {
+          type: 'custom:fluvy-tiles-card',
+          entities: [
+            { entity: 'switch.kitchen_light' },
+            { type: 'section', label: 'Laundry' },
+            { entity: 'switch.washer' },
+          ],
+        },
+      ],
+    },
   ],
 };

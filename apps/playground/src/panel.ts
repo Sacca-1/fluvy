@@ -19,7 +19,8 @@ import { createMemoryLook, type MemoryLook } from './look-memory.js';
  * app with nothing changed (`trial`), a profile that chose the Fluvy theme (`themed`), edits on the other tabs
  * waiting to be saved (`edits`), the language menu open (`menu`), every template's dashboard created
  * (`dashboards`), a dashboard's Recreate row armed (`recreate`), this browser a wall panel (`wall`), three palettes
- * saved by the house (`palettes`), the wall dark with a veil on the mesh (`night`). Several join with commas.
+ * saved by the house (`palettes`), the wall dark with a veil on the mesh (`night`), a warning of the house's own saved
+ * and a danger in its very colour waiting (`statuses`). Several join with commas.
  */
 export type PanelState =
   | 'pending'
@@ -38,7 +39,8 @@ export type PanelState =
   | 'recreate'
   | 'wall'
   | 'palettes'
-  | 'night';
+  | 'night'
+  | 'statuses';
 
 /** The dashboards our templates create, as the panel would (the home's is `fluvy-auto` in the demo home already). */
 const TEMPLATE_DASHBOARDS = [
@@ -117,6 +119,8 @@ export function mountPanel(
       })),
     });
   if (has('everywhere')) void store.saveHouse({ scope: 'everywhere', frame: true });
+  // #47's orange as the house's warning
+  if (has('statuses')) void store.saveHouse({ statuses: { warning: '#dc630b' } });
   // the wall at night: always dark, veiled at 40 %, on the mesh (the tab's preview shows it so)
   if (has('night'))
     void store.saveHouse({
@@ -170,6 +174,8 @@ export function mountPanel(
       panel.houseEdit = { frame: false };
       panel.personalEdit = { haptics: false };
     }
+    // a danger in the warning's very colour, not saved yet: the panel says the two are close
+    if (has('statuses')) panel.houseEdit = { statuses: { warning: '#dc630b', danger: '#dc630b' } };
     if (has('saved')) panel.notice = hass.language === 'es' ? 'Guardado' : 'Saved';
     if (has('menu'))
       void panel.updateComplete.then(() => {

@@ -29,6 +29,16 @@ work exactly as for any other integration.
 5. Reload the browser, then choose the **Fluvy** theme in your profile (**Theme → Fluvy**) or accept the offer in
    the panel's *Scope* tab. Everyone in the house does this once, on any device; it follows their profile.
 
+## Why an integration, and not a theme
+
+In HACS — and in Home Assistant's Marketplace from 2026.11, which reads the same catalogue — Fluvy is listed under **Integration**,
+not under Theme or Dashboard, so the type filters never show it: search for "Fluvy" or "theme" with no type filter.
+A HACS theme can only be a YAML file copied into `themes/`, which Home Assistant never serves to the browser, and a
+dashboard plugin is JavaScript with no Python behind it; Fluvy is the theme plus the cards, the dashboards, the
+settings panel, the Activity and History pages and the restyling of Home Assistant's own pages, and only an
+integration can put all of that in place (the module on every page, the panel, the resource, the theme file, the
+Repairs). Every project of that shape is listed the same way.
+
 ## From the release zip
 
 Download `fluvy.zip` from the [latest release](https://github.com/acosta290/fluvy/releases/latest), unzip it so that

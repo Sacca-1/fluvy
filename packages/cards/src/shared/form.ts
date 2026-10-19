@@ -127,12 +127,16 @@ export const numberField = (
 ): HaFormSchemaItem => ({ name, selector: { number: { min, max, step, mode: 'box' } } });
 /**
  * A choice among values the catalogue names (a value without a word does not compile), in the editor's language;
- * `custom` lets a value of the person's own be typed as well (an attribute's name, a template).
+ * `custom` lets a value of the person's own be typed as well (an attribute's name, a template); `words` names a value
+ * by another word where its own would say something else here (`full` strength is not the full layout).
  */
 export const selectField = (
   name: string,
   options: readonly OptionWord[],
-  { custom = false }: { custom?: boolean } = {},
+  {
+    custom = false,
+    words = {},
+  }: { custom?: boolean; words?: Partial<Record<OptionWord, OptionWord>> } = {},
 ): HaFormSchemaItem => ({
   name,
   selector: {
@@ -141,7 +145,7 @@ export const selectField = (
       ...(custom ? { custom_value: true } : {}),
       options: options.map((value) => ({
         value,
-        label: localize(editorLanguage(), `option.${value}`),
+        label: localize(editorLanguage(), `option.${words[value] ?? value}`),
       })),
     },
   },
@@ -212,21 +216,37 @@ export const toneField = (): HaFormSchemaItem => ({ name: 'tone', selector: tone
 
 /**
  * A card's or an item's own colour: Home Assistant's colour picker — its named swatches, shown in the palette's
- * colours where the look reaches the editor, or any hex typed — with the palette's accent as its default.
+ * colours where the look reaches the editor, or any colour typed — with the palette's accent as its default. A colour
+ * that may be none (`card_color`) is none until one is chosen: the picker then says what the card draws, and offers
+ * to clear it. One that follows its entity (`state`: a light card's, its bulb's) says so as Home Assistant's own
+ * tile does, State by default.
  */
-export const accentField = (name = 'color', { none = false } = {}): HaFormSchemaItem => ({
+export const accentField = (
+  name = 'color',
+  { none = false, state = false } = {},
+): HaFormSchemaItem => ({
   name,
-  selector: { ui_color: { default_color: 'primary', include_none: none, include_state: false } },
+  selector: {
+    ui_color: {
+      default_color: none ? 'none' : state ? 'state' : 'primary',
+      include_none: none,
+      include_state: state,
+    },
+  },
 });
 
 /** A tone and a colour on one row, then the card's own surface colour (`card_color`, none by default). */
-export const colourFields = (): HaFormSchemaItem[] => [
-  fieldRow(toneField(), accentField()),
+export const colourFields = ({ state = false } = {}): HaFormSchemaItem[] => [
+  fieldRow(toneField(), accentField('color', { state })),
   accentField('card_color', { none: true }),
 ];
 
-/** When an item's colour shows on its surface: while it is on (the default), or always (a quiet wash at rest). */
-export const tintField = (): HaFormSchemaItem => selectField('tint', ['on', 'always']);
+/**
+ * When an item's colour shows on its surface: while it is on (the default), or always (a quiet wash at rest); a light
+ * card's may be off as well — "Never" beside "Show its colour", not "Off" (a light's own off is another thing).
+ */
+export const tintField = (options: readonly OptionWord[] = ['on', 'always']): HaFormSchemaItem =>
+  selectField('tint', options, { words: { off: 'never' } });
 
 /** What a device card shows while the device is off: everything (the default), or the essentials alone. */
 export const whenOffField = (): HaFormSchemaItem => selectField('when_off', ['all', 'essentials']);
@@ -240,6 +260,14 @@ export const iconToneFields = (): HaFormSchemaItem => fieldRow(iconField(), tone
 
 /** A name and an icon, on one row (a card's, or an item's in a list). */
 export const nameIconFields = (): HaFormSchemaItem => fieldRow(textField('name'), iconField());
+
+/** Whether a card's head shows its circle: automatic (it gives way to a long name), always or never. */
+export const showIconField = (): HaFormSchemaItem =>
+  selectField('show_icon', ['auto', 'always', 'never']);
+
+/** What a card of a list says while the list has nothing to show, and whether it hides then (`EmptyList`). */
+export const emptyFields = (): HaFormSchemaItem =>
+  fieldRow(textField('empty_text'), boolField('hide_empty'));
 
 /** A list of entities in one picker (the visual editor's form; `listsEditor` gives each its own). */
 export const entitiesField = (

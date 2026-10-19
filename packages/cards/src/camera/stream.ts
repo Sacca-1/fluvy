@@ -91,7 +91,11 @@ export class StreamHolder implements ReactiveController {
 
   hostConnected(): void {
     if (typeof IntersectionObserver === 'function') {
-      this.onScreen = false; // the observer's first report, a frame from now, says otherwise
+      // the observer's first report, a frame from now, says otherwise: until then the element stays out — a card put
+      // back off screen (another view, a scroll away) would otherwise play on from `teardown`'s last word, with no
+      // countdown to take it out
+      this.onScreen = false;
+      this.attached = false;
       this.observer = new IntersectionObserver((entries) => {
         const seen = entries[entries.length - 1]?.isIntersecting ?? true;
         if (seen === this.onScreen) return;
@@ -162,8 +166,11 @@ export class StreamHolder implements ReactiveController {
       element.classList.add(props.className);
       element.muted = true;
       element.controls = false;
-      // the players say what they got; nothing to show in any of them and the stills come back
-      element.addEventListener('streams', () => {
+      // the players say what they got: video, and the next failure waits a minute again, not the last wait twice;
+      // nothing to show in any of them, and the stills come back
+      element.addEventListener('streams', (event) => {
+        if ((event as CustomEvent<{ hasVideo?: boolean }>).detail?.hasVideo === true)
+          this.backoff = RETRY_AFTER;
         window.clearTimeout(this.failing);
         this.failing = window.setTimeout(() => {
           this.failing = 0;

@@ -2,16 +2,29 @@
 /**
  * A card's actions, in a real Chromium against the playground's `actions` sheet. Exit code 1 on any failure.
  *   PLAYGROUND=http://127.0.0.1:5183/ node interactions-actions.mjs
- * What it proves: the icon circle runs the tap action and a still press on the head the hold action, both
- * more-info by default and anything Home Assistant's actions are when chosen; a hold never also taps (the click
- * that follows is swallowed, on the title and on the icon alike); a tap on the title is nothing; a hold on a ruler
- * is still its fine scale; a tile's whole surface taps and holds the same way, and a tap set to none does nothing;
- * a card of rows holds on its head and a row runs its own tap; the greeting's avatar taps and holds as an icon;
- * a scene tile runs on a tap and holds without running; a sensor tile's whole surface taps and holds; a tap to be
- * asked about first goes to Home Assistant and moves nothing, and a `fire-dom-event` reaches the page's listeners.
+ * What it proves: the head is the card's button (#42) — a tap on its circle or its name runs the tap action, a still
+ * press anywhere on it the hold action, both more-info by default and anything Home Assistant's actions are when
+ * chosen; a hold never also taps (the click that follows is swallowed, on the title and on the icon alike); a hold
+ * on a ruler is still its fine scale; a tile's whole surface taps and holds the same way, and a tap set to none does
+ * nothing; a large tile taps and holds through its surface while its switch keeps its own tap, and from the keyboard;
+ * four large tiles, one unavailable, stand at one height; a card of rows holds on its head and a row runs its own
+ * tap; the greeting's avatar taps and holds as an icon; a scene tile runs on a tap and holds without running; a
+ * sensor tile's whole surface taps and holds; a tap to be asked about first goes to Home Assistant and moves nothing,
+ * and a `fire-dom-event` reaches the page's listeners; a finger's long press on a head (a touch screen, Chromium)
+ * holds, selects nothing and never taps. `ENGINE=webkit` runs it in WebKit (the long press is Chromium's alone).
  */
 import { holdForFine, mousePointer, rulerGeometry } from './lib/gestures.mjs';
-import { calls, frame, moreInfo, reset, settle, startSuite } from './lib/suite.mjs';
+import {
+  BASE,
+  ENGINE,
+  calls,
+  frame,
+  moreInfo,
+  reset,
+  settle,
+  startSuite,
+  tapHead,
+} from './lib/suite.mjs';
 
 const suite = await startSuite();
 const { check } = suite;
@@ -40,7 +53,7 @@ async function hold(page, locator, ms = 650) {
   const page = await suite.sheet('actions');
   await watchNavigation(page);
   const card = frame(page, 'Defaults').locator('fluvy-light-card');
-  await card.locator('.fv-ico').first().click();
+  await tapHead(card, 'icon');
   await settle(page, 200);
   check('the icon opens the details by default', (await moreInfo(page)).length === 1);
   await reset(page);
@@ -51,11 +64,11 @@ async function hold(page, locator, ms = 650) {
     (await moreInfo(page)).length === 1 && (await calls(page)).length === 0,
   );
   await reset(page);
-  await card.locator('.fv-card__title').click();
+  await tapHead(card, 'title');
   await settle(page, 200);
   check(
-    'a tap on the title is nothing',
-    (await moreInfo(page)).length === 0 && (await calls(page)).length === 0,
+    'a tap on the title runs the tap action too: the head is the card’s button (#42)',
+    (await moreInfo(page)).length === 1 && (await calls(page)).length === 0,
   );
   await reset(page);
   // the ruler's own hold is still its fine scale: the head's hold does not reach it
@@ -86,7 +99,7 @@ async function hold(page, locator, ms = 650) {
   const page = await suite.sheet('actions');
   await watchNavigation(page);
   const card = frame(page, 'Toggle and go').locator('fluvy-light-card');
-  await card.locator('.fv-ico').first().click();
+  await tapHead(card, 'icon');
   await settle(page, 300);
   const c = await calls(page);
   check(
@@ -364,6 +377,135 @@ async function hold(page, locator, ms = 650) {
     JSON.stringify(jan),
   );
   await page.close();
+}
+
+/* ---------- a large tile: its surface taps and holds, its switch keeps its own tap ---------- */
+{
+  const page = await suite.sheet('actions');
+  await watchNavigation(page);
+  const tiles = frame(page, 'Tile · large').locator('fluvy-tile-card');
+  const washer = tiles.nth(0);
+  const name = washer.locator('.fv-tile__name');
+  await tapHead(washer, '.fv-tile__name');
+  await settle(page, 300);
+  check(
+    'a tap on a large tile runs its tap action',
+    (await navigations(page)).join() === '/t/tile' && (await calls(page)).length === 0,
+  );
+  await hold(page, name);
+  await settle(page, 300);
+  const held = await navigations(page);
+  check(
+    'a hold on a large tile runs its hold action and never also taps (a long press used to tap)',
+    held.join() === '/h/tile' && (await calls(page)).length === 0,
+    held.join(' '),
+  );
+  await tapHead(washer, '.fv-hit');
+  await settle(page, 300);
+  const flipped = await calls(page);
+  check(
+    'its switch flips the plug alone: beside the tile’s button, never inside it',
+    flipped.length === 1 &&
+      flipped[0].s === 'switch.turn_off' &&
+      (await navigations(page)).length === 0,
+    JSON.stringify(flipped.map((x) => x.s)),
+  );
+  await reset(page);
+  const button = washer.locator('.fv-tile__tap');
+  await button.focus();
+  await page.keyboard.press('Enter');
+  await settle(page, 200);
+  const keyed = await navigations(page);
+  await page.keyboard.press('Shift+F10');
+  await settle(page, 200);
+  const keyHeld = await navigations(page);
+  check(
+    'from the keyboard: one stop, Enter taps, Shift+F10 holds',
+    keyed.join() === '/t/tile' && keyHeld.join() === '/h/tile',
+    `${keyed.join()} · ${keyHeld.join()}`,
+  );
+  const gone = tiles.nth(1);
+  await tapHead(gone, '.fv-tile__name');
+  await settle(page, 200);
+  const goneTap = await navigations(page);
+  await hold(page, gone.locator('.fv-tile__name'));
+  await settle(page, 300);
+  check(
+    'an unavailable large tile still taps and holds, its switch there and still',
+    goneTap.join() === '/t/gone' &&
+      (await navigations(page)).join() === '/h/gone' &&
+      (await gone.locator('.fv-hit.is-fixed').count()) === 1,
+    goneTap.join(),
+  );
+  await page.close();
+}
+
+/* ---------- four large tiles, one unavailable: one height (the owner's rule, A7) ---------- */
+for (const width of [360, 211, 266]) {
+  const page = await suite.sheet('actions', { width });
+  const heights = await frame(page, 'Tiles · large · one unavailable')
+    .locator('fluvy-tiles-card .fv-tile')
+    .evaluateAll((tiles) => tiles.map((tile) => tile.getBoundingClientRect().height));
+  check(
+    `four large tiles at ${width}, the 3D printer unavailable: one height (within 0.5 px)`,
+    heights.length === 4 && Math.max(...heights) - Math.min(...heights) <= 0.5,
+    heights.map((h) => h.toFixed(2)).join(' · '),
+  );
+  await page.close();
+}
+
+/* ---------- the printer's switch out of reach is drawn disabled, never as a live Off (A7), in both modes ---------- */
+for (const mode of ['light', 'dark']) {
+  const page = await suite.sheet('actions', { extra: `&mode=${mode}` });
+  const skins = await frame(page, 'Tiles · large · one unavailable')
+    .locator('fluvy-tiles-card .fv-switch:not(.is-on)')
+    .evaluateAll((switches) =>
+      switches.map((knob) => ({
+        fixed: knob.getAttribute('aria-disabled') === 'true',
+        opacity: Number(getComputedStyle(knob).opacity),
+      })),
+    );
+  const gone = skins.filter((skin) => skin.fixed);
+  const live = skins.filter((skin) => !skin.fixed);
+  check(
+    `${mode}: the out-of-reach switch is drawn disabled (as a disabled round), the live Off one at full strength`,
+    gone.length === 1 &&
+      live.length >= 1 &&
+      gone[0].opacity <= 0.4 &&
+      live.every((skin) => skin.opacity === 1),
+    skins.map((skin) => `${skin.fixed ? 'out of reach' : 'live'} ${skin.opacity}`).join(' · '),
+  );
+  await page.close();
+}
+
+/* ---------- a finger's long press on a head: the hold, no selection, no tap (Chromium's touch) ---------- */
+if (ENGINE === 'chromium') {
+  const context = await suite.browser.newContext({
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await context.newPage();
+  await page.goto(`${BASE}?sheet=actions&width=360`);
+  await page.waitForSelector('html[data-ready="1"]');
+  await page.waitForTimeout(900);
+  await watchNavigation(page);
+  const card = frame(page, 'Toggle and go').locator('fluvy-light-card');
+  const box = await card.locator('.fv-card__title').boundingBox();
+  const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
+  await page.waitForTimeout(650);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await settle(page, 400);
+  const went = await navigations(page);
+  const selected = await page.evaluate(() => String(window.getSelection()));
+  check(
+    'a finger held on a head: the hold action, nothing selected, never the tap',
+    went.join() === '/fluvy-auto/rooms' && selected === '' && (await calls(page)).length === 0,
+    `${went.join(' ')} · "${selected}"`,
+  );
+  await context.close();
 }
 
 await suite.finish();

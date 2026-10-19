@@ -1,5 +1,21 @@
-import type { LovelaceCardConfig } from '@fluvy/core';
-import { HEAD, listLength, ROW, ROW_BAR, rowsOf } from './shared/heights.js';
+import type { HomeAssistant, LovelaceCardConfig } from '@fluvy/core';
+import {
+  attrOf,
+  textWidth,
+  chipBlock,
+  chipRows,
+  COLUMN,
+  HEAD,
+  listAttr,
+  listLength,
+  optionBlock,
+  optionRows,
+  ROW,
+  ROW_BAR,
+  rowsOf,
+  statsBlock,
+  statsRows,
+} from './shared/heights.js';
 
 /**
  * The energy family, announced at start and defined when its chunk lands (`energy-cards.ts`): what the card picker
@@ -13,8 +29,25 @@ export const FLOW_PITCH = 80;
 
 const up4 = (v: number): number => Math.ceil(v / 4) * 4;
 
+/**
+ * The labels of a card's `readouts`: their names, else the sensors' as the energy cards write them (`shortName`: a
+ * name past eleven characters of several words by its last, "Kitchen speaker" as "Speaker"), else their ids.
+ */
+const readoutLabels = (config: LovelaceCardConfig, hass?: HomeAssistant): string[] =>
+  (Array.isArray(config['readouts']) ? (config['readouts'] as unknown[]) : []).map((item) => {
+    const entry = (typeof item === 'string' ? { entity: item } : (item ?? {})) as Record<
+      string,
+      unknown
+    >;
+    if (typeof entry['name'] === 'string') return entry['name'];
+    const own = attrOf(hass, entry['entity'], 'friendly_name');
+    const name = typeof own === 'string' ? own : String(entry['entity'] ?? '').replace(/^.*\./, '');
+    const words = name.split(' ');
+    return name.length > 11 && words.length > 1 ? (words[words.length - 1] as string) : name;
+  });
+
 /** The flow at a 360 column: its nodes (or the cross), the period chips, the consumers' rows, the totals. */
-export function flowHeight(config: LovelaceCardConfig): number {
+export function flowHeight(config: LovelaceCardConfig, hass?: HomeAssistant): number {
   const sources = Array.isArray(config['sources']) ? config['sources'].length : 0;
   const count = Math.max(1, sources || 3);
   const last = FLOW_TOP + (count - 1) * FLOW_PITCH;
@@ -28,7 +61,7 @@ export function flowHeight(config: LovelaceCardConfig): number {
     stage +
     (period && config['show_period'] !== false ? 60 : 0) +
     (consumers ? 16 + ROW_BAR * (consumers + 1) : 0) +
-    (listLength(config, ['readouts']) ? 60 : 0)
+    statsBlock(statsRows(readoutLabels(config, hass)))
   );
 }
 
@@ -67,15 +100,19 @@ export function balanceHeight(config: LovelaceCardConfig): number {
   );
 }
 
-/** The grid at a 360 column: its value row, its phases, the price, the totals (today's when none are named). */
-export function gridHeight(config: LovelaceCardConfig): number {
+/**
+ * The grid at a 360 column: its value row, its phases, the price, the totals (today's two when none are named; the
+ * readouts named, in the rows their labels take).
+ */
+export function gridHeight(config: LovelaceCardConfig, hass?: HomeAssistant): number {
   const phases = phasesOf(config);
+  const labels = readoutLabels(config, hass);
   return (
     64 +
     80 +
     (phases ? 20 + phases * PHASE_PITCH - 8 + 20 : 0) +
     (config['price'] ? 76 : 0) +
-    60 +
+    (labels.length ? statsBlock(statsRows(labels)) : 60) +
     20
   );
 }
@@ -106,11 +143,42 @@ export function devicesHeight(config: LovelaceCardConfig): number {
   return HEAD + ROW_BAR * (items.length + parents.size + (config['total'] ? 1 : 0));
 }
 
-/** Production at a 360 column; several arrays draw a taller chart (112) and their legend (52) instead of the figures. */
-export function productionHeight(config: LovelaceCardConfig): number {
-  const arrays = listLength(config, ['arrays']) > 0;
-  if (config['variant'] === 'compact') return arrays ? 288 : 236;
-  return arrays ? 368 : 344;
+/** The legend's lead (its swatch and gap) before a name. */
+const LEGEND_LEAD = 20;
+/** A legend row (40) and the 8 between rows. */
+const LEGEND_ROW = 40;
+
+/**
+ * The rows a legend of `names` takes at a 360 column (`legendColumns`): as many columns as names (three at most
+ * in one row of more), two of four, else one, the widest name deciding.
+ */
+export function legendRows(names: readonly string[], width = COLUMN): number {
+  const count = names.length;
+  if (!count) return 0;
+  const widest = Math.max(0, ...names.map((name) => LEGEND_LEAD + textWidth(name, 'legend')));
+  const candidates = count <= 3 ? [count, 1] : count === 4 ? [4, 2, 1] : [count, 3, 2, 1];
+  const columns = candidates.find((n) => width / n + 2 >= widest) ?? 1;
+  return rowsOf(count, columns);
+}
+
+/**
+ * Production at a 360 column; several arrays draw a taller chart (112) and their legend (a row of 40, 16 under the
+ * axis, one a row where a name runs long) instead of the figures. The names are the config's, else the house's.
+ */
+export function productionHeight(config: LovelaceCardConfig, hass?: HomeAssistant): number {
+  const arrays = Array.isArray(config['arrays']) ? (config['arrays'] as unknown[]).slice(0, 4) : [];
+  if (config['variant'] === 'compact') return arrays.length ? 288 : 236;
+  if (!arrays.length) return 344;
+  const names = arrays.map((item) => {
+    const entry = (typeof item === 'string' ? { entity: item } : (item ?? {})) as Record<
+      string,
+      unknown
+    >;
+    const name = entry['name'] ?? attrOf(hass, entry['entity'], 'friendly_name');
+    return typeof name === 'string' ? name : '';
+  });
+  const rows = legendRows(names);
+  return 328 + rows * LEGEND_ROW + (rows - 1) * 8;
 }
 
 /* the history bars' pieces: the card's padding (20 above and below), the head (44), the readouts' own row (16 under
@@ -161,11 +229,53 @@ const factLabel = (fact: unknown): number => {
     : (BARS_LABELS[String(item['kind'])] ?? 8);
 };
 /**
- * The facts a strip holds in a row at a 360 column: three, two or one — the most whose cells hold a circle and the
- * widest label (two for the defaults); the figures are assumed to fit.
+ * What a fact's figure runs to (20/600 tabular digits about 13.5 px each, the decimal point 6.5, as measured; its
+ * unit 13/500 about 8 px a character, 4 after the figure): a bucket's whole digits by the bar's period (a day's tens,
+ * a week's hundreds, a month's thousands; a total one more), the kind's decimals and unit, or the item's own.
  */
-function factsPerRow(facts: readonly unknown[]): number {
-  const widest = Math.max(0, ...facts.map(factLabel)) * BARS_CAPS + BARS_CIRCLE;
+const BARS_DIGIT = 13.5;
+const BARS_POINT = 6.5;
+const BARS_UNIT = 8;
+const BARS_WHOLE: Readonly<Record<string, number>> = { day: 2, week: 3, month: 4 };
+/** Each kind's figure, where it is not a bucket's: [whole digits, decimals, unit characters]. */
+const BARS_FIGURES: Readonly<Record<string, readonly [number, number, number]>> = {
+  share: [2, 0, 1],
+  km: [3, 0, 2],
+  co2: [2, 1, 2],
+  trees: [1, 1, 5],
+  template: [0, 0, 0],
+};
+const factFigure = (fact: unknown, config: LovelaceCardConfig): number => {
+  const item = (typeof fact === 'string' ? { kind: fact } : (fact ?? {})) as Record<
+    string,
+    unknown
+  >;
+  const kind = String(item['kind']);
+  const bucket = BARS_WHOLE[String(config['period'] ?? 'day')] ?? 2;
+  const unit = typeof config['unit'] === 'string' ? config['unit'].length : 3;
+  const [whole, decimals, chars] =
+    BARS_FIGURES[kind] ??
+    (kind === 'money'
+      ? [bucket, 2, 1]
+      : [bucket + (kind === 'total' ? 1 : 0), Number(config['decimals'] ?? 1), unit]);
+  const own = Number(item['decimals'] ?? decimals);
+  const shown = typeof item['unit'] === 'string' ? item['unit'].length : chars;
+  return (
+    whole * BARS_DIGIT +
+    (own > 0 ? BARS_POINT + own * BARS_DIGIT : 0) +
+    (shown ? 4 + shown * BARS_UNIT : 0)
+  );
+};
+/**
+ * The facts a strip holds in a row at a 360 column: three, two or one — the most whose cells hold a circle beside
+ * the widest label or figure (two for the defaults on days; a week's or a month's figures, or a total, take one).
+ */
+function factsPerRow(facts: readonly unknown[], config: LovelaceCardConfig): number {
+  const widest =
+    Math.max(
+      0,
+      ...facts.map((fact) => Math.max(factLabel(fact) * BARS_CAPS, factFigure(fact, config))),
+    ) + BARS_CIRCLE;
   for (const n of [3, 2]) if ((BARS_STRIP - BARS_CELL_GAP * (n - 1)) / n >= widest) return n;
   return 1;
 }
@@ -204,7 +314,7 @@ export function historyBarsHeight(config: LovelaceCardConfig): number {
       : Array.isArray(config['facts'])
         ? (config['facts'] as unknown[])
         : ['highest', 'lowest', 'average'];
-  const rows = facts.length ? rowsOf(facts.length, factsPerRow(facts)) : 0;
+  const rows = facts.length ? rowsOf(facts.length, factsPerRow(facts, config)) : 0;
   return (
     BARS_PADDING +
     above +
@@ -225,16 +335,21 @@ export function metersHeight(config: LovelaceCardConfig): number {
 }
 
 /* the charge cards' pieces: the value row (16 + 64 under the head, the 16 counted in HEAD), a marked ruler and its
-   labels (12 + 44, 4 + 16), a readout row (16 + 44), the mode (a label 16 + 20, then a row of tiles 8 + 84 or of
-   chips 8 + 44) */
+   labels (12 + 44, 4 + 16), a readout row (16 + 44), the mode (a label 16 + 20, then rows of tiles 8 + 84 or of
+   chips 8 + 44: as many as the mode's options take, one row of three where the house is not there to say) */
 const VALUE_ROW = 64;
 const RULER = 56 + 20;
 const COLS = 60;
-const MODE_TILES = 128;
-const MODE_CHIPS = 88;
+const MODE_OPTIONS = ['a', 'b', 'c'];
+
+/** A mode select's options as the house lists them (`options`), three where it is not there to say. */
+const modeOptions = (config: LovelaceCardConfig, hass?: HomeAssistant): string[] => {
+  const options = listAttr(hass, config['mode'], 'options');
+  return options.length ? options : MODE_OPTIONS;
+};
 
 /** Batteries at a 360 column: the charge on its ruler, a row per battery when there are several, the mode. */
-export function batteriesHeight(config: LovelaceCardConfig): number {
+export function batteriesHeight(config: LovelaceCardConfig, hass?: HomeAssistant): number {
   const listed = Array.isArray(config['batteries']) ? (config['batteries'] as unknown[]) : [];
   // none listed: the Energy dashboard's, most often one with its state of charge
   const count = Math.max(1, listed.length);
@@ -244,7 +359,7 @@ export function batteriesHeight(config: LovelaceCardConfig): number {
     VALUE_ROW +
     (level ? RULER : 0) +
     (count > 1 ? 16 + ROW_BAR * count : 0) +
-    (config['mode'] ? MODE_CHIPS : 0)
+    (config['mode'] ? chipBlock(chipRows(modeOptions(config, hass))) : 0)
   );
 }
 
@@ -252,12 +367,12 @@ export function batteriesHeight(config: LovelaceCardConfig): number {
  * The car charger at a 360 column: the car's charge on its ruler (else the power), the session's readouts (the time
  * it has charged only shows while it charges: a status alone is not counted), the mode.
  */
-export const chargerHeight = (config: LovelaceCardConfig): number =>
+export const chargerHeight = (config: LovelaceCardConfig, hass?: HomeAssistant): number =>
   HEAD +
   VALUE_ROW +
   (config['level'] ? RULER : 0) +
   (config['session_energy'] || config['solar_share'] ? COLS : 0) +
-  (config['mode'] ? MODE_TILES : 0);
+  (config['mode'] ? optionBlock(optionRows(modeOptions(config, hass))) : 0);
 
 /** The chips a period card carries by default: 16 under the head, a 44 row. */
 const periodChips = (config: LovelaceCardConfig): number =>
@@ -280,7 +395,7 @@ export type FamilyEntry = readonly [
   tag: string,
   name: string,
   description: string,
-  height: (config: LovelaceCardConfig) => number,
+  height: (config: LovelaceCardConfig, hass?: HomeAssistant) => number,
 ];
 
 export const ENERGY_FAMILY: readonly FamilyEntry[] = [

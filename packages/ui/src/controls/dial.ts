@@ -13,6 +13,7 @@ import {
   trackDrag,
 } from './pointer.js';
 import { haptic as buzz } from '../haptics.js';
+import { textWidth } from '../text.js';
 
 export interface DialChangeDetail {
   /** Single-target dials. */
@@ -488,11 +489,28 @@ export class FluvyDial extends LitElement {
       this.dragIndex !== -1 ? this.shown[this.dragIndex] : this.isRange ? undefined : this.shown[0];
     // a range reads "20 – 24": whole numbers lose their ".0" so both ends fit the disc on one line
     const lean = (v: number | undefined): string => this.figure(v).replace(/[.,]0$/, '');
+    const both = `${lean(this.shown[0])} – ${lean(this.shown[1])}`;
     const figure =
       this.isRange && this.dragIndex === -1 && this.text === undefined
-        ? `${lean(this.shown[0])} – ${lean(this.shown[1])}`
+        ? both
         : this.figure(this.gauge ? this.value : focusValue);
     const long = figure.length > 7;
+    // the figure at its size where the disc holds it with its unit, else the largest size that does (a range's two
+    // ends in a small dial) — measured on what the dial says at rest, so a knob under the finger never resizes it
+    const unit = this.unit && this.text === undefined ? this.unit : '';
+    const room =
+      discR * 2 -
+      16 -
+      (unit ? 4 + textWidth(unit, { size: this.large ? 18 : 14, weight: 600 }) : 0);
+    const holds = (size: number): boolean =>
+      textWidth(this.isRange && this.text === undefined ? both : figure, {
+        size,
+        weight: 600,
+        tracking: -0.02,
+        tabular: true,
+      }) <= room;
+    const own = long ? 28 : this.large ? 48 : 32;
+    const size = holds(own) ? own : ([24, 20, 16].find(holds) ?? 16);
 
     return html`<div
       class="fv-dial fv-dial--${this.tone} ${this.large ? 'fv-dial--l' : 'fv-dial--s'}${this.disabled ? ' is-off' : ''}${this.gauge ? ' fv-dial--gauge' : ''}${this.dragIndex !== -1 ? ' is-dragging' : ''}"
@@ -504,9 +522,11 @@ export class FluvyDial extends LitElement {
         style="left:${cx - discR}px;top:${cy - discR}px;width:${discR * 2}px;height:${discR * 2}px"
       >
         ${this.label ? html`<p class="fv-dial__label-in">${this.label}</p>` : nothing}
-        <p class="fv-dial__value${this.disabled ? ' is-off' : ''}${long ? ' is-long' : ''}">
-          <span>${figure}</span
-          >${this.unit && this.text === undefined ? html`<span class="fv-unit">${this.unit}</span>` : nothing}
+        <p
+          class="fv-dial__value${this.disabled ? ' is-off' : ''}${long ? ' is-long' : ''}"
+          style=${size === own ? nothing : `font-size:${size}px`}
+        >
+          <span>${figure}</span>${unit ? html`<span class="fv-unit">${unit}</span>` : nothing}
         </p>
         ${this.sub ? html`<p class="fv-dial__sub">${this.sub}</p>` : nothing}
       </div>

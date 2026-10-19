@@ -81,12 +81,14 @@ export function collectHexValues(colors: PaletteModeColors): readonly (readonly 
     entries.push([`neutralRamp.${step}`, colors.neutralRamp[step]]);
     entries.push([`accentRamp.${step}`, colors.accentRamp[step]]);
   }
-  for (const role of SEMANTIC_ROLES) {
-    const value = colors.semantic[role];
-    entries.push([`semantic.${role}.ink`, value.ink]);
-    entries.push([`semantic.${role}.fill`, value.fill]);
-    entries.push([`semantic.${role}.fillBorder`, value.fillBorder]);
-    entries.push([`semantic.${role}.onFill`, value.onFill]);
+  for (const [role, value] of [
+    ...SEMANTIC_ROLES.map((role) => [`semantic.${role}`, colors.semantic[role]] as const),
+    ['notice', colors.notice] as const,
+  ]) {
+    entries.push([`${role}.ink`, value.ink]);
+    entries.push([`${role}.fill`, value.fill]);
+    entries.push([`${role}.fillBorder`, value.fillBorder]);
+    entries.push([`${role}.onFill`, value.onFill]);
   }
   for (const key of STATE_KEYS) {
     const value = colors.state[key];
@@ -232,6 +234,7 @@ export function contrastGates(colors: PaletteModeColors): readonly ContrastGate[
   for (const [id, value] of [
     ['accent', colors.accent] as const,
     ...SEMANTIC_ROLES.map((role) => [`status/${role}`, colors.semantic[role]] as const),
+    ['notice', colors.notice] as const,
     ...STATE_KEYS.map((key) => [`state/${key}`, colors.state[key]] as const),
   ]) {
     gates.push({
@@ -257,22 +260,25 @@ export function contrastGates(colors: PaletteModeColors): readonly ContrastGate[
     });
   }
 
-  for (const role of SEMANTIC_ROLES) {
-    const value = colors.semantic[role];
+  // information (`notice`) is read as a status is: its ink as text (a count), its on-fill ink on its fill
+  for (const [id, value] of [
+    ...SEMANTIC_ROLES.map((role) => [`status/${role}`, colors.semantic[role]] as const),
+    ['notice', colors.notice] as const,
+  ]) {
     gates.push({
-      id: `status/${role}-ink-on-card`,
+      id: `${id}-ink-on-card`,
       foreground: value.ink,
       background: card,
       min: GATES.text,
     });
     gates.push({
-      id: `status/${role}-ink-on-page`,
+      id: `${id}-ink-on-page`,
       foreground: value.ink,
       background: page,
       min: GATES.text,
     });
     gates.push({
-      id: `status/${role}-on-fill`,
+      id: `${id}-on-fill`,
       foreground: value.onFill,
       background: value.fill,
       min: GATES.onFill,
@@ -403,6 +409,21 @@ export function checkStructure(palette: Palette, mode: PaletteMode): readonly St
       pass: palette.character !== 'vivid' || !nearest || nearest.distance >= GATES.accentSeparation,
       ...(palette.character === 'vivid' ? {} : { notApplicable: 'soft' }),
     },
+    // information (an alert of severity info) never reads as a warning or a danger: fill from fill, ink from ink
+    ((): StructuralResult => {
+      const { notice } = colors;
+      const apart = Math.min(
+        ...[colors.semantic.warning, colors.semantic.danger].flatMap((alarm) => [
+          deltaE(notice.fill, alarm.fill),
+          deltaE(notice.ink, alarm.ink),
+        ]),
+      );
+      return {
+        id: 'roles/notice-separation',
+        detail: `notice from warning and danger, fills and inks: min ΔE2000 ${apart.toFixed(1)} (>= ${GATES.fillSeparation})`,
+        pass: apart >= GATES.fillSeparation,
+      };
+    })(),
     // a lesser button answers the pointer, and its plates stand off the dialog they sit in
     ((): StructuralResult => {
       const dialog = mode === 'light' ? colors.surface.card : colors.surface.cardElevated;

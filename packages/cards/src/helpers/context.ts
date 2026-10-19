@@ -27,7 +27,7 @@ export interface HelperHost {
   readonly ruler: TextRuler;
   /** A row's own second line when it is a template: rendered by Home Assistant, live. */
   readonly texts: TemplateTexts;
-  /** The rows have given their circles to their names: an action's word squeezed one of them (`actionsKeepIcon`). */
+  /** The rows have given their circles to their names: what ends one of them squeezed its name (`rowsKeepIcon`). */
   readonly bare: boolean;
   /** The state to draw: the expected one while a change is in flight. */
   state(view: EntityView): string;
@@ -61,6 +61,14 @@ export function contextOf(host: HelperHost, view: EntityView, row: HelperRowConf
   if (view.status !== 'ok') return stateText(host.hass, view);
   return view.areaName;
 }
+
+/**
+ * A field's line under its name: its context, where it has one. Why it cannot be used takes the place of the area,
+ * never a line the field has not got live — a list out of reach keeps its size (1.9); the control says it then: its
+ * value "—", its field's word, its chips at rest.
+ */
+export const fieldContext = (host: HelperHost, view: EntityView, row: HelperRowConfig): string =>
+  ownSecondary(host, row) !== undefined || view.areaName ? contextOf(host, view, row) : '';
 
 /** The sheet's field head: title and context on the left, the control (if it sits on the title's line) on the right. */
 export function field(

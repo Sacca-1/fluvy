@@ -43,9 +43,29 @@ const titleCase = (id: string): string => {
   return object.charAt(0).toUpperCase() + object.slice(1);
 };
 
+/**
+ * What Home Assistant writes of an entity whatever its state (`Entity.__async_calculate_state`) that shapes its card:
+ * its name, unit, device and state class and features, and its capabilities — a thermostat's modes and range, a fan's
+ * presets, a light's colour modes, a select's options. Not its icon or picture (an entity that is not there draws the
+ * `ban` glyph), nor its state's own attributes (a temperature now, a brightness, a position).
+ */
+const CAPABILITY =
+  /^(friendly_name|unit_of_measurement|supported_features|options|min|max|step|mode)$|^(min|max)_|_(modes|list|step|class)$/;
+
+/**
+ * The last state this page read of each entity. One that goes missing — its integration not set up yet after a
+ * restart, a YAML entity reloading, an id renamed — is drawn from its description and capabilities as they were, so
+ * its card keeps the anatomy and the size it had (1.9, the owner's rule); never from its state's own attributes.
+ */
+const seen = new Map<string, HassEntity>();
+
 export function resolveEntity(hass: HomeAssistant | undefined, id: string | undefined): EntityView {
   const entityId = id ?? '';
   const stateObj = hass?.states[entityId];
+  if (stateObj) seen.set(entityId, stateObj);
+  const kept = stateObj ?? seen.get(entityId);
+  const attr = <T>(key: string): T | undefined =>
+    (stateObj || CAPABILITY.test(key) ? kept?.attributes[key] : undefined) as T | undefined;
   const status: EntityStatus = !stateObj
     ? 'missing'
     : stateObj.state === 'unavailable'
@@ -64,14 +84,28 @@ export function resolveEntity(hass: HomeAssistant | undefined, id: string | unde
     status,
     stateObj,
     state: stateObj?.state ?? 'missing',
-    name: stateObj?.attributes.friendly_name ?? registry?.name ?? titleCase(entityId),
+    name: attr<string>('friendly_name') ?? registry?.name ?? titleCase(entityId),
     areaName: (areaId && hass?.areas?.[areaId]?.name) || '',
     number: Number.isFinite(parsed) ? parsed : null,
-    unit: stateObj?.attributes.unit_of_measurement ?? '',
-    deviceClass: stateObj?.attributes.device_class ?? '',
-    supports: (bit) => ((stateObj?.attributes.supported_features ?? 0) & bit) !== 0,
-    attr: <T>(key: string) => stateObj?.attributes[key] as T | undefined,
+    unit: attr<string>('unit_of_measurement') ?? '',
+    deviceClass: attr<string>('device_class') ?? '',
+    supports: (bit) => ((attr<number>('supported_features') ?? 0) & bit) !== 0,
+    attr,
   };
+}
+
+/**
+ * A missing entity as its capabilities were last read: an unavailable state carrying them (a setpoint's range, a
+ * select's options, a sensor's unit and class), for what reads a state object rather than a view. Nothing of its
+ * state's own, as `resolveEntity` answers it.
+ */
+export function capabilitiesOf(id: string): HassEntity | undefined {
+  const kept = seen.get(id);
+  if (!kept) return undefined;
+  const attributes: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(kept.attributes))
+    if (CAPABILITY.test(key)) attributes[key] = value;
+  return { ...kept, state: 'unavailable', attributes };
 }
 
 const ACTIVE_OFF = new Set([

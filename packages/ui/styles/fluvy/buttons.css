@@ -1,11 +1,12 @@
 /* fluvy · buttons: One family. Part of fluvy.css (its @imports keep this order).
  * round   .fv-round      a 44 circle with a 20 glyph (quiet, accent, on-page, bare)
  * action  .fv-action     a glyph in an equal cell of an action row (radius 12, 44 tall)
- * button  .fv-btn        a label: 48 tall, radius 12 (quiet, accent, link); a pill 44 tall (pill)
+ * button  .fv-btn        a label: 48 tall, radius 12 (quiet, accent, link, armed); a pill 44 tall (pill)
  * link    .fv-link       words in the accent, their 44 target reaching past them
  * A button on the page's ground (not in a card) wears the card's fill and hairline (on-page); a button that stands
- * for something switched on takes the accent (is-on). The disabled look, the press and the hover are the
- * interaction layer's. */
+ * for something switched on takes the accent (is-on). Inside a card the round and the action sit on the page's fill,
+ * or on a washed card (`card_color`, a lit light card) on the wash's deeper step (`--fluvy-inset`, 1.9). The disabled
+ * look, the press and the hover are the interaction layer's. */
 
 .fv-round {
   display: inline-flex;
@@ -15,7 +16,7 @@
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: var(--fluvy-page);
+  background: var(--fluvy-inset, var(--fluvy-page));
   color: var(--fluvy-text);
 }
 
@@ -48,7 +49,7 @@
   justify-content: center;
   height: 44px; /* the round button's height: a 20 glyph sits 12 in, on the grid */
   border-radius: var(--fluvy-radius-control);
-  background: var(--fluvy-page);
+  background: var(--fluvy-inset, var(--fluvy-page));
   color: var(--fluvy-text-secondary);
 }
 
@@ -97,6 +98,14 @@
   background: var(--fluvy-primary, var(--fluvy-accent));
   box-shadow: inset 0 0 0 1px var(--fluvy-primary-edge, transparent);
   color: var(--fluvy-on-primary, var(--fluvy-text-on-accent));
+}
+
+/* armed: a button whose second tap acts at once (a bulk action, a schedule's Delete) says so on the danger's fill in its
+   on-fill ink — read at 4.5 on every palette, in both modes, under the pointer and the focus too */
+.fv-btn--armed {
+  background: var(--fluvy-danger-fill);
+  box-shadow: inset 0 0 0 1px var(--fluvy-danger-fill-border);
+  color: var(--fluvy-danger-on-fill);
 }
 
 /* on the page's ground: the card's fill and its hairline, as a card would stand there */

@@ -14,6 +14,7 @@ import { css, html, nothing, type CSSResultGroup, type TemplateResult } from 'li
 import { repeat } from 'lit/directives/repeat.js';
 
 import { HeadFit } from '../energy/head.js';
+import type { Segment } from '../shared/fit.js';
 
 import { baseOf, figureText, scaleFor } from '../gauge/units.js';
 
@@ -24,6 +25,7 @@ import {
   actionFields,
   colourFields,
   editorLabels,
+  emptyFields,
   entitiesField,
   entityField,
   fieldRow,
@@ -31,6 +33,7 @@ import {
   idsOnly,
   numberField,
   selectField,
+  showIconField,
   textField,
   titleFields,
   toneField,
@@ -39,7 +42,8 @@ import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 import { configKeys, ITEM_ALIASES, type AliasSpec } from '../shared/config.js';
 import { toneOf } from '../shared/colour.js';
 import { glyphFor } from '../shared/domain.js';
-import { listLength, HEAD, ROW } from '../shared/heights.js';
+import { EMPTY, entryCount, HEAD, ROW } from '../shared/heights.js';
+import { EMPTY_KEYS, emptyPanel, itemsOf, listOf, type EmptyList } from '../shared/lists.js';
 
 const strings = words('distribution');
 
@@ -51,7 +55,7 @@ export interface DistributionEntityConfig {
 }
 
 /** `entities` holds the power sensors: ids, or `{ entity, name, tone }` objects where YAML wants a name or a tone per segment. */
-export interface DistributionCardConfig extends FluvyCardConfig {
+export interface DistributionCardConfig extends FluvyCardConfig, EmptyList {
   title?: string;
   subtitle?: string;
   /** Rows the legend shows; when there are more, the smallest are summed into one neutral "Other". */
@@ -75,11 +79,6 @@ interface Part {
   readonly entity?: string;
 }
 
-const isSource = (row: unknown): row is DistributionEntityConfig =>
-  typeof row === 'object' &&
-  row !== null &&
-  typeof (row as { entity?: unknown }).entity === 'string';
-
 /** The order segments take their tone in when the config does not name one. */
 const CYCLE: readonly Tone[] = ['heat', 'accent', 'media', 'water', 'grid'];
 /** A segment thinner than this share of the bar would be a sliver between two gaps: the legend still lists it. */
@@ -93,16 +92,19 @@ const SLIVER = 0.005;
 export class FluvyDistributionCard extends Card<DistributionCardConfig> {
   /** The card's height at a 360 column, for the automatic dashboard's columns. */
   static override layoutHeight(config: DistributionCardConfig): number {
-    const n = Math.min(listLength(config, ['entities']), 5);
-    return config.variant === 'rows' ? HEAD + ROW * n : 124 + 36 * n;
+    const n = Math.min(entryCount(config, ['entities']), 5);
+    if (!n) return HEAD + EMPTY;
+    // what the total leaves unmeasured is one more legend row
+    const rest = config.total ? 1 : 0;
+    return config.variant === 'rows' ? HEAD + ROW * (n + rest) : 124 + 36 * (n + rest);
   }
 
   static override styles: CSSResultGroup = [
     ...(Card.styles as CSSResultGroup[]),
     sheetStyles.solar,
     css`
-      /* nothing is drawing: the bar stays as a quiet empty track instead of vanishing */
-      .so-empty {
+      /* nothing is drawing (or nothing can be read): the bar stays as a quiet empty track instead of vanishing */
+      .fv-stack.is-empty {
         background: var(--fluvy-page-alt);
       }
       /* a long name gives way, the value never does */
@@ -130,6 +132,7 @@ export class FluvyDistributionCard extends Card<DistributionCardConfig> {
     'card_color',
     'tap_action',
     'hold_action',
+    'show_icon',
   ];
   static override keys = configKeys<DistributionCardConfig>()([
     'title',
@@ -137,6 +140,7 @@ export class FluvyDistributionCard extends Card<DistributionCardConfig> {
     'max_rows',
     'variant',
     'total',
+    ...EMPTY_KEYS,
   ]);
   static override lists: readonly RowsListSpec[] = [
     {
@@ -154,11 +158,12 @@ export class FluvyDistributionCard extends Card<DistributionCardConfig> {
     return {
       schema: [
         titleFields(),
-        iconField(),
+        fieldRow(iconField(), showIconField()),
         ...colourFields(),
         entitiesField('entities', ['sensor'], true),
         fieldRow(numberField('max_rows', 2, 10), selectField('variant', ['stack', 'rows'])),
         entityField(['sensor'], 'total', false),
+        emptyFields(),
         actionFields(),
       ],
       ...idsOnly('entities'),
@@ -179,10 +184,7 @@ export class FluvyDistributionCard extends Card<DistributionCardConfig> {
   }
 
   private sources(): DistributionEntityConfig[] {
-    const raw: readonly unknown[] = this.config?.entities ?? [];
-    return raw.flatMap((row): DistributionEntityConfig[] =>
-      typeof row === 'string' ? [{ entity: row }] : isSource(row) ? [row] : [],
-    );
+    return itemsOf(this.config?.entities);
   }
 
   private get limit(): number {
@@ -191,8 +193,7 @@ export class FluvyDistributionCard extends Card<DistributionCardConfig> {
   }
 
   protected override prepare(config: DistributionCardConfig): DistributionCardConfig {
-    if (!Array.isArray(config.entities) || config.entities.length === 0)
-      throw new Error('fluvy-distribution-card: add at least one entity to "entities"');
+    listOf(config, 'entities');
     return config;
   }
 
@@ -291,11 +292,13 @@ export class FluvyDistributionCard extends Card<DistributionCardConfig> {
     const unit = views
       .map((view) => (view.status === 'ok' ? baseOf(view)?.unit : undefined))
       .find((found) => found !== undefined);
-    const dead = unit === undefined;
+    const panel = emptyPanel(this, !sources.length, 'plug', 'common.no_sensors');
+    // nothing that reads is a card gone; nothing listed is only an empty one, its panel where the rows would be
+    const dead = !panel && unit === undefined;
     const tone: Tone = dead ? 'off' : toneOf(this.config, 'accent');
-    const asRows = this.config?.variant === 'rows';
+    const asRows = Boolean(panel) || this.config?.variant === 'rows';
 
-    const parts = this.parts(sources, views, unit ?? '');
+    const parts = panel ? [] : this.parts(sources, views, unit ?? '');
     const total = parts.reduce((count, part) => count + (part.value ?? 0), 0);
     const scale = scaleFor(total, unit ?? '');
     const text = (value: number | null): string =>
@@ -304,11 +307,34 @@ export class FluvyDistributionCard extends Card<DistributionCardConfig> {
       (part) => part.value !== null && total > 0 && part.value / total >= SLIVER,
     );
     const title = this.config?.title ?? strings(this.hass, 'distribution');
+    // a row's share: "36 % of total", or "36 %" alone where the words would be cut beside its figure
+    const share = (part: Part): Segment | null => {
+      if (part.value === null || total <= 0) return null;
+      const percent = Math.round((part.value / total) * 100);
+      return {
+        text: strings(this.hass, 'share_of_total', { percent }),
+        short: strings(this.hass, 'share', { percent }),
+      };
+    };
+    // a column too narrow for a name and its share beside its figure gives every row's circle to the words, as every
+    // list does
+    const keep =
+      !asRows ||
+      this.head.rowsKeepIcon(
+        this.contentWidth,
+        parts.map((part) => ({
+          title: part.label,
+          value: text(part.value),
+          sub: share(part)?.short ?? '',
+        })),
+      );
     const fitted = this.head.fit({
       width: this.contentWidth,
       title,
       sub: this.config?.subtitle ?? this.t('energy.drawing_now'),
-      badge: { text: dead ? stateText(this.hass, views[0] as EntityView) : text(total), tone },
+      badge: panel
+        ? null
+        : { text: dead ? stateText(this.hass, views[0] as EntityView) : text(total), tone },
     });
 
     return html`<article class="fv-card so-card ${dead ? 'is-unavailable is-off' : ''}" data-card>
@@ -319,36 +345,37 @@ export class FluvyDistributionCard extends Card<DistributionCardConfig> {
         sub: fitted.sub,
         trailing: fitted.badge,
         name: Boolean(this.config?.title),
-        onIconTap: () => this.tap(),
-        onHold: () => this.hold(),
+        cut: fitted.cut,
+        ...this.headActions(),
       })}
       ${
         asRows
           ? html`<div class="so-rows">
+              ${panel}
               ${repeat(
                 parts,
                 (part) => part.key,
-                (part) =>
-                  listRow({
-                    icon: part.glyph,
+                (part) => {
+                  const segment = share(part);
+                  const room = this.head.rowRoom(this.contentWidth, text(part.value), {
+                    icon: keep,
+                  });
+                  return listRow({
+                    icon: keep ? part.glyph : null,
                     tone: part.value === null ? 'off' : part.tone,
                     accent: part.accent,
                     title: part.label,
                     name: true,
-                    sub:
-                      part.value !== null && total > 0
-                        ? strings(this.hass, 'share_of_total', {
-                            percent: Math.round((part.value / total) * 100),
-                          })
-                        : '',
+                    sub: segment ? this.head.fitRowSegments([segment], room) : '',
                     trailing: 'value',
                     value: text(part.value),
                     unavailable: part.value === null,
                     ...(part.entity ? { onTap: () => this.tap(part.entity) } : {}),
-                  }),
+                  });
+                },
               )}
             </div>`
-          : html`<div class="fv-stack ${segments.length ? '' : 'so-empty'}">
+          : html`<div class="fv-stack ${segments.length ? '' : 'is-empty'}">
                 ${repeat(
                   segments,
                   (part) => part.key,

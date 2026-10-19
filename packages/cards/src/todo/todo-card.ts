@@ -25,7 +25,8 @@ import { dayText, daysUntil, parseMomentText, relativeDays } from '../helpers/da
 
 import { textField as inputField } from '../helpers/text.js';
 
-import { Card } from '../shared/base.js';
+import { HeadFit } from '../energy/head.js';
+import { Card, HEAD_BASE } from '../shared/base.js';
 
 import {
   actionFields,
@@ -35,6 +36,7 @@ import {
   fieldRow,
   formLabels,
   iconField,
+  showIconField,
   textField,
 } from '../shared/form.js';
 import { configKeys, type AliasSpec } from '../shared/config.js';
@@ -77,6 +79,11 @@ const PENDING_MS = 3000;
 const LOCAL = 'fluvy-local:';
 /** Rows held open while the first list is on its way, so the card does not grow under the reader. */
 const MAX_PLACEHOLDERS = 8;
+/**
+ * The rows a list that cannot be read keeps — unavailable before its items came, or gone from the house: the list of
+ * five the card declares (`layoutHeight`), each a row at rest.
+ */
+const RESTING = 5;
 
 /**
  * A to-do list the way the sheet draws it: the count and the accent "+" in the head, then 60 px rows
@@ -87,7 +94,7 @@ const MAX_PLACEHOLDERS = 8;
 export class FluvyTodoCard extends Card<TodoCardConfig> {
   /** The card's height at a 360 column, for the automatic dashboard's columns. */
   static override layoutHeight(): number {
-    return 400; // a list of five
+    return 100 + RESTING * 60; // a list of five
   }
 
   static override styles: CSSResultGroup = [
@@ -151,6 +158,12 @@ export class FluvyTodoCard extends Card<TodoCardConfig> {
         height: 12px;
       }
 
+      /* a list that cannot be read keeps its rows at rest: their bars still, not loading, drawn on the page's fill */
+      .is-off .in-todo__wait {
+        animation: none;
+        background: var(--fluvy-border);
+      }
+
       /* the "+" turns into the "×" that closes the field it opened */
       .in-add svg {
         transition: transform var(--fv-base) var(--fv-ease);
@@ -194,12 +207,14 @@ export class FluvyTodoCard extends Card<TodoCardConfig> {
     this.adding_ = false;
   }
 
+  static override base = HEAD_BASE;
   static override keys = configKeys<TodoCardConfig>()([
     'subtitle',
     'show_completed',
     'show_add',
     'show_due',
   ]);
+  private readonly head = new HeadFit(this);
   /**
    * The list's name is the base's `name` (`title` was the older word for it); `hide_completed: true` was the way to
    * drop the ticked items: it reads as `show_completed: false`.
@@ -221,7 +236,7 @@ export class FluvyTodoCard extends Card<TodoCardConfig> {
       schema: [
         entityField(['todo']),
         fieldRow(textField('name'), textField('subtitle')),
-        iconField(),
+        fieldRow(iconField(), showIconField()),
         ...colourFields(),
         fieldRow(boolField('show_completed'), boolField('show_add')),
         boolField('show_due'),
@@ -243,8 +258,9 @@ export class FluvyTodoCard extends Card<TodoCardConfig> {
     return config;
   }
 
+  /** Its rows, and the head: a list not read yet is the five it declares (its first frame and an unreachable one alike). */
   override getCardSize(): number {
-    return 1 + Math.max(1, this.items_?.length ?? 1);
+    return 1 + Math.max(1, this.items_?.length ?? RESTING);
   }
 
   override getGridOptions(): LovelaceGridOptions {
@@ -438,9 +454,13 @@ export class FluvyTodoCard extends Card<TodoCardConfig> {
     view: EntityView,
     canUpdate: boolean,
     shown: readonly TodoItem[],
+    unusable: boolean,
   ): TemplateResult | readonly TemplateResult[] {
     if (this.items_ === null) {
-      const waiting = Math.min(MAX_PLACEHOLDERS, Math.max(1, view.number ?? 1));
+      // the open items the list counts, while they come; the declared five where it cannot be read
+      const waiting = unusable
+        ? RESTING
+        : Math.min(MAX_PLACEHOLDERS, Math.max(1, view.number ?? 1));
       return Array.from(
         { length: waiting },
         () =>
@@ -461,9 +481,9 @@ export class FluvyTodoCard extends Card<TodoCardConfig> {
   protected renderCard(): TemplateResult {
     const view = this.entity();
     const name = this.config?.name ?? view.name;
-    if (view.status === 'missing')
-      return this.renderEmpty(`${name} · ${stateText(this.hass, view)}`);
-    const unusable = view.status === 'unavailable';
+    // a list out of reach (unavailable, or gone from the house) keeps its head, its "+" and its rows, still: only the
+    // colours change (1.9: an unavailable card keeps its size)
+    const unusable = view.status === 'unavailable' || view.status === 'missing';
     const canCreate = view.supports(CREATE) && !unusable;
     const canUpdate = view.supports(UPDATE) && !unusable;
 
@@ -471,6 +491,12 @@ export class FluvyTodoCard extends Card<TodoCardConfig> {
     const open = items.filter((item) => this.statusOf(item) === 'needs_action');
     const closed = items.filter((item) => this.statusOf(item) === 'completed');
     const shown = this.config?.show_completed === false ? open : [...open, ...closed];
+    // a list gone from the house says nothing of what it takes: its "+" is kept where the config asks for one
+    const adds =
+      (canCreate || (unusable && (view.supports(CREATE) || view.status === 'missing'))) &&
+      this.config?.show_add !== false;
+    // "3 of 5 left", or "3 left" where not even the circle's room holds it beside the "+": a count is never cut
+    const left = this.t('todo.left', { left: open.length, total: items.length });
     const sub =
       this.config?.subtitle ??
       (unusable
@@ -478,30 +504,39 @@ export class FluvyTodoCard extends Card<TodoCardConfig> {
         : this.items_ === null || !items.length
           ? view.areaName
           : open.length
-            ? this.t('todo.left', { left: open.length, total: items.length })
+            ? this.head.ruler.width('fv-card__sub', left) <= this.contentWidth - (adds ? 56 : 0)
+              ? left
+              : this.t('common.left', { count: open.length })
             : s(this.hass, 'all_done'));
-    const adds = canCreate && this.config?.show_add !== false;
-    const adding = this.adding_ && adds;
+    const adding = this.adding_ && canCreate && adds;
+    // the circle gives way where that makes the list's name whole, never the "+" (a control never gives way)
+    const fitted = this.head.fit({
+      width: this.contentWidth,
+      title: name,
+      sub: sub ?? '',
+      ...(adds ? { trailing: 44 } : {}),
+    });
 
     return html`<article class="fv-card ${unusable ? 'is-unavailable is-off' : ''}" data-card>
       ${head({
-        icon: this.config?.icon ?? 'list',
+        icon: fitted.icon ? (this.config?.icon ?? 'list') : null,
+        small: fitted.small,
         tone: unusable ? 'off' : toneOf(this.config, 'accent'),
         title: name,
-        sub,
+        name: true,
+        sub: fitted.sub,
+        cut: fitted.cut,
         trailing: adds
           ? round(
               'plus',
               'accent',
               adding ? s(this.hass, 'close') : this.t('todo.add'),
               () => this.setAdding(!this.adding_),
-              false,
+              !canCreate,
               `in-add ${adding ? 'is-open' : ''}`,
             )
           : nothing,
-        onIconTap: () => this.tap(view.id),
-        onHold: () => this.hold(view.id),
-        iconLabel: name,
+        ...this.headActions(view.id),
       })}
       ${
         adding
@@ -520,7 +555,7 @@ export class FluvyTodoCard extends Card<TodoCardConfig> {
             </div>`
           : nothing
       }
-      <div class="in-todo" role="list">${this.list(view, canUpdate, shown)}</div>
+      <div class="in-todo" role="list">${this.list(view, canUpdate, shown, unusable)}</div>
     </article>`;
   }
 }

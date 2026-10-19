@@ -22,24 +22,28 @@ import {
 import { css, html, nothing, type CSSResultGroup, type TemplateResult } from 'lit';
 import { agoShort } from '../helpers/datetime.js';
 import { HeadFit } from '../energy/head.js';
+import { mapHead, mapRow } from '../shared/map-head.js';
 import { Card, type BaseKey } from '../shared/base.js';
 import {
   accentField,
   actionFields,
   boolField,
   editorLabels,
+  emptyFields,
   entitiesField,
   entityField,
   fieldRow,
   iconField,
   selectField,
+  showIconField,
   textField,
 } from '../shared/form.js';
 import { configKeys, ITEM_ALIASES, type AliasSpec } from '../shared/config.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 import { renderAvatar } from '../shared/avatar.js';
 import { charging, personBattery, type BatterySource } from '../shared/battery.js';
-import { HEAD, listLength, rowsOf, ROW } from '../shared/heights.js';
+import { EMPTY, entryCount, HEAD, rowsOf, ROW } from '../shared/heights.js';
+import { EMPTY_KEYS, emptyPanel, itemsOf, listOf, type EmptyList } from '../shared/lists.js';
 
 const s = strings('people');
 
@@ -57,7 +61,7 @@ export interface PersonItem {
   readonly hold_action?: ActionConfig;
 }
 
-export interface PeopleCardConfig extends FluvyCardConfig {
+export interface PeopleCardConfig extends FluvyCardConfig, EmptyList {
   title?: string;
   /** The people, in order: ids, or entries with their own name, battery, colour and actions (`entities` reads too). */
   people?: ReadonlyArray<string | PersonItem>;
@@ -112,7 +116,8 @@ const sameDay = (a: Date, b: Date): boolean =>
 export class FluvyPeopleCard extends Card<PeopleCardConfig> {
   /** The card's height at a 360 column, for the automatic dashboard's columns. */
   static override layoutHeight(config: PeopleCardConfig): number {
-    const n = listLength(config, ['people', 'entities']);
+    const n = entryCount(config, ['people', 'entities']);
+    if (!n) return HEAD + EMPTY;
     const list = (config['people'] ?? config.entities ?? []) as ReadonlyArray<string | PersonItem>;
     // a battery line under a person in the grid (20 + 4); the rows say it in their sub
     const battery =
@@ -195,6 +200,7 @@ export class FluvyPeopleCard extends Card<PeopleCardConfig> {
     'card_color',
     'tap_action',
     'hold_action',
+    'show_icon',
   ];
   static override keys = configKeys<PeopleCardConfig>()([
     'title',
@@ -204,6 +210,7 @@ export class FluvyPeopleCard extends Card<PeopleCardConfig> {
     'show_zone',
     'show_time',
     'show_battery',
+    ...EMPTY_KEYS,
   ]);
   static override lists: readonly RowsListSpec[] = [
     {
@@ -236,11 +243,13 @@ export class FluvyPeopleCard extends Card<PeopleCardConfig> {
       schema: [
         entitiesField('entities', ['person', 'device_tracker'], true),
         fieldRow(textField('title'), iconField()),
+        showIconField(),
         fieldRow(selectField('variant', ['grid', 'rows']), textField('map_path')),
         fieldRow(boolField('show_zone'), boolField('show_time')),
         boolField('show_battery'),
         accentField(),
         accentField('card_color', { none: true }),
+        emptyFields(),
         actionFields(),
       ],
       ...editorLabels(s, { map_path: 'editor.map_path' }, {}),
@@ -255,15 +264,13 @@ export class FluvyPeopleCard extends Card<PeopleCardConfig> {
   }
 
   protected override prepare(config: PeopleCardConfig): PeopleCardConfig {
-    if (!config.people?.length && !config.entities?.length)
-      throw new Error('fluvy-people-card: add at least one person');
+    listOf(config, 'people', ['entities']);
     return config;
   }
 
   /** The people as entries (a bare id is an entry with nothing of its own), in their order. */
   private items(): PersonItem[] {
-    const source = this.config?.people ?? this.config?.entities ?? [];
-    return source.map((entry) => (typeof entry === 'string' ? { entity: entry } : entry));
+    return itemsOf(this.config?.people ?? this.config?.entities);
   }
 
   /** The head's fitting (what gives way, in its order), as every card's head. */
@@ -390,12 +397,21 @@ export class FluvyPeopleCard extends Card<PeopleCardConfig> {
     return { columns, column: (this.contentWidth - 16 * (columns - 1)) / columns };
   }
 
+  /**
+   * A person's word in a grid column of that width: their own; for someone out of reach (whose "Entity not found" is
+   * the longest thing a person says) "Unavailable", else a dash — never cut, and never what turns the grid into rows,
+   * so the card keeps its size (1.9). Undefined where a reachable person's word would be cut.
+   */
+  private gridWord(person: Person, column: number): string | undefined {
+    const words =
+      person.presence === 'off' ? [person.word, this.t('state.unavailable'), '—'] : [person.word];
+    return words.find((word) => this.headFit.ruler.width('am-person__state', word) <= column);
+  }
+
   /** Whether every person's state holds its grid column; where one would be cut the card lays its people as rows. */
   private gridHolds(people: readonly Person[]): boolean {
     const { column } = this.gridColumns(people);
-    return people.every(
-      (person) => this.headFit.ruler.width('am-person__state', person.word) <= column,
-    );
+    return people.every((person) => this.gridWord(person, column) !== undefined);
   }
 
   /** The sheet: avatar, name, "Home · 18:40" / "Away · School" — the state and its one detail. */
@@ -407,14 +423,15 @@ export class FluvyPeopleCard extends Card<PeopleCardConfig> {
     return html`<div class="am-people fv-cols" data-align="center" style="--am-people:${columns}">
       ${people.map((person) => {
         const detail = this.detail(person);
-        const both = `${person.word} · ${detail}`;
-        const line = detail && ruler.width('am-person__state', both) <= column ? both : person.word;
+        const word = this.gridWord(person, column) ?? person.word;
+        const both = `${word} · ${detail}`;
+        const line = detail && ruler.width('am-person__state', both) <= column ? both : word;
         const { tap, hold } = this.actionsOf(person);
         return html`<button
           class="am-person"
           data-target
           data-accent=${this.accents.item(person.item.color) ?? nothing}
-          aria-label=${`${person.name} · ${line}`}
+          aria-label=${`${person.name} · ${word === person.word ? line : person.word}`}
           .fvTap=${tap}
           .fvHold=${hold}
           @pointerdown=${startPress}
@@ -523,18 +540,22 @@ export class FluvyPeopleCard extends Card<PeopleCardConfig> {
         : now.getTime() - latest < 60_000
           ? this.t('common.now').toLocaleLowerCase()
           : agoShort(this.hass, new Date(latest), now);
-    const count = s(this.hass, 'count', { home, total: people.length });
+    const panel = emptyPanel(this, !people.length, 'person', 'common.no_people');
+    // nobody listed is said by the panel, never as "0 of 0"
+    const count = panel ? '' : s(this.hass, 'count', { home, total: people.length });
     // the first of `texts` that holds `room`, measured as the card sets it (else the last)
     const first = (cls: string, texts: readonly string[], room: number): string =>
       texts.find((text) => this.headFit.ruler.width(cls, text) <= room) ?? texts[texts.length - 1]!;
-    // the card's own title where it fits beside the map's round, a shorter one where it does not; a typed one is the user's
-    const title =
-      this.config?.title ??
-      first(
-        'fv-card__title',
-        [s(this.hass, 'title'), s(this.hass, 'title_short')],
-        this.contentWidth - 112,
-      );
+    // the card's own title where it fits beside the map's round, a shorter one where it does not; a typed one is the
+    // user's. Where not even the short one holds beside the round (half a phone's column), the round gives way to a
+    // row under the body: a control never goes
+    const { title, roundFits } = mapHead(
+      this.headFit,
+      this.contentWidth,
+      [s(this.hass, 'title'), s(this.hass, 'title_short')],
+      this.config?.title,
+    );
+    const open = (): void => navigate(this.config?.map_path ?? '/map');
     // the head: 44 circle + 12, the titles, 12 + the 44 round; "updated" is the first word to go, the time the second
     const sub = when
       ? first(
@@ -544,27 +565,34 @@ export class FluvyPeopleCard extends Card<PeopleCardConfig> {
         )
       : count;
     // a column too narrow even for the short title (half a phone's) gives the circle's room to it, as heads do
-    const fitted = this.headFit.fit({ width: this.contentWidth, title, sub, trailing: 44 });
+    const fitted = this.headFit.fit({
+      width: this.contentWidth,
+      title,
+      sub,
+      trailing: roundFits ? 44 : 0,
+    });
 
     return html`<article class="fv-card am-card" data-card>
       ${head({
         icon: fitted.icon ? (this.config?.icon ?? 'person') : null,
+        small: fitted.small,
         tone: home > 0 ? 'accent' : 'neutral',
         title,
         name: this.config?.title !== undefined,
         sub: fitted.sub,
-        trailing: round('map', 'quiet', s(this.hass, 'map'), () =>
-          navigate(this.config?.map_path ?? '/map'),
-        ),
-        onIconTap: () => this.tap(),
-        onHold: () => this.hold(),
+        trailing: roundFits ? round('map', 'quiet', s(this.hass, 'map'), open) : nothing,
+        cut: fitted.cut,
+        ...this.headActions(),
       })}
       ${
         // the grid where every state holds its column, else the rows (whose avatars give way, the state never cut)
-        this.config?.variant === 'rows' || !this.gridHolds(people)
-          ? this.renderRows(people)
-          : this.renderGrid(people)
+        panel
+          ? html`<div class="am-rows">${panel}</div>`
+          : this.config?.variant === 'rows' || !this.gridHolds(people)
+            ? this.renderRows(people)
+            : this.renderGrid(people)
       }
+      ${roundFits ? nothing : mapRow(this.hass, this.headFit, this.contentWidth, open)}
     </article>`;
   }
 }

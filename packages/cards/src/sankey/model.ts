@@ -1,3 +1,4 @@
+import type { EntityView, HomeAssistant } from '@fluvy/core';
 import type { Allocation, Totals } from '../energy-model/allocate.js';
 
 /**
@@ -230,3 +231,18 @@ export function houseKids(
     kids.push({ key: 'unmeasured', value: house - measured, ink: 'home', dashed: true });
   return kids;
 }
+
+/**
+ * Whether a device's name is only its id's: no longer in the house, it has no name of its own (the config's, the
+ * prefs'), none this page read of it (the friendly name it last had) and none in the registry. One it had keeps its
+ * room while the device is away, so the labels keep their places (the owner's rule, 1.9).
+ */
+export const idNamed = (
+  hass: HomeAssistant | undefined,
+  view: EntityView,
+  name: string | undefined,
+): boolean =>
+  !name &&
+  view.status === 'missing' &&
+  !view.attr('friendly_name') &&
+  !hass?.entities?.[view.id]?.name;

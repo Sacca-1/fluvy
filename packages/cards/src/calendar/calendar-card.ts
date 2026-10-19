@@ -11,6 +11,7 @@ import {
   fieldRow,
   numberField,
   selectField,
+  showIconField,
   textField,
   toneField,
 } from '../shared/form.js';
@@ -144,7 +145,7 @@ export class FluvyCalendarCard extends Card<CalendarCardConfig> {
   /* ---------- Lovelace ---------- */
 
   /** A calendar card has no entity of its own: its calendars are its list, its colour the accent (today, the selection). */
-  static override base: readonly BaseKey[] = ['entities', 'color', 'card_color'];
+  static override base: readonly BaseKey[] = ['entities', 'color', 'card_color', 'show_icon'];
   static override keys = configKeys<CalendarCardConfig>()([
     'calendars',
     'variant',
@@ -176,6 +177,7 @@ export class FluvyCalendarCard extends Card<CalendarCardConfig> {
       schema: [
         entitiesField('entities', ['calendar'], true),
         fieldRow(selectField('variant', VIEWS), textField('title')),
+        showIconField(),
         fieldRow(
           selectField('tile', ['date', 'next']),
           selectField('first_weekday', ['language', ...WEEKDAYS]),
@@ -471,18 +473,18 @@ export class FluvyCalendarCard extends Card<CalendarCardConfig> {
     if (!config || !this.hass) return nothing;
     const ids = idsOf(config);
     if (!ids.length) return this.renderEmpty(s(this.hass, 'no_calendar'));
-    if (ids.every((id) => this.entity(id).status === 'missing')) {
-      const first = this.entity(ids[0] as string);
-      return this.renderEmpty(`${first.name} · ${stateText(this.hass, first)}`);
-    }
     const view = this.view;
+    // not one calendar can be read (unavailable, or gone from the house): the view draws itself at rest, at its size,
+    // its head saying why (1.9: an unavailable card keeps its size)
+    const status = this.status();
     const ctx: ViewContext = {
       hass: this.hass,
       config,
       agenda: this.agenda(),
       words: new Words(this.hass),
-      status: this.status(),
+      status,
       notice: this.notice(),
+      away: status === 'unavailable' ? stateText(this.hass, this.entity(ids[0])) : '',
       width: view === 'tile' ? Math.max(80, this.width - 32) : this.contentWidth,
       day: this.day,
       month: this.shownMonth,

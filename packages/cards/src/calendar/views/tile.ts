@@ -8,6 +8,13 @@ import { idsOf } from '../config.js';
 
 const s = strings('calendar');
 
+/**
+ * Why a tile cannot say what is on: its calendars out of reach (their word), or every read refused ("Unavailable"); ''
+ * while they are read, or can be.
+ */
+const unread = (ctx: ViewContext): string =>
+  ctx.away || (ctx.status === 'failed' ? s(ctx.hass, 'off') : '');
+
 /** How far ahead the next-event tile looks — the window the card reads for it. */
 export const NEXT_DAYS = 8;
 
@@ -19,7 +26,7 @@ function tile(
 ): TemplateResult {
   const open = (): void => ctx.open(entityId);
   return html`<article
-    class="fv-tile cd-tile fv-tile--tap"
+    class="fv-tile cd-tile fv-tile--tap ${unread(ctx) ? 'fv-tile--off' : ''}"
     data-card
     role="button"
     tabindex="0"
@@ -31,35 +38,21 @@ function tile(
   </article>`;
 }
 
-/** Unavailable, the way every fluvy tile says it: the short dashed tile, the ban glyph, the word. */
-function offTile(ctx: ViewContext, name: string): TemplateResult {
-  const open = (): void => ctx.open();
-  const off = s(ctx.hass, 'off');
-  // in a narrow column the word needs the glyph's place: the dashed tile already says what the glyph would — and
-  // the dash says it where not even the word fits, as every tile's does
-  const glyph = textWidth(off, FACE.tile) <= ctx.width - 56;
-  const word = glyph || textWidth(off, FACE.tile) <= ctx.width ? off : '—';
-  return html`<article
-    class="fv-tile fv-tile--off fv-tile--tap"
-    data-card
-    role="button"
-    tabindex="0"
-    aria-label=${`${name} · ${off}`}
-    @click=${open}
-    @keydown=${onActivate(open)}
-  >
-    ${glyph ? ico('ban', 'off') : nothing}
-    <div class="fv-row__text">
-      <h3 class="fv-tile__name">${name}</h3>
-      <p class="fv-tile__state">${word}</p>
-    </div>
-  </article>`;
+/**
+ * The lines a tile holds while it cannot say what is on: their bars while the calendars are read; while they cannot be
+ * (`unread`), its name and why — the word, else a dash where not even the word fits, as every tile's does (1.9).
+ */
+function restingLines(ctx: ViewContext, name: string): TemplateResult {
+  const why = unread(ctx);
+  if (!why)
+    return html`<p class="fv-tile__name">
+        <span class="fv-skeleton cd-sk cd-sk--title"></span>
+      </p>
+      <p class="fv-tile__state"><span class="fv-skeleton cd-sk cd-sk--sub"></span></p>`;
+  const word = fitText([why, s(ctx.hass, 'off')], ctx.width - 1, FACE.tile);
+  return html`<p class="fv-tile__name">${name}</p>
+    <p class="fv-tile__state">${textWidth(word, FACE.tile) <= ctx.width ? word : '—'}</p>`;
 }
-
-const loadingLines = html`<p class="fv-tile__name">
-    <span class="fv-skeleton cd-sk cd-sk--title"></span>
-  </p>
-  <p class="fv-tile__state"><span class="fv-skeleton cd-sk cd-sk--sub"></span></p>`;
 
 /** "17 Sep" · Thursday · 4 events · 1 left · Week 38 */
 function dateTile(ctx: ViewContext): TemplateResult {
@@ -91,7 +84,7 @@ function dateTile(ctx: ViewContext): TemplateResult {
     ctx.width;
   return tile(
     ctx,
-    `${name} · ${ready ? state : ''}`,
+    `${name} · ${ready ? state : unread(ctx)}`,
     undefined,
     html` <div class="fv-tile__head">
         <span class="cd-tile__date ${tight ? 'cd-tile__date--tight' : ''}"
@@ -103,7 +96,7 @@ function dateTile(ctx: ViewContext): TemplateResult {
         ready
           ? html`<p class="fv-tile__name">${name}</p>
               <p class="fv-tile__state">${state}</p>`
-          : loadingLines
+          : restingLines(ctx, name)
       }
       <p class="fv-tile__state cd-tile__meta">
         ${words.t('clock.week', { week: isoWeek(today) })}
@@ -117,13 +110,17 @@ function nextTile(ctx: ViewContext): TemplateResult {
   const ready = ctx.status === 'ok' && agenda.covers(agenda.today);
   const next = ready ? agenda.next(NEXT_DAYS) : null;
   if (!next) {
-    const name = ctx.config.title ?? words.events(0);
+    const why = unread(ctx);
+    const name =
+      ctx.config.title ?? (why ? ctx.nameOf(idsOf(ctx.config)[0] ?? '') : words.events(0));
     return tile(
       ctx,
-      name,
+      why ? `${name} · ${why}` : name,
       undefined,
       html` <div class="fv-tile__head">
-          ${ico('calendar', 'neutral')}<span class="fv-tile__value">${ready ? '—' : nothing}</span>
+          ${ico(why ? 'ban' : 'calendar', why ? 'off' : 'neutral')}<span class="fv-tile__value"
+            >${ready || why ? '—' : nothing}</span
+          >
         </div>
         ${
           ready
@@ -131,7 +128,7 @@ function nextTile(ctx: ViewContext): TemplateResult {
                 <p class="fv-tile__state">
                   ${words.t('calendar.next_days', { count: NEXT_DAYS - 1 })}
                 </p>`
-            : loadingLines
+            : restingLines(ctx, name)
         }`,
     );
   }
@@ -161,8 +158,7 @@ function nextTile(ctx: ViewContext): TemplateResult {
   );
 }
 
+/** The date or the next event; when its calendars cannot be read, the tile at rest in the off skin, at its size (1.9). */
 export function tileView(ctx: ViewContext): TemplateResult {
-  if (ctx.status === 'unavailable' || ctx.status === 'failed')
-    return offTile(ctx, ctx.config.title ?? ctx.nameOf(idsOf(ctx.config)[0] ?? ''));
   return ctx.config.tile === 'next' ? nextTile(ctx) : dateTile(ctx);
 }

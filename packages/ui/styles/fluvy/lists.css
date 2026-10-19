@@ -15,6 +15,11 @@
   text-align: center;
 }
 
+/* on the page, no card around it (a group of tiles, the scenes, the tabs with nothing in them): the page's other fill */
+.fv-empty-state--page {
+  background: var(--fluvy-page-alt);
+}
+
 /* why it is empty, under the line that says it is: the same secondary ink every hint takes */
 .fv-empty-state__hint {
   max-width: 380px;
@@ -46,6 +51,19 @@
   font-weight: 500;
   line-height: 20px;
   color: var(--fluvy-text-secondary);
+  /* a long name breaks rather than leave the panel ("Wohnzimmerdeckenleuchte" in a 211 column) */
+  overflow-wrap: anywhere;
+}
+
+/* a list of 60 rows (`.fv-rows`) sits 8 under the head, its circles 8 into their rows: its panel stands 16 under the
+   head as every list's does (the panel's 16 and the rows' 8 fold into one) and the card's own 20 above its foot; a list
+   with no head (`.fv-rows--bare`, 8 out round its rows) folds the panel's 8 into its own, the card's 20 all round */
+.fv-rows > .fv-empty-state {
+  margin-top: 16px;
+}
+
+.fv-rows--bare > .fv-empty-state {
+  margin: 8px 0;
 }
 
 /* ---------- list rows ---------- */
@@ -62,13 +80,16 @@
   height: 48px;
 }
 
-.fv-row--compact > .fv-ico {
+/* the head's smaller circle is the same (`show_icon: always` where the full one would leave a name under its floor) */
+.fv-row--compact > .fv-ico,
+.fv-ico--small {
   flex-basis: 40px;
   width: 40px;
   height: 40px;
 }
 
-.fv-row--compact > .fv-ico svg {
+.fv-row--compact > .fv-ico svg,
+.fv-ico--small svg {
   width: 16px;
   height: 16px;
 }

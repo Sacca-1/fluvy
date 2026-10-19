@@ -3,6 +3,19 @@ import { describe, expect, it } from 'vitest';
 // the cards register their heights with core: the strategy lays columns out with them
 import '../index.js';
 import { FluvyHomeStrategy } from './home-strategy.js';
+import {
+  hcCoffee,
+  hcDishwasher,
+  hcOven,
+  houseOf,
+  lgDryer,
+  lgFridge,
+  lgWasher,
+  mieleHob,
+  plugWasher,
+  tuyaKettle,
+} from '../appliance/fixtures/index.js';
+import type { HomeAssistant } from '@fluvy/core';
 
 import {
   DEMO_ENERGY_SOURCES,
@@ -91,13 +104,35 @@ describe("custom:fluvy-home strategy — the grid meter's sign", () => {
   });
 });
 
+/** The moment the appliances' fixtures are read at. */
+const APPLIANCES_AT = Date.parse('2026-09-17T19:47:00Z');
+/** A house with the reporter's kitchen and laundry (#47): a large appliance of every kind, a kettle and a plug's washer. */
+const withAppliances = (base: Record<string, unknown> = demoHass() as never) =>
+  houseOf(
+    [
+      hcCoffee(APPLIANCES_AT),
+      mieleHob(APPLIANCES_AT),
+      hcOven(APPLIANCES_AT),
+      lgDryer(APPLIANCES_AT),
+      lgWasher(APPLIANCES_AT),
+      hcDishwasher(APPLIANCES_AT),
+      lgFridge(APPLIANCES_AT),
+      tuyaKettle(APPLIANCES_AT),
+      plugWasher(APPLIANCES_AT),
+    ],
+    APPLIANCES_AT,
+    base as Partial<HomeAssistant>,
+  ) as never;
+
 /** The demo home with one of everything the library has a card for. */
 const everything = () =>
-  demoHass({
-    more: [...DEMO_EXTRAS, ...DEMO_ROOMS],
-    consumption: ['sensor.washing_machine_energy_today', 'sensor.dryer_energy_today'],
-    sources: DEMO_ENERGY_SOURCES,
-  }) as never;
+  withAppliances(
+    demoHass({
+      more: [...DEMO_EXTRAS, ...DEMO_ROOMS],
+      consumption: ['sensor.washing_machine_energy_today', 'sensor.dryer_energy_today'],
+      sources: DEMO_ENERGY_SOURCES,
+    }) as never,
+  );
 
 describe('custom:fluvy-home strategy', () => {
   it('writes only configs its cards accept', async () => {
@@ -152,8 +187,9 @@ describe('custom:fluvy-home strategy', () => {
     const used = new Set(
       views.flatMap((v) => v.sections.flatMap((s) => s.cards.map((c) => c.type))),
     );
-    // the automations card is placed by hand (1.8): the automatic dashboards do not put it on a view
-    const byHand = new Set(['custom:fluvy-automations-card']);
+    // the automations card is placed by hand (1.8): the automatic dashboards do not put it on a view; the appliance
+    // card is drawn by the appliances card, which lays the strategy's out whole (#47)
+    const byHand = new Set(['custom:fluvy-automations-card', 'custom:fluvy-appliance-card']);
     expect(
       CATALOGUE.map(([tag]) => `custom:${tag}`).filter(
         (type) => !used.has(type) && !byHand.has(type),
@@ -286,6 +322,53 @@ describe('custom:fluvy-home strategy', () => {
           card.type === 'custom:fluvy-tile-card' && card['entity'] === 'light.living_room_lamp',
       ),
     ).toBe(true);
+  });
+
+  it('makes a room of what the room card draws: an area that names its hidden sensors, and the reading it names alone (#39)', async () => {
+    const hass = house([
+      ...DEMO_ROOMS,
+      entity(
+        'sensor.cellar_temperature',
+        '14.2',
+        { device_class: 'temperature', unit_of_measurement: '°C' },
+        { area_id: 'cellar', hidden: true },
+      ),
+      entity(
+        'sensor.loft_humidity',
+        '61',
+        { device_class: 'humidity', unit_of_measurement: '%' },
+        { area_id: 'loft', entity_category: 'diagnostic' },
+      ),
+      entity('switch.attic_led', 'on', {}, { area_id: 'attic', entity_category: 'config' }),
+    ]) as { areas: Record<string, unknown> };
+    hass.areas['cellar'] = {
+      area_id: 'cellar',
+      name: 'Cellar',
+      temperature_entity_id: 'sensor.cellar_temperature',
+    };
+    hass.areas['loft'] = {
+      area_id: 'loft',
+      name: 'Loft',
+      humidity_entity_id: 'sensor.loft_humidity',
+    };
+    hass.areas['attic'] = { area_id: 'attic', name: 'Attic' };
+    const { views } = await FluvyHomeStrategy.generate(
+      { type: 'custom:fluvy-home' },
+      hass as never,
+    );
+    const areas = views
+      .find((view) => view.path === 'rooms')!
+      .sections.flatMap((section) => section.cards)
+      .filter((card) => card.type === 'custom:fluvy-room-card')
+      .map((card) => card['area']);
+    expect(areas).toContain('cellar');
+    expect(areas).toContain('loft');
+    expect(areas).not.toContain('attic');
+    const loft = views
+      .find((view) => view.path === 'room-loft')!
+      .sections.flatMap((section) => section.cards)
+      .find((card) => card.type === 'custom:fluvy-readouts-card');
+    expect(loft?.['rows']).toEqual([{ entity: 'sensor.loft_humidity', name: 'Loft' }]);
   });
 
   it('puts the map beside the people once the house has a zone', async () => {
@@ -498,5 +581,184 @@ describe('custom:fluvy-home strategy', () => {
       'Clima',
       'Sensores',
     ]);
+  });
+});
+
+describe('custom:fluvy-home strategy — the appliances, as the reporter of #47 drew them', () => {
+  const band = (views: readonly { path: string; sections: readonly Section[] }[], path: string) =>
+    views.find((view) => view.path === path)!.sections.filter((section) => section.column_span);
+  type Section = { column_span?: number; cards: Record<string, unknown>[] };
+
+  it('lays them across Home under its columns: the large ones as whole cards, then the small ones as rows', async () => {
+    const { views } = await FluvyHomeStrategy.generate(
+      { type: 'custom:fluvy-home' },
+      withAppliances(),
+    );
+    const home = views[0]!;
+    // the columns first (the greeting in the first), then the band across them
+    expect(home.sections.slice(0, 3).every((section) => !section.column_span)).toBe(true);
+    const [across, ...more] = band(views, 'home');
+    expect(more).toEqual([]);
+    expect(across?.column_span).toBe(3);
+    const [large, largeCards, small, smallCards] = across!.cards;
+    expect(large).toMatchObject({
+      type: 'custom:fluvy-heading-card',
+      title: 'Large appliances',
+      icon: 'fluvy:dishwasher',
+      subtitle: 'All appliances',
+      path: '/fluvy-home/appliances',
+    });
+    // what keeps food cold, what cleans, what cooks, the coffee — the reporter's order
+    expect(largeCards).toMatchObject({
+      type: 'custom:fluvy-appliances-card',
+      variant: 'cards',
+      grid_options: { columns: 'full' },
+    });
+    expect((largeCards!['appliances'] as { kind: string }[]).map((item) => item.kind)).toEqual([
+      'fridge',
+      'dishwasher',
+      'washer',
+      'washer',
+      'dryer',
+      'oven',
+      'hob',
+      'coffee',
+    ]);
+    expect(small).toMatchObject({ title: 'Small appliances', subtitle: 'Show all' });
+    expect(smallCards!['appliances']).toEqual([{ device: 'tuya-kettle', kind: 'kettle' }]);
+  });
+
+  it('takes the appliances out of the plug tiles and the room readings, never out of the energy views', async () => {
+    const { views } = await FluvyHomeStrategy.generate(
+      { type: 'custom:fluvy-home' },
+      withAppliances(),
+    );
+    const cards = (path: string, of = views) =>
+      of.find((view) => view.path === path)!.sections.flatMap((section) => section.cards);
+    // the washer on its plug is an appliance card now, not a tile; the demo's own plug stays a tile
+    const tiles = cards('home').filter((card) => card.type === 'custom:fluvy-tile-card');
+    expect(tiles.some((card) => card['entity'] === 'switch.waschmaschine_keller')).toBe(false);
+    expect(tiles.some((card) => card['entity'] === 'switch.washing_machine')).toBe(true);
+    // an oven's or a fridge's temperature is not a room's
+    expect(JSON.stringify(cards('climate'))).not.toMatch(/backofen|kuhlschrank|fridge/);
+    // without devices in the energy dashboard, its consumption reads every plug's power as it did: the appliance's too
+    const unlisted = await FluvyHomeStrategy.generate(
+      { type: 'custom:fluvy-home' },
+      withAppliances(demoHass({ consumption: [] }) as never),
+    );
+    expect(
+      cards('energy', unlisted.views).find(
+        (card) => card.type === 'custom:fluvy-distribution-card',
+      )?.['entities'],
+    ).toEqual(['sensor.waschmaschine_keller_leistung', 'sensor.washing_machine_power']);
+  });
+
+  it('opens every appliance on a subview of its own, back to Home, never a tab', async () => {
+    const { views } = await FluvyHomeStrategy.generate(
+      { type: 'custom:fluvy-home', greeting_tabs: 'show' },
+      withAppliances(),
+    );
+    const all = views.find((view) => view.path === 'appliances')!;
+    expect(all).toMatchObject({ subview: true, back_path: '/fluvy-home/home', max_columns: 3 });
+    // the greeting keeps the first column; the bands lead nowhere further, every appliance in them
+    expect(all.sections[0]!.cards[0]!.type).toBe('custom:fluvy-hello-card');
+    const [across] = band(views, 'appliances');
+    expect(across!.cards.filter((card) => card['path'])).toEqual([]);
+    expect((across!.cards[1]!['appliances'] as unknown[]).length).toBe(8);
+    const tabs = views[0]!.sections[0]!.cards.find(
+      (card) => card.type === 'custom:fluvy-chips-card',
+    ) as unknown as { chips: { path: string }[] };
+    expect(tabs.chips.some((chip) => chip.path.endsWith('/appliances'))).toBe(false);
+    // golden file: Home and the subview of a house with appliances (a change here is a change of the dashboard)
+    const plain = await FluvyHomeStrategy.generate({ type: 'custom:fluvy-home' }, withAppliances());
+    expect(
+      plain.views.filter((view) => view.path === 'home' || view.path === 'appliances'),
+    ).toMatchSnapshot();
+  });
+
+  it('shows Home two rows of four large ones and a row of five small ones; the rest on the subview', async () => {
+    const extra = Array.from({ length: 6 }, (_, i) => {
+      const id = `plug-${i}`;
+      return [
+        id,
+        {
+          id,
+          name: `Toaster ${i + 1}`,
+          name_by_user: null,
+          area_id: null,
+          model: null,
+          manufacturer: null,
+          via_device_id: null,
+        },
+      ] as const;
+    });
+    const hass = withAppliances() as unknown as HomeAssistant;
+    for (const [id, device] of extra) {
+      (hass.devices as Record<string, unknown>)[id] = device;
+      const slug = id.replace('-', '_');
+      hass.entities[`switch.${slug}`] = {
+        entity_id: `switch.${slug}`,
+        device_id: id,
+        platform: 'shelly',
+      };
+      hass.entities[`sensor.${slug}_power`] = {
+        entity_id: `sensor.${slug}_power`,
+        device_id: id,
+        platform: 'shelly',
+      };
+      hass.states[`switch.${slug}`] = {
+        entity_id: `switch.${slug}`,
+        state: 'off',
+        attributes: {},
+        last_changed: '',
+        last_updated: '',
+      };
+      hass.states[`sensor.${slug}_power`] = {
+        entity_id: `sensor.${slug}_power`,
+        state: '0',
+        attributes: { device_class: 'power', unit_of_measurement: 'W' },
+        last_changed: '',
+        last_updated: '',
+      };
+    }
+    const { views } = await FluvyHomeStrategy.generate(
+      { type: 'custom:fluvy-home' },
+      hass as never,
+    );
+    const count = (path: string, index: number) =>
+      (band(views, path)[0]!.cards[index]!['appliances'] as unknown[]).length;
+    expect([count('home', 1), count('home', 3)]).toEqual([8, 5]);
+    expect([count('appliances', 1), count('appliances', 3)]).toEqual([8, 7]);
+  });
+
+  it('gives a room its own appliances across under what it holds', async () => {
+    const hass = withAppliances(
+      demoHass({ more: DEMO_ROOMS }) as never,
+    ) as unknown as HomeAssistant;
+    (hass.devices['hc-dish'] as { area_id: string | null }).area_id = 'kitchen';
+    hass.entities['sensor.wasserkocher_status'] = {
+      ...hass.entities['sensor.wasserkocher_status']!,
+      area_id: 'kitchen',
+    };
+    const { views } = await FluvyHomeStrategy.generate(
+      { type: 'custom:fluvy-home' },
+      hass as never,
+    );
+    const kitchen = band(views, 'room-kitchen');
+    expect(kitchen).toHaveLength(1);
+    // in the room the bands name what they hold and lead nowhere: every appliance of the room is in them
+    expect(kitchen[0]!.cards.map((card) => [card['title'], card['path']])).toEqual([
+      ['Large appliances', undefined],
+      [undefined, undefined],
+      ['Small appliances', undefined],
+      [undefined, undefined],
+    ]);
+    expect(band(views, 'room-living_room')).toEqual([]);
+  });
+
+  it('leaves a house without appliances as it was: no band, no subview', async () => {
+    const { views } = await FluvyHomeStrategy.generate({ type: 'custom:fluvy-home' }, house());
+    expect(views.some((view) => view.sections.some((section) => section.column_span))).toBe(false);
+    expect(views.some((view) => view.path === 'appliances')).toBe(false);
   });
 });

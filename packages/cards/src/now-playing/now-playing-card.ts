@@ -16,7 +16,7 @@ import {
 import {
   clickPress,
   glyph,
-  ico,
+  holdKey,
   icon,
   preventMenu,
   round,
@@ -105,8 +105,9 @@ const EDGE: Readonly<Record<MediaControl, -1 | 0 | 1>> = {
 
 /**
  * The compact "now playing" of the home sheet (`.hm-media`): 64 artwork, what is on, a 4 px progress
- * line with its times, and 48 rounds — the transport centred on the card, volume on the right edge
- * and, when asked for, power on the left. `fluvy-media-card` is the full player (seek knob, volume
+ * line with its times (at rest, its times dashes, while nothing has a length: the strip keeps its size whatever
+ * plays), and 48 rounds — the transport centred on the card, volume on the right edge and, when asked for, power on
+ * the left. A player out of reach keeps the whole strip, still, in the off skin. `fluvy-media-card` is the full player (seek knob, volume
  * ruler, sources, mini and hero); this is the strip a home view puts between its tiles, and it
  * leaves volume and everything else to the entity's own dialog.
  */
@@ -123,6 +124,66 @@ export class FluvyNowPlayingCard extends Card<NowPlayingCardConfig> {
       /* the sheet's 1fr column would grow with a long title */
       .hm-media {
         grid-template-columns: 64px minmax(0, 1fr);
+      }
+
+      /* the artwork and the words are one button: laid over their row, under nothing (the progress and the rounds
+         have rows of their own); the art gives under the finger and the words dim, as a head's circle and name do */
+      .hm-media__tap {
+        position: relative;
+        z-index: 1;
+        grid-row: 1;
+        grid-column: 1 / -1;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        border-radius: var(--fluvy-radius-control);
+        background: none;
+        cursor: pointer;
+        -webkit-touch-callout: none;
+      }
+      .hm-media__tap:active {
+        transform: none;
+      }
+      /* the art and the words hold the first row with the button laid over them: placed there, not after it (a
+         button that took the row first left a 64 px gap over the strip, 1.9.0's #42) */
+      .hm-media > .hm-art {
+        grid-row: 1;
+        grid-column: 1;
+        transition: scale var(--fv-fast) var(--fv-ease);
+      }
+      .hm-media > .hm-media__titles {
+        grid-row: 1;
+        grid-column: 2;
+        transition: opacity var(--fv-base) var(--fv-ease);
+      }
+      .hm-media:has(> .hm-media__tap:active) > .hm-art {
+        scale: 0.94;
+      }
+      .hm-media:has(> .hm-media__tap:active) > .hm-media__titles {
+        opacity: 0.7;
+      }
+      /* why a player is out of reach takes a second line rather than an ellipsis (the art's 64 holds the title and two) */
+      .hm-media__why {
+        white-space: normal;
+      }
+      /* the line under the title: its names may end in their ellipsis, the state after them stays whole */
+      .hm-media__line {
+        display: flex;
+      }
+      .hm-media__line > span {
+        flex: none;
+        white-space: pre;
+      }
+      .hm-media__line > [data-name] {
+        flex: 0 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      @media (hover: hover) {
+        .hm-media:has(> .hm-media__tap:hover:not(:active)) > .hm-art {
+          scale: 1.06;
+        }
       }
 
       /* the fill slides on the compositor inside the clipped track (its round end stays round), one step a second */
@@ -182,12 +243,6 @@ export class FluvyNowPlayingCard extends Card<NowPlayingCardConfig> {
       }
       .hm-transport__btn > .fv-swap {
         display: flex;
-      }
-
-      .hm-media--off {
-        display: flex;
-        align-items: center;
-        gap: 12px;
       }
     `,
   ];
@@ -299,15 +354,18 @@ export class FluvyNowPlayingCard extends Card<NowPlayingCardConfig> {
     const loaded = (event: Event): void =>
       (event.currentTarget as HTMLElement).classList.add('is-on');
     return html`<span class="fv-art hm-art ${active ? '' : 'fv-art--idle'}">
-      ${icon(this.config?.icon, 'speaker')}
+      ${isUsable(view) ? icon(this.config?.icon, 'speaker') : glyph('ban')}
       ${picture ? keyed(picture, html`<img class="fv-art__img" src=${picture} alt="" draggable="false" @load=${loaded} />`) : nothing}
     </span>`;
   }
 
-  private progress(view: EntityView, track: string): TemplateResult | typeof nothing {
+  private progress(view: EntityView, track: string): TemplateResult {
     const duration = numberAttr(view, 'media_duration');
     const position = duration !== null && duration > 0 ? trackPosition(view, duration) : null;
-    if (duration === null || position === null) return nothing;
+    // nothing with a length (idle, a stream, a player out of reach): the line at rest, its times dashes (1.9)
+    if (duration === null || position === null)
+      return html`<div class="hm-progress" aria-hidden="true"></div>
+        <div class="hm-times"><span>—</span><span>—</span></div>`;
     const text = s(this.hass, 'progress', {
       position: formatDuration(position),
       duration: formatDuration(duration),
@@ -336,10 +394,18 @@ export class FluvyNowPlayingCard extends Card<NowPlayingCardConfig> {
    */
   private transport(view: EntityView, active: boolean): TemplateResult | typeof nothing {
     const state = this.stateOf(view);
-    const power = this.config?.show_power === false ? null : powerAction(view, state);
+    // a player gone from the house keeps the rounds its config asks for: its features are not known (1.9)
+    const gone = view.status === 'missing';
+    const power =
+      this.config?.show_power === false
+        ? null
+        : gone
+          ? ({ service: 'turn_off', expect: 'off' } as const)
+          : powerAction(view, state);
     const offered = mediaControls(this.config?.controls, DEFAULT_CONTROLS).filter((control) => {
       if (control === 'power') return power !== null;
-      if (control === 'volume') return this.config?.show_volume !== false && hasVolume(view);
+      if (control === 'volume')
+        return this.config?.show_volume !== false && (gone || hasVolume(view));
       return !(power && isOff(state));
     });
     const width = this.contentWidth;
@@ -367,7 +433,7 @@ export class FluvyNowPlayingCard extends Card<NowPlayingCardConfig> {
           'quiet',
           this.t('media.previous'),
           () => this.call('media_player', 'media_previous_track'),
-          !(active && view.supports(MEDIA.PREVIOUS)),
+          !(active && view.supports(MEDIA.PREVIOUS)) || !isUsable(view),
           'hm-transport__btn',
         );
       case 'play':
@@ -378,7 +444,7 @@ export class FluvyNowPlayingCard extends Card<NowPlayingCardConfig> {
           'quiet',
           this.t('media.next'),
           () => this.call('media_player', 'media_next_track'),
-          !(active && view.supports(MEDIA.NEXT)),
+          !(active && view.supports(MEDIA.NEXT)) || !isUsable(view),
           'hm-transport__btn',
         );
       case 'volume':
@@ -397,7 +463,7 @@ export class FluvyNowPlayingCard extends Card<NowPlayingCardConfig> {
         this.expect(view.id, action.expect);
         this.call('media_player', action.service);
       },
-      false,
+      !isUsable(view),
       'hm-transport__btn hm-transport__power',
     );
   }
@@ -413,7 +479,7 @@ export class FluvyNowPlayingCard extends Card<NowPlayingCardConfig> {
       data-target
       aria-label=${text}
       title=${text}
-      ?disabled=${!canPlay}
+      ?disabled=${!canPlay || !isUsable(view)}
       @click=${() => this.playPause(view)}
     >
       ${keyed(playing, html`<span class="fv-swap">${glyph(playing ? 'pause' : 'play')}</span>`)}
@@ -439,7 +505,7 @@ export class FluvyNowPlayingCard extends Card<NowPlayingCardConfig> {
       'quiet',
       text,
       () => this.tap(view.id, { action: 'more-info' }),
-      false,
+      !isUsable(view),
       'hm-transport__btn hm-transport__volume',
     );
   }
@@ -450,13 +516,28 @@ export class FluvyNowPlayingCard extends Card<NowPlayingCardConfig> {
     const view = this.entity();
     const speaker = this.config?.name ?? view.name;
 
+    // the artwork and what is on are the card's head, and its button: a tap is the tap action, a still press on the
+    // strip the hold action; the progress and the rounds under them keep their own
+    const { onTap, onHold } = this.headActions(view.id);
+    const tap = onTap
+      ? html`<button
+          class="hm-media__tap"
+          aria-label=${speaker}
+          @click=${onTap}
+          @keydown=${holdKey(onHold)}
+        ></button>`
+      : nothing;
+
+    // a player out of reach (unavailable, or gone from the house) is the whole strip at rest in the off skin: its name
+    // and why beside the plate, the progress line and the rounds still — only the colours change (1.9)
     if (!isUsable(view)) {
-      return html`<article class="fv-card is-off hm-media--off" data-card>
-        ${ico('ban', 'off')}
-        <div class="fv-row__text">
-          <span class="fv-row__title">${speaker}</span
-          ><span class="fv-row__sub">${stateText(this.hass, view)}</span>
+      return html`<article class="fv-card hm-media is-off is-unavailable" data-card>
+        ${this.art(view, false)}
+        <div class="hm-media__titles">
+          <h3 class="fv-card__title hm-media__title" data-name>${speaker}</h3>
+          <p class="fv-card__sub hm-media__why">${stateText(this.hass, view)}</p>
         </div>
+        ${tap} ${this.progress(view, speaker)} ${this.transport(view, false)}
       </article>`;
     }
 
@@ -469,33 +550,34 @@ export class FluvyNowPlayingCard extends Card<NowPlayingCardConfig> {
     const artist = active
       ? textAttr(view, 'media_artist') || textAttr(view, 'media_series_title')
       : '';
-    // segments after "·" are lower-case unless they are names
-    const sub = active
-      ? [artist, speaker === title ? '' : speaker].filter(Boolean).join(' · ') ||
-        stateText(this.hass, view)
-      : `${speaker} · ${stateText(this.hass, view).toLocaleLowerCase()}`;
+    // segments after "·" are lower-case unless they are names; the names (the artist, the speaker) may end in their
+    // ellipsis, the state after the speaker stays whole
+    const [name = '', after = ''] = active
+      ? [artist, speaker === title ? '' : speaker].filter(Boolean)
+      : [speaker, stateText(this.hass, view).toLocaleLowerCase()];
 
-    // the artwork is the card's icon: a tap is the tap action, a still press on the strip the hold action
     return html`<article
       class="fv-card hm-media fv-card__head--hold ${playing ? 'is-playing' : ''}"
       data-card
-      .fvHold=${() => this.hold(view.id)}
+      .fvHold=${onHold}
       @pointerdown=${startPress}
-      @contextmenu=${preventMenu}
+      @contextmenu=${onHold ? preventMenu : nothing}
       @click=${clickHeld}
     >
-      <button
-        class="hm-art-tap fv-ico--tap"
-        aria-label=${speaker}
-        @click=${() => this.tap(view.id)}
-      >
-        ${this.art(view, active)}
-      </button>
+      ${this.art(view, active)}
       <div class="hm-media__titles">
         <h3 class="fv-card__title hm-media__title" data-name>${title}</h3>
-        <p class="fv-card__sub">${sub}</p>
+        ${
+          name
+            ? html`<p class="fv-card__sub hm-media__line">
+                <span data-name>${name}</span>${
+                  after ? html`<span data-name=${active || nothing}> · ${after}</span>` : nothing
+                }
+              </p>`
+            : html`<p class="fv-card__sub">${stateText(this.hass, view)}</p>`
+        }
       </div>
-      ${active ? this.progress(view, title) : nothing} ${this.transport(view, active)}
+      ${tap} ${this.progress(view, title)} ${this.transport(view, active)}
     </article>`;
   }
 }

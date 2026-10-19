@@ -1,3 +1,4 @@
+import { areaOf } from './areas.js';
 import { domainOf } from './entity.js';
 import type { HomeAssistant } from './ha/types.js';
 
@@ -47,8 +48,7 @@ export function targetEntities(hass: HomeAssistant, target: SourceTarget): Set<s
       if (device.labels?.some((label) => labels.has(label))) devices.add(device.id);
   }
   for (const entry of Object.values(hass.entities ?? {})) {
-    const device = entry.device_id ? hass.devices?.[entry.device_id] : undefined;
-    const area = entry.area_id ?? device?.area_id ?? undefined;
+    const area = areaOf(hass, entry.entity_id);
     if (
       (entry.device_id && devices.has(entry.device_id)) ||
       (area && areas.has(area)) ||

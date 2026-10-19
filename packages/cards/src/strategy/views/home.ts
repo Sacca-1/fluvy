@@ -17,6 +17,8 @@ import {
 import type { Card, Section, StrategyContext, ViewSpec } from '../types.js';
 import { LIGHT_WORDS, OUTDOOR, TODAY, type HomeRegistry } from '../home-registry.js';
 import { roomsOf, roomsView } from '../rooms.js';
+import { APPLIANCES_PATH, applianceSections } from '../appliances.js';
+import { COLUMNS } from '../context.js';
 import { liveCards, metersCards, todayCards } from './energy.js';
 
 /*
@@ -25,15 +27,37 @@ import { liveCards, metersCards, todayCards } from './energy.js';
  * still reads. The other templates borrow these builders.
  */
 
+/**
+ * What needs a look, first on Home and hidden while all is clear: leaks and smoke, what is left open (five minutes, the
+ * preset's wait: a door walked through never moves the page) or unlocked (ten), errors and low batteries; for an
+ * administrator the updates and the repairs too. Three tiles, the rest under a fold.
+ */
+const attention = (ctx: StrategyContext): Card =>
+  full('alerts', {
+    title: ctx.t('strategy.attention'),
+    alerts: [
+      { preset: 'hazards' },
+      { preset: 'open' },
+      { preset: 'unlocked' },
+      { preset: 'errors' },
+      { preset: 'low_battery' },
+      { preset: 'updates', admin_only: true },
+      { preset: 'repairs' },
+    ],
+    max_alerts: 3,
+  });
+
 export function homeView(ctx: StrategyContext): Section[] {
   const { home, t, base, weather, energy } = ctx;
-  const { lights, appliances, climate, temperatures } = home;
+  const { lights, applianceTiles: appliances, climate, temperatures } = home;
   const secured = [...home.domain('lock'), ...home.openings];
-  // the controls, the climate and the day, the energy and the house's state, in reading order; the
-  // single-purpose cards fill the columns' feet
-  return flowed(
-    ctx.header,
+  // what needs a look, then the controls, the climate and the day, the energy and the house's state, in reading
+  // order; the single-purpose cards fill the columns' feet; the appliances as the reporter of #47 drew them, across
+  // under them
+  const columns = flowed(
+    ctx,
     [
+      [attention(ctx)],
       ...when(lights.length, () =>
         headed(
           heading(t('strategy.lights'), 'fluvy:bulb', lights, `${base}/lights`),
@@ -89,6 +113,13 @@ export function homeView(ctx: StrategyContext): Section[] {
       ...when(home.scenes[0], (id) => [full('scene', { entity: id, ...home.named(id) })]),
     ],
   );
+  return [
+    ...columns,
+    ...applianceSections(ctx, home.applianceDevices, COLUMNS, {
+      path: `${base}/${APPLIANCES_PATH}`,
+      caps: true,
+    }),
+  ];
 }
 
 /** By area when areas are assigned, else indoor / outdoor; the biggest group first; light automations as scenes last. */
@@ -123,13 +154,13 @@ export function lightsView(ctx: StrategyContext): Section[] {
     6,
   );
   if (scenes.length) blocks.push([full('scenes', { title: t('strategy.automations'), scenes })]);
-  return flowed(ctx.header, blocks);
+  return flowed(ctx, blocks);
 }
 
 /** Thermostats first, then the forecast, humidity and temperatures, shared out so the three columns end level. */
 export function climateView(ctx: StrategyContext): Section[] {
   const { home } = ctx;
-  return balanced(ctx.header, [
+  return balanced(ctx, [
     ...home.climate.slice(0, 4).map((id) => thermostat(id, ctx.style)),
     ...home.fans.slice(0, 2).map((id) => full('fan', { entity: id, ...home.named(id) })),
     ...home.weather.slice(0, 1).map((id) => full('weather', { entity: id })),
@@ -155,7 +186,7 @@ export function climateView(ctx: StrategyContext): Section[] {
 export function energyView(ctx: StrategyContext): Section[] {
   const { home, t, energy } = ctx;
   const { solarPower, gridPower, solarToday, consumption, consumptionPowers } = energy;
-  return balanced(ctx.header, [
+  return balanced(ctx, [
     ...liveCards(ctx),
     ...(energy.prefsMeters
       ? []
@@ -199,7 +230,7 @@ export const secured = (home: HomeRegistry): boolean =>
 /** The alarm first, then what opens (locks, garage doors and gates), what is open, and the cameras. */
 export function securityView(ctx: StrategyContext): Section[] {
   const { home, t } = ctx;
-  return balanced(ctx.header, [
+  return balanced(ctx, [
     ...home.alarms.slice(0, 2).map((id) => full('alarm', { entity: id, ...home.named(id) })),
     ...home.locks.slice(0, 4).map((id) => full('lock', { entity: id, ...home.named(id) })),
     ...home.gateways.slice(0, 2).map((id) => full('cover', { entity: id, ...home.named(id) })),
@@ -217,7 +248,7 @@ export function mediaView(ctx: StrategyContext): Section[] {
   const playing =
     players.find((id) => home.state(id) === 'playing') ??
     players.find((id) => home.state(id) === 'paused');
-  return balanced(ctx.header, [
+  return balanced(ctx, [
     ...when(playing, (id) => [full('now-playing', { entity: id, ...home.named(id) })]),
     ...players
       .filter((id) => id !== playing)
@@ -228,7 +259,7 @@ export function mediaView(ctx: StrategyContext): Section[] {
 /** The calendars, the lists, the timers and what a person runs by hand. */
 export function agendaView(ctx: StrategyContext): Section[] {
   const { home, t } = ctx;
-  return balanced(ctx.header, [
+  return balanced(ctx, [
     ...when(home.calendars.length, () => [
       full('calendar', { entities: home.calendars.slice(0, 3), view: 'month-day' }),
     ]),
@@ -245,7 +276,7 @@ export function sensorsView(ctx: StrategyContext): Section[] {
   const zones = home.zones.filter((id) => id !== 'zone.home');
   const { batteries, phones, openings, plants, helpers, people, updates } = home;
   // what runs on batteries, who is home, what is open, then the helpers and the updates
-  return flowed(ctx.header, [
+  return flowed(ctx, [
     when(batteries.length, () => [
       full('bars', {
         title: t('strategy.batteries'),

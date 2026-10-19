@@ -149,6 +149,18 @@ function handOver(
   fireEvent(node, 'hass-action', { config: { entity, tap_action: action }, action: 'tap' });
 }
 
+/**
+ * Whether an action has something to do: never `none`, nor more-info or a toggle with no entity to act on (its own or
+ * the card's — a card of many has none). A surface that would be drawn as a button asks first: one that does nothing
+ * is not drawn.
+ */
+export function actionRuns(action: ActionConfig | undefined, fallbackEntity?: string): boolean {
+  const kind = action?.action ?? 'more-info';
+  return kind === 'more-info' || kind === 'toggle'
+    ? Boolean(action?.entity ?? fallbackEntity)
+    : kind !== 'none';
+}
+
 export async function runAction(
   node: HTMLElement,
   hass: HomeAssistant,

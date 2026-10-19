@@ -209,7 +209,7 @@ check(
 const failed = await read(card(page, 'Failed · and offline', 0));
 const gone = await read(card(page, 'Failed · and offline', 1));
 check(
-  'a failed print: its state, the warning’s glyph, its job and where its bar stopped, and why under its head; an offline printer wears the unavailable skin with nothing to read, its state said',
+  'a failed print: its state, the warning’s glyph, its job and where its bar stopped, and why under its head; an offline printer wears the unavailable skin at the size of a job, its progress and readouts dashes, its state said (1.9)',
   /Failed/.test(`${failed.badge} ${failed.sub}`) &&
     failed.glyph &&
     /Hook/.test(failed.sub) &&
@@ -218,7 +218,9 @@ check(
     failed.buttons.length === 0 &&
     gone.offline &&
     /Unavailable/.test(`${gone.badge} ${gone.sub}`) &&
-    gone.readouts.length === 0,
+    gone.progress === 'Progress —' &&
+    gone.readouts.length > 0 &&
+    gone.readouts.every((text) => text.endsWith('—')),
   JSON.stringify({ failed, gone }),
 );
 

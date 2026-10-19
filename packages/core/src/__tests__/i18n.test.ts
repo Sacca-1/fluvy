@@ -1,6 +1,9 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { english } from '../i18n/catalogue.js';
 import {
+  addEnglish,
   ensureLanguage,
   languageOf,
   languageReady,
@@ -11,6 +14,7 @@ import {
   setLanguageOverride,
   strings,
   wordsIn,
+  type MessageKey,
 } from '../i18n/index.js';
 import {
   LANGUAGE_CODES,
@@ -65,11 +69,16 @@ describe('the language registry', () => {
 });
 
 describe('the catalogue', () => {
-  it('has nothing empty in English', () => {
-    for (const [namespace, table] of Object.entries(english)) {
-      if (namespace === 'words') continue;
-      for (const [key, value] of Object.entries(table))
-        expect(value, `${namespace}.${key}`).not.toBe('');
+  it('has nothing empty in English, in any of its parts', () => {
+    const parts = join(dirname(fileURLToPath(import.meta.url)), '..', 'i18n', 'locales', 'en');
+    for (const file of readdirSync(parts)) {
+      const part = JSON.parse(readFileSync(join(parts, file), 'utf8')) as Record<
+        string,
+        Record<string, string>
+      >;
+      for (const [namespace, table] of Object.entries(part))
+        for (const [key, value] of Object.entries(table))
+          expect(value, `${file} ${namespace}.${key}`).not.toBe('');
     }
   });
 });
@@ -104,6 +113,14 @@ describe('the words', () => {
     expect(history({ language: 'es' }, 'title')).toBe('Historial');
   });
 
+  it('take a family’s English when its chunk registers it, behind every language', () => {
+    const key = 'family-test.hello' as MessageKey;
+    expect(localize({ language: 'en' }, key)).toBe('hello');
+    addEnglish({ 'family-test': { hello: 'Hello' } });
+    expect(localize({ language: 'en' }, key)).toBe('Hello');
+    expect(localize({ language: 'es' }, key)).toBe('Hello');
+  });
+
   it('never throw on a key the catalogue lacks', () => {
     const s = strings('cover');
     expect(s({ language: 'en' }, 'no_such_key' as never)).toBe('no_such_key');
@@ -113,6 +130,28 @@ describe('the words', () => {
     expect(plural({ language: 'en' }, 'history.sources_count', 3)).toBe('3 sources');
     expect(plural({ language: 'es' }, 'page.days', 5)).toBe('5 días');
     expect(plural({ language: 'en' }, 'common.events', 3, { count: 3 })).toBe('3 events');
+  });
+
+  it('count what is out of reach in its own plural: one, then two', () => {
+    const away = (language: string, n: number) =>
+      plural({ language }, 'room.unavailable', n, { count: n });
+    expect([away('en', 1), away('en', 2)]).toEqual(['1 unavailable', '2 unavailable']);
+    expect([away('es', 1), away('es', 2)]).toEqual(['1 no disponible', '2 no disponibles']);
+    expect([away('fr', 1), away('fr', 2)]).toEqual(['1 indisponible', '2 indisponibles']);
+    expect([away('it', 1), away('it', 2)]).toEqual(['1 non disponibile', '2 non disponibili']);
+    expect([away('pt-BR', 1), away('pt-BR', 2)]).toEqual(['1 indisponível', '2 indisponíveis']);
+  });
+
+  it('say one more as one, then two: "+1 autre", never "+1 autres"', () => {
+    const said = (language: string, key: MessageKey) =>
+      [1, 2].map((n) => plural({ language }, key, n, { count: n }));
+    expect(said('fr', 'calendar.more')).toEqual(['+1 autre', '+2 autres']);
+    expect(said('it', 'calendar.more')).toEqual(['+1 altro', '+2 altri']);
+    expect(said('de', 'calendar.more')).toEqual(['+1 weiterer', '+2 weitere']);
+    expect(said('es', 'calendar.earlier')).toEqual(['1 anterior', '2 anteriores']);
+    expect(said('fr', 'history.more')).toEqual(['+1 autre', '+2 autres']);
+    expect(said('it', 'history.more')).toEqual(['+1 altro', '+2 altri']);
+    expect(said('en', 'history.more')).toEqual(['+1 more', '+2 more']);
   });
 
   it('can be read in a fixed language whatever the person chose', () => {

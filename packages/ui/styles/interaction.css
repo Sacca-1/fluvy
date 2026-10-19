@@ -15,6 +15,11 @@
   --fv-spring: cubic-bezier(0.3, 1.45, 0.45, 1);
 }
 
+/* a card that hid itself (selfHide): out of the flow of any wrapper, a stack's as much as a section's */
+:host([hidden]) {
+  display: none;
+}
+
 /* fluid surfaces: the lab fixes 360; a dashboard column decides here */
 .fv-card,
 .fv-tile {
@@ -76,11 +81,55 @@
   -webkit-user-select: none;
 }
 
-/* a field that is a button (the dropdown) is a field: it opens, it never shrinks under the finger */
+/* a field that is a button (the dropdown) is a field: it opens, it never shrinks under the finger; a button stretched
+   over a head or a tile is that surface, which answers in its own way (below) */
 :where(
-  button:not(.fv-chip, .fv-stepper__half, .fv-tile, .fv-tile--tap, .fv-scene, .fv-field)
+  button:not(
+    .fv-chip,
+    .fv-stepper__half,
+    .fv-tile,
+    .fv-tile--tap,
+    .fv-scene,
+    .fv-field,
+    .fv-card__tap,
+    .fv-tile__tap
+  )
 ):active {
   transform: scale(0.94);
+}
+
+/* the head is the card's button (parts.ts `head()`): its overlay lies over what comes before it (the circle, a spinning
+   one too) and over the words; a control in the row is raised over it, beside it, and keeps its own tap. A card that
+   cannot be read still opens its details from its head */
+.fv-card__head .fv-card__tap {
+  pointer-events: auto;
+}
+
+.fv-card__head--tap :where(button:not(.fv-card__tap), .fv-hit, [role='button']) {
+  position: relative;
+}
+
+/* pressed, the circle gives under the finger (`scale`: a spinning fan's circle holds `transform`) and the words dim as
+   a row's do; the ring of the keyboard's focus goes round the whole row */
+.fv-card__head--tap:has(.fv-card__tap:active) > .fv-ico {
+  scale: 0.94;
+}
+
+.fv-card__head--tap:has(.fv-card__tap:active) > .fv-card__titles {
+  opacity: 0.7;
+}
+
+.fv-card__titles {
+  transition: opacity var(--fv-base) var(--fv-ease);
+}
+
+.fv-card__tap:focus-visible {
+  outline: none;
+}
+
+.fv-card__tap:focus-visible::after {
+  outline: 2px solid var(--fluvy-accent);
+  outline-offset: 2px;
 }
 
 .fv-round,
@@ -158,6 +207,11 @@
     background: var(--fluvy-primary-hover, var(--fluvy-accent-hover));
   }
 
+  /* armed, the fill and its words stay: the hairline firms in the danger's ink, as a filled tile's does */
+  .fv-btn--armed:hover {
+    box-shadow: inset 0 0 0 1px var(--fluvy-danger);
+  }
+
   /* a glyph with no fill takes a faint wash; a button on the page's ground and a field firm their hairline */
   .fv-round--bare:hover {
     background: color-mix(in srgb, var(--fluvy-text) 6%, transparent);
@@ -200,6 +254,11 @@
   .fv-ico--tap:hover {
     transform: scale(1.06);
   }
+
+  /* a head that is the card's button: its circle rises under the pointer, as the circle that was the button did */
+  .fv-card__head--tap:has(.fv-card__tap:hover:not(:active)) > .fv-ico {
+    scale: 1.06;
+  }
 }
 
 .fv-row__chevron {
@@ -224,7 +283,10 @@
 }
 
 /* ---------- state changes ---------- */
+/* a light card lit in its colour (1.9) eases into it as a tile does; never on its first frame, which is drawn in the
+   colours it ends in (a transition runs from a style the page has shown, and the card's sheet is written before) */
 .fv-tile,
+.sl-card,
 .fv-option,
 .fv-ico,
 .fv-badge,
@@ -275,6 +337,12 @@
 .fv-hit.is-fixed {
   cursor: default;
   pointer-events: none;
+}
+
+/* out of reach it is drawn disabled, as a disabled round or stepper is (read-only, for someone who may only look, it
+   keeps its strength) */
+.fv-switch[aria-disabled='true'] {
+  opacity: 0.4;
 }
 
 .fv-switch {

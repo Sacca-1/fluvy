@@ -4,7 +4,7 @@ import { html, nothing, type TemplateResult } from 'lit';
 import { MODE_GLYPH, modeKind, selectOptions, type ModeKind } from '../energy-model/modes.js';
 import { chipRow } from '../shared/chips.js';
 import type { TextRuler } from '../shared/fit.js';
-import { optionCell, optionColumnsFor, valuesHeld } from '../shared/options.js';
+import { optionCell, optionColumnsFor, optionsHold, valuesHeld } from '../shared/options.js';
 
 /** Under this column option tiles would be too narrow for their words: the modes are a chip row. */
 const TILES_FROM = 240;
@@ -93,16 +93,20 @@ export function modeRow(o: ModeRowOptions): TemplateResult | typeof nothing {
     };
   });
   const height = o.meaning ? 84 : 64;
-  if (items.length <= o.tilesUpTo && o.width >= TILES_FROM) {
-    const columns = optionColumnsFor(
-      items.map((i) => i.label || i.value || ''),
-      o.width,
-      4,
-      (text) =>
-        items.some((i) => !i.label && i.value === text)
-          ? o.ruler.width('fv-option__value', text)
-          : o.ruler.width('fv-option__label', text),
-    );
+  // a tile's name is measured in the line it sits on: the label's, or the value's where it stands in for a meaning
+  const names = items.map((i) => i.label || i.value || '');
+  const measureName = (text: string): number =>
+    items.some((i) => !i.label && i.value === text)
+      ? o.ruler.width('fv-option__value', text)
+      : o.ruler.width('fv-option__label', text);
+  // tiles only while every mode's name holds its cell (`optionsHold`: a charger's "Surplus solaire" in a 211 column
+  // does not): else the chips, which give way in their own order and never cut a word
+  if (
+    items.length <= o.tilesUpTo &&
+    o.width >= TILES_FROM &&
+    optionsHold(names, o.width, 4, measureName)
+  ) {
+    const columns = optionColumnsFor(names, o.width, 4, measureName);
     // a meaning's word the cell cannot hold (de's "Überschuss" under the sun's mode) is dropped, never cut; a name
     // on the value's line stays
     const held = valuesHeld(items, optionCell(o.width, 4, columns), (text) =>

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import {
+  paletteOf,
   SettingsStore,
   type EffectiveSettings,
   type HomeAssistant,
@@ -204,11 +205,13 @@ describe('the settings panel', () => {
     expect(root.textContent).not.toContain('Create');
     panel.tab = 'scope';
     await panel.updateComplete;
-    // their own Overview under its Home Assistant name, and the automatic dashboard, as they are
+    // their own Overview under its Home Assistant name, and the automatic dashboard, as they are: a switch they may
+    // only look at, read-only at full strength (not the disabled skin of one out of reach)
     expect(row('Overview')).toBeDefined();
-    expect(row('Fluvy auto')?.querySelector('.fv-switch')?.getAttribute('aria-disabled')).toBe(
-      'true',
-    );
+    const fixed = row('Fluvy auto')?.querySelector('.fv-switch');
+    expect(fixed?.getAttribute('aria-readonly')).toBe('true');
+    expect(fixed?.getAttribute('aria-disabled')).toBe('false');
+    expect(fixed?.closest('.fv-hit')?.classList.contains('is-fixed')).toBe(true);
     panel.tab = 'dashboard';
     await panel.updateComplete;
     // the sidebar switch is an administrator's
@@ -715,6 +718,157 @@ describe('the settings panel', () => {
     // Home Assistant handed the saved value back: nothing is pending (the bar is on its way out), nothing previewed
     expect(root.querySelector('.pn-foot:not(.is-leaving) .pn-bar')).toBeNull();
     expect(previews.at(-1)).toBeNull();
+    panel.remove();
+  });
+
+  it('lets the house say how lights show their colour where a card says nothing (#41)', async () => {
+    const { panel, root, row, chip, button, handle, previews, settle } = await mount();
+    // on the Look tab: never, by default, so nothing changes on upgrade
+    expect(chip('Never')?.classList.contains('is-active')).toBe(true);
+    const colours = row('In their bulb’s colour');
+    expect(colours?.querySelector('.fv-switch')?.getAttribute('aria-checked')).toBe('false');
+    chip('When on')!.click();
+    await settle();
+    expect(root.querySelector('.pn-bar__text')?.textContent?.trim()).toBe(
+      'Lights · Show their colour · When on',
+    );
+    colours?.querySelector<HTMLElement>('.fv-hit')?.click();
+    await settle();
+    // shown on every card at once, saved only from the bar
+    expect(previews.at(-1)).toEqual({ lightTint: 'on', lightColors: true });
+    button('Save')!.click();
+    await settle();
+    expect([handle.settings().lightTint, handle.settings().lightColors]).toEqual(['on', true]);
+    panel.remove();
+    // someone who is not an administrator reads them, and changes nothing
+    const guest = await mount(false);
+    expect(guest.root.textContent).toContain('Lights');
+    guest.chip('Always')?.click();
+    await guest.settle();
+    expect(guest.previews.at(-1)).not.toEqual(expect.objectContaining({ lightTint: 'always' }));
+    guest.panel.remove();
+  });
+
+  it('lets the house give each status a colour of its own, the palette’s until then (1.9)', async () => {
+    const { panel, root, button, handle, previews, settle } = await mount();
+    const card = () =>
+      [...root.querySelectorAll<HTMLElement>('.pn-card')].find(
+        (c) => c.querySelector('.fv-card__title')?.textContent?.trim() === 'Status colours',
+      )!;
+    /** A status's block: its label, its Auto · Custom chips, and (Custom) its dots, its field, its line. */
+    const block = (status: string) => {
+      const label = [...card().querySelectorAll<HTMLElement>('.pn-label')].find(
+        (p) => p.textContent?.trim() === status,
+      )!;
+      const parts: HTMLElement[] = [];
+      for (let el = label.nextElementSibling; el && !el.classList.contains('pn-label');)
+        el = (parts.push(el as HTMLElement), el.nextElementSibling);
+      const find = (selector: string) => parts.find((part) => part.matches(selector));
+      return {
+        chip: (text: string) =>
+          [...(find('.fv-chips')?.querySelectorAll<HTMLElement>('.fv-chip') ?? [])].find(
+            (c) => c.textContent?.trim() === text,
+          )!,
+        dots: find('.pn-dots'),
+        hex: find('.pn-hex')?.querySelector<HTMLInputElement>('.pn-hex__input'),
+        line: find('.pn-hint')?.textContent?.trim(),
+      };
+    };
+    const worn = () =>
+      [...((panel.shadowRoot as ShadowRoot).adoptedStyleSheets ?? [])]
+        .flatMap((sheet) => [...sheet.cssRules].map((rule) => rule.cssText))
+        .join('');
+    // four statuses, each the palette's: nothing changes on upgrade
+    for (const status of ['Warning', 'Danger', 'Success', 'Notice']) {
+      expect(block(status).chip('Auto').classList.contains('is-active'), status).toBe(true);
+      expect(block(status).dots, status).toBeUndefined();
+    }
+    // Custom: the warning starts on #47's orange, shown on the panel and the page at once, saved from the bar
+    block('Warning').chip('Custom').click();
+    await settle();
+    expect(previews.at(-1)).toEqual({ statuses: { warning: '#dc630b' } });
+    expect(root.querySelector('.pn-bar__text')?.textContent?.trim()).toBe(
+      'Status colours · Warning · #dc630b',
+    );
+    expect(block('Warning').dots?.querySelectorAll('.pn-dot').length).toBe(6);
+    expect(block('Warning').hex?.value).toBe('#dc630b');
+    const orange = paletteOf('linen', { warning: '#dc630b' }).light.semantic.warning;
+    expect(worn()).toMatch(new RegExp(`--fluvy-warning: ?${orange.ink}`));
+    // a swatch, then any colour typed
+    block('Warning').dots!.querySelectorAll<HTMLElement>('.pn-dot')[5]!.click();
+    await settle();
+    expect(previews.at(-1)).toEqual({ statuses: { warning: '#7048e8' } });
+    const field = block('Warning').hex!;
+    field.value = '#E8590C';
+    field.dispatchEvent(new Event('change'));
+    await settle();
+    expect(previews.at(-1)).toEqual({ statuses: { warning: '#e8590c' } });
+    // a danger in the warning's very colour: the panel says so under both, and turns nothing aside
+    block('Danger').chip('Custom').click();
+    await settle();
+    expect(block('Danger').line).toBeUndefined();
+    const danger = block('Danger').hex!;
+    danger.value = '#e8590c';
+    danger.dispatchEvent(new Event('change'));
+    await settle();
+    expect(previews.at(-1)).toEqual({ statuses: { warning: '#e8590c', danger: '#e8590c' } });
+    expect(block('Danger').line).toBe('Close to Warning: the two may be mistaken for each other');
+    expect(block('Warning').line).toBe('Close to Danger: the two may be mistaken for each other');
+    expect(block('Success').line).toBeUndefined();
+    block('Danger').chip('Auto').click();
+    await settle();
+    expect(block('Warning').line).toBeUndefined();
+    button('Save')!.click();
+    await settle();
+    expect(handle.settings().statuses).toEqual({ warning: '#e8590c' });
+    expect(root.querySelector('.pn-foot:not(.is-leaving) .pn-bar')).toBeNull();
+    // back to the palette's: an edit, and the panel wears the palette's own again
+    block('Warning').chip('Auto').click();
+    await settle();
+    expect(root.querySelector('.pn-bar__text')?.textContent?.trim()).toBe(
+      'Status colours · Warning · Auto',
+    );
+    expect(worn()).toMatch(
+      new RegExp(`--fluvy-warning: ?${paletteOf('linen').light.semantic.warning.ink}`),
+    );
+    panel.remove();
+    // someone who is not an administrator sees them, and changes nothing
+    const guest = await mount(false);
+    const guestCard = [...guest.root.querySelectorAll<HTMLElement>('.pn-card')].find(
+      (c) => c.querySelector('.fv-card__title')?.textContent?.trim() === 'Status colours',
+    )!;
+    expect(guestCard.textContent).toContain('Only an administrator can change this');
+    [...guestCard.querySelectorAll<HTMLElement>('.fv-chip')]
+      .find((c) => c.textContent?.trim() === 'Custom')!
+      .click();
+    await guest.settle();
+    expect(guest.previews.at(-1)).not.toEqual(
+      expect.objectContaining({ statuses: expect.anything() }),
+    );
+    guest.panel.remove();
+  });
+
+  it('lays a row of choices out by measure: three while every word holds its third, else two and one', async () => {
+    const { panel, chip } = await mount();
+    const host = panel as unknown as {
+      content: number;
+      ruler: { width: (c: string, t: string) => number };
+    };
+    const tracks = (): string | undefined =>
+      chip('When on')
+        ?.parentElement?.getAttribute('style')
+        ?.match(/repeat\((\d+),/)?.[1];
+    // a phone's card (288 of content, 8 apart: thirds of 90.7): "When on" at 70 + its sides holds a third
+    host.ruler.width = (_class, text) => (text === 'When on' ? 70 : 40);
+    host.content = 288;
+    await panel.updateComplete;
+    expect(tracks()).toBe('3');
+    // a word too long for its third (pt-BR's "Quando ligado" at 94 + its 16): two and one, the third across both
+    host.ruler.width = (_class, text) => (text === 'When on' ? 94 : 40);
+    host.content = 289;
+    await panel.updateComplete;
+    expect(tracks()).toBe('2');
+    expect(chip('Always')?.getAttribute('style')).toContain('span 2');
     panel.remove();
   });
 

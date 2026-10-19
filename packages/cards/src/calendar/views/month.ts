@@ -4,12 +4,14 @@ import { html, nothing, type TemplateResult } from 'lit';
 import { keyed } from 'lit/directives/keyed.js';
 import { dayKey, sameDay } from '../../shared/dates.js';
 import { monthGrid } from '../../shared/days.js';
-import { FACE, fitText } from '../fit.js';
+import { FACE, textWidth } from '../fit.js';
 import type { ViewContext } from './context.js';
 import {
   columnStyle,
   dayList,
   fitHead,
+  headRoom,
+  headSub,
   headTone,
   notice,
   outage,
@@ -57,8 +59,17 @@ export function monthView(ctx: ViewContext, withDay: boolean): TemplateResult {
   const list = withDay && !broken ? dayList(ctx, day, { afterLabel: true }) : null;
   const count = ready ? agenda.count(day) : null;
 
-  const title = ctx.config.title ?? words.month(ctx.month);
-  const fit = fitHead(ctx, 'calendar', title, broken ? 0 : NAV);
+  const nav = broken ? 0 : NAV;
+  const still = ctx.status === 'unavailable';
+  // the month's name, or its short form where even the circle's room would not hold it beside the ‹ › pair
+  // ("September" at 211; never an ellipsis on a date)
+  const title =
+    ctx.config.title ??
+    (textWidth(words.month(ctx.month), FACE.title) <= headRoom(ctx, nav) + 56
+      ? words.month(ctx.month)
+      : words.monthShort(ctx.month));
+  const line = words.weeks(day, ctx.month.getFullYear());
+  const fit = fitHead(ctx, 'calendar', title, nav, line);
   return surface(
     ctx,
     html`
@@ -66,12 +77,13 @@ export function monthView(ctx: ViewContext, withDay: boolean): TemplateResult {
         icon: fit.icon,
         tone: headTone(ctx),
         title,
-        sub: fitText(words.weeks(day, ctx.month.getFullYear()), fit.room, FACE.sub),
+        sub: headSub(ctx, line, fit.room),
+        // the ‹ › pair stays while the calendars are out of reach, still (1.9)
         trailing: broken
           ? nothing
           : html`<div class="cd-nav">
-              ${round('chevronLeft', 'quiet', s(ctx.hass, 'previous_month'), () => ctx.stepMonth(-1))}
-              ${round('chevron', 'quiet', s(ctx.hass, 'next_month'), () => ctx.stepMonth(1))}
+              ${round('chevronLeft', 'quiet', s(ctx.hass, 'previous_month'), () => ctx.stepMonth(-1), still)}
+              ${round('chevron', 'quiet', s(ctx.hass, 'next_month'), () => ctx.stepMonth(1), still)}
             </div>`,
       })}
       ${

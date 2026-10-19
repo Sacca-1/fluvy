@@ -12,7 +12,7 @@ const camera = (id: string, ctx: StrategyContext): Card =>
 /** The alarm first, then what opens (locks, garage doors and gates), what is open, and the first cameras. */
 function overviewView(ctx: StrategyContext): Section[] {
   const { home, t } = ctx;
-  return balanced(ctx.header, [
+  return balanced(ctx, [
     ...home.alarms.slice(0, 2).map((id) => full('alarm', { entity: id, ...home.named(id) })),
     ...home.locks.slice(0, 4).map((id) => full('lock', { entity: id, ...home.named(id) })),
     ...home.gateways.slice(0, 2).map((id) => full('cover', { entity: id, ...home.named(id) })),
@@ -26,7 +26,7 @@ function overviewView(ctx: StrategyContext): Section[] {
 /** Every camera, at the dashboard's refresh. */
 function camerasView(ctx: StrategyContext): Section[] {
   return balanced(
-    ctx.header,
+    ctx,
     ctx.home.cameras.slice(0, 9).map((id) => camera(id, ctx)),
   );
 }
@@ -40,7 +40,7 @@ function openingsView(ctx: StrategyContext): Section[] {
     groups.set(key, [...(groups.get(key) ?? []), id]);
   }
   return flowed(
-    ctx.header,
+    ctx,
     [...groups.entries()]
       .sort((a, b) => b[1].length - a[1].length)
       .map(([title, ids]) => [full('openings', { title, entities: ids.slice(0, 12) })]),

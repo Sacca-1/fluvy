@@ -3,10 +3,11 @@ import type { TemplateResult } from 'lit';
 import type { RowStyle } from './config.js';
 import type { TextRuler } from './fit.js';
 
-/** What a card knows to lay a filled row out: its text ruler and the width the row fills. */
+/** What a card knows to lay a filled row out: its text ruler, the width the row fills and its gap (8 by default). */
 export interface ChipFit {
   readonly ruler: TextRuler;
   readonly width: number;
+  readonly gap?: number;
 }
 
 const GAP = 8;
@@ -32,8 +33,8 @@ const widestOf = (items: readonly ChipItem[], ruler: TextRuler): number =>
     ),
   );
 
-const fitsIn = (columns: number, widest: number, width: number): boolean =>
-  (width - GAP * (columns - 1)) / columns >= widest;
+const fitsIn = (columns: number, widest: number, width: number, gap = GAP): boolean =>
+  (width - gap * (columns - 1)) / columns >= widest;
 
 /** Whether every chip stands on one line: a card that must keep one row trades its glyphs, then its words, for it. */
 export const fitsOneRow = (items: readonly ChipItem[], { ruler, width }: ChipFit): boolean =>
@@ -41,20 +42,22 @@ export const fitsOneRow = (items: readonly ChipItem[], { ruler, width }: ChipFit
 
 /**
  * The columns a filled row takes so that no label is cut: as many as the labels are (three at most in one row of
- * five or six, four or two of four: every row full), the widest label measured in the row's own classes.
+ * five or six, four or two of four, three or two and one of three: every row full), the widest label measured in the
+ * row's own classes.
  */
 export function fittedColumns(
   items: readonly ChipItem[],
-  { ruler, width }: ChipFit,
+  { ruler, width, gap }: ChipFit,
   candidates: readonly number[] = defaultColumns(items.length),
 ): number {
   const widest = widestOf(items, ruler);
-  for (const n of candidates) if (fitsIn(n, widest, width)) return n;
+  for (const n of candidates) if (fitsIn(n, widest, width, gap)) return n;
   return 1;
 }
 
-const defaultColumns = (count: number): number[] =>
-  count <= 3 ? [count] : count === 4 ? [4, 2] : [count, 3, 2];
+/** The columns a filled row of `count` tries, in order: every row full. */
+export const defaultColumns = (count: number): number[] =>
+  count < 3 ? [count] : count === 3 ? [3, 2] : count === 4 ? [4, 2] : [count, 3, 2];
 
 /**
  * A card's row of short choices (modes, presets, sources), in the style its config asks: `full` (the default) —

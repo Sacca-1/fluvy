@@ -19,14 +19,16 @@ import { Card } from '../../../../packages/cards/src/shared/base.js';
 import type { StateSeed } from '../hass.js';
 import { NOW } from '../now.js';
 import type { SheetSpec } from '../scenes.js';
+import type { WsTable } from '../ws.js';
 
 /**
  * The automations sheet: Marta's automations as Home Assistant lists them — three Fluvy schedules (a window on the
  * clock, a window by the sun, a thermostat on the weekend), two plain automations, one unavailable and one with a
  * `fluvy_` id that is no longer a schedule — with the config API answered here, in memory: a GET returns the config
  * (or Home Assistant's 404), a POST stores it, adds the entity a beat later and fires `automation_reloaded` (a
- * `!fail` alias is refused with Home Assistant's 400), a DELETE drops it. The sheet frames dock the schedule sheet
- * in the flow, as the keypad's does, so it can be photographed and measured.
+ * `!fail` alias is refused with Home Assistant's 400), a DELETE drops it. `search/related` answers what an entity's
+ * automations are, from the configs and a plain automation's own list. The sheet frames dock the schedule sheet in
+ * the flow, as the keypad's does, so it can be photographed and measured.
  */
 
 const WORKDAY = 'binary_sensor.workday_sensor';
@@ -93,6 +95,11 @@ const configs = new Map<string, object>([
   [ODD_ID, ODD],
 ]);
 
+/** The plain automations and the entities they name, as Home Assistant's search reads them (a schedule's are in its config). */
+const PLAIN_TARGETS: Readonly<Record<string, readonly string[]>> = {
+  'automation.vacation_lights': ['light.kitchen', 'light.hall'],
+};
+
 /** The page's mock, once it is made (`main.ts` puts it on the window before any card asks). */
 interface Mock {
   hass(): HomeAssistant;
@@ -116,6 +123,24 @@ const slug = (alias: string): string =>
     .replace(/^_+|_+$/g, '') || 'schedule';
 
 const PATH = /^config\/automation\/config\/(.+)$/;
+
+/**
+ * Home Assistant's `search/related` for an entity: the automations whose config names it (Fluvy's schedules, the odd
+ * one), as their entities, and the plain ones that do.
+ */
+const ws: WsTable = {
+  'search/related': (message) => {
+    if (message['item_type'] !== 'entity') return undefined;
+    const id = String(message['item_id']);
+    const named = [...configs]
+      .filter(([, config]) => JSON.stringify(config).includes(`"${id}"`))
+      .flatMap(([configId]) => entityOf(configId) ?? []);
+    const plain = Object.keys(PLAIN_TARGETS).filter((automation) =>
+      PLAIN_TARGETS[automation]?.includes(id),
+    );
+    return { automation: [...named, ...plain] };
+  },
+};
 
 /** Home Assistant's config API for automations, in memory. */
 function api(method: string, path: string, body?: unknown): unknown {
@@ -164,11 +189,18 @@ function api(method: string, path: string, body?: unknown): unknown {
 /**
  * The schedule sheet is a modal in production. Here it is docked into a frame, as the keypad's is, so it can be
  * photographed and measured: a new schedule with the kitchen lamp picked and "Turn on" chosen (`mode: new`), the
- * Good morning schedule being edited (`edit`), or the leak alert's details (`details`).
+ * Good morning schedule being edited (`edit`), the leak alert's details (`details`), a card's one lamp at 40 %
+ * (`target`), a card's three targets as chips (`choices`), or the one lamp with an end and its quick spans (`until`).
+ * Every one reads the sheets' frozen clock.
  */
 class ScheduleDemo extends Card {
   protected renderCard(): TemplateResult {
-    return html`<fluvy-schedule-sheet docked .hass=${this.hass}></fluvy-schedule-sheet>`;
+    return html`<fluvy-schedule-sheet
+      docked
+      ?dark=${this.dark}
+      ?no-theme=${this.noTheme}
+      .hass=${this.hass}
+    ></fluvy-schedule-sheet>`;
   }
 
   protected override firstUpdated(changed: PropertyValues): void {
@@ -185,6 +217,7 @@ class ScheduleDemo extends Card {
         entity: 'automation.leak_alert',
         alias: 'Leak alert',
         configId: '1690000000001',
+        now: () => NOW,
         run: () => call('trigger', 'automation.leak_alert', { skip_condition: true }),
         toggle: (on) => call(on ? 'turn_on' : 'turn_off', 'automation.leak_alert'),
       });
@@ -196,6 +229,7 @@ class ScheduleDemo extends Card {
       workday: WORKDAY,
       timeStep: 5,
       ...(sun ? { sun } : {}),
+      now: () => NOW,
       save: async () => undefined,
     };
     if (mode === 'edit') {
@@ -207,6 +241,22 @@ class ScheduleDemo extends Card {
         entity: 'automation.good_morning',
         toggle: (on) => call(on ? 'turn_on' : 'turn_off', 'automation.good_morning'),
         remove: async () => undefined,
+      });
+      return;
+    }
+    if (mode === 'target' || mode === 'until') {
+      sheet.open({ ...common, only: [{ id: 'light.kitchen', level: 40 }] });
+      // the end switched on: its quick spans, its kind and its time
+      if (mode === 'until')
+        void sheet.updateComplete.then(() =>
+          sheet.renderRoot.querySelector<HTMLElement>('.ss-until .fv-hit')?.click(),
+        );
+      return;
+    }
+    if (mode === 'choices') {
+      sheet.open({
+        ...common,
+        only: [{ id: 'light.kitchen' }, { id: 'light.hall' }, { id: 'switch.fountain' }],
       });
       return;
     }
@@ -371,6 +421,7 @@ export const sheet: SheetSpec = {
     },
   },
   api,
+  ws,
   frames: [
     {
       title: 'Rows',
@@ -453,6 +504,75 @@ export const sheet: SheetSpec = {
       title: 'Sheet · details',
       width: 392,
       cards: [{ type: 'custom:pg-schedule-demo', mode: 'details' }],
+    },
+    // a card for one lamp (a popup's): its schedule and the plain automation Home Assistant relates to it, the head
+    // saying when it next turns on; folded after the two rows it has, so the declared height is the measured one
+    {
+      title: 'One lamp',
+      cards: [
+        {
+          type: 'custom:fluvy-automations-card',
+          targets: ['light.kitchen'],
+          max_rows: 2,
+          ...frozen,
+        },
+      ],
+    },
+    {
+      title: 'One lamp · its own',
+      cards: [
+        {
+          type: 'custom:fluvy-automations-card',
+          title: 'Timers',
+          variant: 'compact',
+          targets: [{ entity: 'light.kitchen', name: 'Lamp', level: 40 }],
+          max_rows: 2,
+          ...frozen,
+        },
+      ],
+    },
+    {
+      title: 'One lamp · empty',
+      cards: [{ type: 'custom:fluvy-automations-card', targets: ['switch.fountain'], ...frozen }],
+    },
+    {
+      title: 'One lamp · guest',
+      cards: [
+        {
+          type: 'custom:fluvy-automations-card',
+          targets: ['light.kitchen'],
+          max_rows: 2,
+          ...frozen,
+        },
+      ],
+      hass: guest,
+    },
+    // a long name in the empty text at the floor: it breaks, never leaves the panel
+    {
+      title: 'One lamp · long name',
+      width: 211,
+      cards: [
+        {
+          type: 'custom:fluvy-automations-card',
+          targets: [{ entity: 'switch.fountain', name: 'Wohnzimmerdeckenleuchte' }],
+          ...frozen,
+        },
+      ],
+    },
+    {
+      title: 'Sheet · one target',
+      width: 392,
+      cards: [{ type: 'custom:pg-schedule-demo', mode: 'target' }],
+    },
+    {
+      title: 'Sheet · a few',
+      width: 392,
+      cards: [{ type: 'custom:pg-schedule-demo', mode: 'choices' }],
+    },
+    {
+      title: 'Sheet · until',
+      width: 392,
+      cards: [{ type: 'custom:pg-schedule-demo', mode: 'until' }],
     },
   ],
 };

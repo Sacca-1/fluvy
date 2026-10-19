@@ -1,5 +1,6 @@
 import {
   LANGUAGES,
+  localize,
   lookKey,
   chromeOf,
   sameChrome,
@@ -18,16 +19,24 @@ import {
 } from '@fluvy/core';
 import {
   DEFAULT_PALETTE,
+  deltaE,
+  GATES,
   PALETTE_NAMES,
   presetSeeds,
+  STATUS_NAMES,
   type CustomPalette,
   type Hex,
   type PaletteChoice,
   type PaletteFile,
   type PaletteMode,
+  type PaletteModeColors,
   type PaletteName,
+  type RoleColors,
+  type StatusColours,
+  type StatusName,
 } from '@fluvy/tokens/runtime';
 import { COMMUNITY_PALETTES } from '@fluvy/tokens/community';
+import type { ChipFit } from '../shared/chips.js';
 import type { Template } from '../strategy/templates.js';
 import { knownPalettes, matchOf } from './palettes.js';
 
@@ -40,11 +49,20 @@ export const TABS: readonly Tab[] = ['appearance', 'scope', 'dashboard', 'wall',
 
 export type StringKey = KeyOf<'panel'>;
 
-/** The house's settings the Scope and Wall tabs edit (an administrator's to save); `wall` always whole. */
+/** The house's settings the tabs edit (an administrator's to save); `wall` always whole. */
 export type HouseEdit = Partial<
   Pick<
     EffectiveSettings,
-    'scope' | 'dashboards' | 'frame' | 'icons' | 'activity' | 'history' | 'wall'
+    | 'scope'
+    | 'dashboards'
+    | 'frame'
+    | 'icons'
+    | 'activity'
+    | 'history'
+    | 'wall'
+    | 'lightTint'
+    | 'lightColors'
+    | 'statuses'
   >
 >;
 /** A person's preferences, their own to save. */
@@ -74,6 +92,8 @@ export interface PanelContext {
   readonly mode: PaletteMode;
   /** The panel is 648 or wider: desktop gaps (12) and art sizes; a phone's are 8. */
   readonly wide: boolean;
+  /** What a row of choices is laid out by: the panel's text ruler and a card's content width (none until laid out). */
+  readonly fit?: ChipFit | undefined;
   readonly handle: LookHandle;
   /** What is saved. */
   readonly settings: EffectiveSettings;
@@ -311,6 +331,57 @@ export function changeTitle(
   return parts.join(' · ');
 }
 
+/**
+ * A status's own colour (1.9): six round the wheel, the same in every status's row, #47's orange among them; a status
+ * made "Custom" starts on its own (`STATUS_STARTS`).
+ */
+export const STATUS_SWATCHES: readonly Hex[] = [
+  '#e03131',
+  '#dc630b',
+  '#fab005',
+  '#2f9e44',
+  '#1c7ed6',
+  '#7048e8',
+];
+export const STATUS_STARTS: Readonly<Record<StatusName, Hex>> = {
+  warning: '#dc630b',
+  danger: '#e03131',
+  success: '#2f9e44',
+  notice: '#1c7ed6',
+};
+
+const statusOf = (colors: PaletteModeColors, name: StatusName): RoleColors =>
+  name === 'notice' ? colors.notice : colors.semantic[name];
+
+/**
+ * The status each picked one sits too close to on a palette — ΔE2000 under `GATES.fillSeparation`, fill to fill or ink
+ * to ink, in either mode — after the engine has moved it as far as lightness and chroma can: what the panel says under
+ * it, never a hue turned aside. A status left to the palette is not asked.
+ */
+export function closeStatuses(
+  choice: PaletteChoice,
+  statuses: StatusColours,
+): Partial<Record<StatusName, StatusName>> {
+  const palette = paletteOf(choice, statuses);
+  const close: Partial<Record<StatusName, StatusName>> = {};
+  for (const name of STATUS_NAMES) {
+    const near = STATUS_NAMES.find(
+      (other) =>
+        statuses[name] &&
+        other !== name &&
+        (['light', 'dark'] as const).some((mode) => {
+          const [a, b] = [statusOf(palette[mode], name), statusOf(palette[mode], other)];
+          return (
+            deltaE(a.fill, b.fill) < GATES.fillSeparation ||
+            deltaE(a.ink, b.ink) < GATES.fillSeparation
+          );
+        }),
+    );
+    if (near) close[name] = near;
+  }
+  return close;
+}
+
 /** The wall's settings by the label the Wall tab gives them (the hours share the day-and-night line). */
 const WALL_LABELS: ReadonlyArray<readonly [keyof WallSettings, StringKey]> = [
   ['dashboards', 'wall.dashboards'],
@@ -334,6 +405,18 @@ export function changeLines(ctx: PanelContext): string[] {
   const lines: string[] = [];
   if (ctx.dirty) lines.push(changeTitle(ctx.settings.look, ctx.draft, t, knownPalettes(ctx.saved)));
   const house = ctx.houseEdit;
+  if (house.lightTint)
+    lines.push(
+      `${t('lights.title')} · ${t('lights.tint')} · ${localize(ctx.hass, `option.${house.lightTint === 'off' ? 'never' : house.lightTint}`)}`,
+    );
+  if (house.lightColors !== undefined)
+    lines.push(`${t('lights.title')} · ${t('lights.colors')} · ${onOff(house.lightColors)}`);
+  if (house.statuses)
+    for (const name of STATUS_NAMES)
+      if (house.statuses[name] !== ctx.settings.statuses[name])
+        lines.push(
+          `${t('statuses.title')} · ${t(`statuses.${name}`)} · ${house.statuses[name] ?? t('statuses.auto')}`,
+        );
   if (house.scope)
     lines.push(t(house.scope === 'everywhere' ? 'change.everywhere' : 'change.dashboards'));
   if (house.dashboards) lines.push(`${t('scope.list')} · ${shown.dashboards.length}`);

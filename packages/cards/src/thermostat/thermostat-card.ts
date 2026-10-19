@@ -1,11 +1,14 @@
 import {
   formatNumber,
   isUsable,
+  localize,
   readText,
+  resolveEntity,
   stateText,
   writeText,
   type EntityView,
   type FluvyCardConfig,
+  type HomeAssistant,
   type LovelaceConfigForm,
   type LovelaceGridOptions,
   type MessageKey,
@@ -21,7 +24,6 @@ import {
   rulerLabels,
   sheetStyles,
   stepper,
-  textWidth,
   type DialArc,
   type DialChangeDetail,
   type GlyphName,
@@ -32,7 +34,7 @@ import {
 
 import { css, html, nothing, type CSSResultGroup, type TemplateResult } from 'lit';
 
-import { Card } from '../shared/base.js';
+import { Card, HEAD_BASE } from '../shared/base.js';
 
 import { glyphFor } from '../shared/domain.js';
 
@@ -45,25 +47,38 @@ import {
   fieldRow,
   formLabels,
   nameIconFields,
+  orderedField,
   selectField,
+  showIconField,
+  textField,
   whenOffField,
 } from '../shared/form.js';
 
 import { HeadFit } from '../energy/head.js';
 import { optionCell, optionColumnsFor, optionsHold, valuesHeld } from '../shared/options.js';
-import type { EditorDefaults } from '../shared/rows-editor.js';
+import type { EditorChoices, EditorDefaults } from '../shared/rows-editor.js';
 import { configKeys, type WhenOff } from '../shared/config.js';
 import { chipRow } from '../shared/chips.js';
+import { chipBlock, chipRows, listAttr, optionBlock, optionRows } from '../shared/heights.js';
+import { fitValueRow, STEPPER, STEPPER_HALVES, valueRowClass } from '../shared/value-row.js';
 
 export type ThermostatVariant = 'dial' | 'compact' | 'ruler';
 export type RowStyle = 'chips' | 'full';
 
 export interface ThermostatCardConfig extends FluvyCardConfig {
+  /** The line under the name; empty hides it. Default: the area (left out where it is the name) and the humidity. */
+  subtitle?: string;
   show_presets?: boolean;
   show_fan?: boolean;
   /** `dial` (default): the ring. `compact`: the target as a readout with its stepper, no dial. `ruler`: the readout, the stepper and a horizontal ruler. */
   variant?: ThermostatVariant;
-  /** The modes to show, in this order (`['off', 'heat', 'cool']`). Default: every mode the entity offers. */
+  /** The − and + under the dial and beside the readout (default). Off: the target is set on the dial or the ruler, or from the card's tap — the readout is then that tap. */
+  show_stepper?: boolean;
+  /** The reading beside the target ("Target · Now 20.6°") and in the dial (default). */
+  show_current?: boolean;
+  /** The modes and their label (default). */
+  show_modes?: boolean;
+  /** The modes to show, in this order (`['off', 'heat', 'cool']`). Default: every mode the entity offers, in the card's order. */
   modes?: readonly string[];
   /** Modes as option tiles (default), as content-sized chips, or as chips filling the row. */
   modes_style?: 'tiles' | RowStyle;
@@ -86,8 +101,14 @@ interface Model {
   readonly low: number | undefined;
   readonly high: number | undefined;
   readonly current: number | undefined;
+  /** A climate's `hvac_action`: a range's stepper drives its low end while heating, its high end while cooling. */
+  readonly action: string | undefined;
+  /** What the entity can show besides a target, whatever it shows now: a range, the word for off. */
+  readonly canRange: boolean;
+  readonly canOff: boolean;
   readonly arc: DialArc;
   readonly badgeText: string;
+  /** Every mode the entity offers, in `modeOrder`. */
   readonly modes: readonly OptionItem[];
   readonly presets: readonly string[];
   readonly preset: string | undefined;
@@ -126,12 +147,89 @@ const MODE_TONE: Record<string, Tone> = {
   fan_only: 'fan',
   off: 'neutral',
 };
+/** A climate's modes, in Home Assistant's order: the card draws them so, and has a word for each. */
 const MODE_ORDER = ['off', 'heat', 'cool', 'heat_cool', 'auto', 'dry', 'fan_only'];
+/** Unless the config lists its own, a water heater shows its first six operations, a humidifier Off and five modes. */
+const SHOWN = 6;
+/** The modes a thermostat is counted with where the house is not there to say (a missing one draws these). */
+const DEFAULT_MODES = ['off', 'heat', 'cool'];
+/** A climate's `supported_features` bit for a low and a high end. */
+const TARGET_RANGE = 2;
 
 const pretty = (raw: string): string => {
   const t = raw.replace(/_/g, ' ');
   return t.charAt(0).toUpperCase() + t.slice(1);
 };
+
+/**
+ * Every mode a thermostat card's entity offers, in the order the card draws them and its editor lists them: a
+ * climate's in Home Assistant's order (Off first), any other after them in the entity's own; a water heater's
+ * operations as it lists them; a humidifier's Off, then its modes. Read from what Home Assistant writes whatever the
+ * state (an entity gone missing: as this page last read it).
+ */
+export function modeOrder(view: EntityView): string[] {
+  const list = (key: string): string[] => {
+    const value = view.attr<unknown>(key);
+    return Array.isArray(value) ? value.filter((m): m is string => typeof m === 'string') : [];
+  };
+  const domain = view.domain;
+  if (domain === 'humidifier')
+    return ['off', ...list('available_modes').filter((m) => m !== 'off')];
+  if (domain === 'water_heater') return list('operation_list');
+  const rank = (m: string): number => {
+    const at = MODE_ORDER.indexOf(m);
+    return at < 0 ? MODE_ORDER.length : at;
+  };
+  return list('hvac_modes').sort((a, b) => rank(a) - rank(b));
+}
+
+/** The modes drawn where the config lists none: a climate's all, a water heater's and a humidifier's first six. */
+const defaultModes = <T>(climate: boolean, modes: readonly T[]): T[] =>
+  climate ? [...modes] : modes.slice(0, SHOWN);
+
+/**
+ * A mode's word, the same on the card and in its editor: Fluvy's for a climate's seven and for Off; else Home
+ * Assistant's own, in the house's language (a water heater's "eco", a humidifier's "sleep"); else the mode, tidied.
+ */
+export function modeLabel(hass: HomeAssistant | undefined, view: EntityView, mode: string): string {
+  if (mode === 'off' || (view.domain === 'climate' && MODE_ORDER.includes(mode)))
+    return localize(hass, `climate.mode.${mode}` as MessageKey);
+  const stateObj = view.stateObj;
+  try {
+    const text = !stateObj
+      ? undefined
+      : view.domain === 'humidifier'
+        ? hass?.formatEntityAttributeValue?.(stateObj, 'mode', mode)
+        : hass?.formatEntityState?.({ ...stateObj, state: mode });
+    // a mode Home Assistant has no word for comes back as it is
+    if (text && text.toLocaleLowerCase() !== mode.toLocaleLowerCase()) return text;
+  } catch {
+    /* the mode itself, below */
+  }
+  return pretty(mode);
+}
+
+/**
+ * One step of a target from its stepper, on the step's grid and inside the entity's range; of a range, the end chosen
+ * (`end`: 0 the low one, 1 the high one), kept a step clear of the other end, which stays where it is.
+ */
+export function stepTarget(
+  target: DialChangeDetail,
+  direction: 1 | -1,
+  { min, max, step }: { readonly min: number; readonly max: number; readonly step: number },
+  end: 0 | 1 = 0,
+): DialChangeDetail {
+  const digits = decimalsOf(step);
+  const grid = (value: number): number => Number(value.toFixed(digits));
+  const next = (value: number, from: number, to: number): number =>
+    clamp(grid(Math.round((value + direction * step) / step) * step), from, to);
+  const { value, low, high } = target;
+  if (low !== undefined && high !== undefined)
+    return end === 0
+      ? { low: next(low, min, grid(high - step)), high }
+      : { low, high: next(high, grid(low + step), max) };
+  return value === undefined ? target : { value: next(value, min, max) };
+}
 
 /**
  * Thermostat, water heater and humidifier on one card: the dial with its knob on the ring (two for a
@@ -140,11 +238,57 @@ const pretty = (raw: string): string => {
  */
 export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
   /**
-   * The card's height at a 360 column, for the automatic dashboard's columns. Read from the config alone: a card
-   * that keeps to the essentials while off is reserved its height when on.
+   * The card's height at a 360 column, for the automatic dashboard's columns: the head and the dial (a dial without
+   * its stepper is 56 shorter), the readout and its ruler (two rulers for a range), then the modes under their label
+   * — tiles in rows of 84 (three a row, two where a word is long: `optionRows`), chips in rows of 44 — and the
+   * presets and the fan speeds as rows of chips, each under its label. The modes are the config's, else the
+   * entity's as the house lists them (Off · Heat · Cool where it is not there to say); the presets and the fan
+   * speeds are the entity's (none without the house). A card that keeps to the essentials while off is reserved
+   * its height when on.
    */
-  static override layoutHeight(config: ThermostatCardConfig): number {
-    return config.variant === 'compact' ? 292 : config.variant === 'ruler' ? 356 : 484;
+  static override layoutHeight(config: ThermostatCardConfig, hass?: HomeAssistant): number {
+    const id = config.entity;
+    const state = typeof id === 'string' ? hass?.states?.[id] : undefined;
+    const domain = typeof id === 'string' ? id.slice(0, id.indexOf('.')) : 'climate';
+    const list = (key: string): string[] => listAttr(hass, id, key);
+    // a range (its low and its high) draws the ruler twice: 96 more (the bubble row goes, each ruler keeps its label)
+    const range =
+      config.variant === 'ruler' &&
+      typeof state?.attributes['target_temp_low'] === 'number' &&
+      typeof state?.attributes['target_temp_high'] === 'number';
+    const height =
+      config.variant === 'compact'
+        ? 164
+        : config.variant === 'ruler'
+          ? 268 + (range ? 96 : 0)
+          : config.show_stepper === false
+            ? 300
+            : 356;
+    const offered = state
+      ? domain === 'water_heater'
+        ? list('operation_list')
+        : domain === 'humidifier'
+          ? ['off', ...list('available_modes').filter((m) => m !== 'off')]
+          : list('hvac_modes')
+      : DEFAULT_MODES;
+    const shown = config.modes?.length
+      ? config.modes.filter((m) => offered.includes(m === '__off' ? 'off' : m))
+      : domain === 'climate'
+        ? offered
+        : offered.slice(0, SHOWN);
+    const words = shown.map((m) => pretty(m.replace('_', '/')));
+    const modes =
+      config.show_modes === false || !shown.length
+        ? 0
+        : (config.modes_style ?? 'tiles') === 'tiles'
+          ? optionBlock(optionRows(words))
+          : chipBlock(chipRows(words, config.modes_style === 'chips' ? 'chips' : 'full'));
+    const chips = (items: string[], style: RowStyle | undefined): number =>
+      chipBlock(chipRows(items.map(pretty), style === 'chips' ? 'chips' : 'full'));
+    const presets =
+      config.show_presets === false ? 0 : chips(list('preset_modes'), config.preset_style);
+    const fans = config.show_fan === false ? 0 : chips(list('fan_modes'), config.fan_style);
+    return height + modes + presets + fans;
   }
 
   static override styles: CSSResultGroup = [
@@ -162,23 +306,43 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
     `,
   ];
 
-  static override defaults: EditorDefaults = (config, hass) => ({
-    variant: 'dial',
-    modes_style: 'tiles',
-    preset_style: 'full',
-    fan_style: 'full',
-    show_presets: true,
-    show_fan: true,
-    when_off: 'all',
-    ...(typeof config['entity'] === 'string' &&
-    Array.isArray(hass?.states[config['entity']]?.attributes['hvac_modes'])
-      ? { modes: hass?.states[config['entity']]?.attributes['hvac_modes'] }
-      : {}),
-  });
+  static override base = HEAD_BASE;
+  /** What the editor shows where the config says nothing; the modes as the card draws them, in its order. */
+  static override defaults: EditorDefaults = (config, hass) => {
+    const entity = config['entity'];
+    const view = resolveEntity(hass, typeof entity === 'string' ? entity : undefined);
+    const modes = defaultModes(view.domain === 'climate', modeOrder(view));
+    return {
+      variant: 'dial',
+      show_stepper: true,
+      show_current: true,
+      show_modes: true,
+      modes_style: 'tiles',
+      preset_style: 'full',
+      fan_style: 'full',
+      show_presets: true,
+      show_fan: true,
+      when_off: 'all',
+      ...(modes.length ? { modes } : {}),
+    };
+  };
+  /** The modes the editor offers are the entity's own, worded as the card words them. */
+  static override choices: EditorChoices = (config, hass) => {
+    const entity = config['entity'];
+    const view = resolveEntity(hass, typeof entity === 'string' ? entity : undefined);
+    const modes = modeOrder(view);
+    return modes.length
+      ? { modes: modes.map((value) => ({ value, label: modeLabel(hass, view, value) })) }
+      : {};
+  };
   static override keys = configKeys<ThermostatCardConfig>()([
+    'subtitle',
     'show_presets',
     'show_fan',
     'variant',
+    'show_stepper',
+    'show_current',
+    'show_modes',
     'modes',
     'modes_style',
     'preset_style',
@@ -190,23 +354,18 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
       schema: [
         entityField(['climate', 'water_heater', 'humidifier']),
         nameIconFields(),
-        fieldRow(
-          selectField('variant', ['dial', 'compact', 'ruler']),
-          selectField('modes_style', ['tiles', 'chips', 'full']),
+        fieldRow(textField('subtitle'), showIconField()),
+        fieldRow(selectField('variant', ['dial', 'compact', 'ruler']), boolField('show_stepper')),
+        fieldRow(boolField('show_modes'), selectField('modes_style', ['tiles', 'chips', 'full'])),
+        // a climate's seven until the entity is known: then its own (`choices`), dragged into the order they show in
+        orderedField(
+          'modes',
+          MODE_ORDER.map((value) => ({
+            value,
+            label: editorWord(`climate.mode.${value}` as MessageKey),
+          })),
         ),
-        {
-          name: 'modes',
-          selector: {
-            select: {
-              multiple: true,
-              mode: 'list',
-              options: MODE_ORDER.map((value) => ({
-                value,
-                label: editorWord(`climate.mode.${value}` as MessageKey),
-              })),
-            },
-          },
-        },
+        boolField('show_current'),
         fieldRow(boolField('show_presets'), selectField('preset_style', ['full', 'chips'])),
         fieldRow(boolField('show_fan'), selectField('fan_style', ['full', 'chips'])),
         whenOffField(),
@@ -244,11 +403,14 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
   override getCardSize(): number {
     return { dial: 7, ruler: 6, compact: 4 }[this.variant()];
   }
-  /** The dial needs its width; the ruler card half a section; the compact one a quarter. */
+  /**
+   * The dial needs its width; the ruler card and the compact one half a section, never less (as Home Assistant's own
+   * thermostat): in a third the stepper alone was wider than the column.
+   */
   override getGridOptions(): LovelaceGridOptions {
     switch (this.variant()) {
       case 'compact':
-        return { columns: 6, rows: 'auto', min_columns: 4 };
+        return { columns: 6, rows: 'auto', min_columns: 6 };
       case 'ruler':
         return { columns: 12, rows: 'auto', min_columns: 6 };
       default:
@@ -277,9 +439,20 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
       return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
     };
     const state = this.stateOf(view);
+    // a climate this page has never read (missing since it opened) keeps its row of modes: those its config lists,
+    // else the commonest three
+    const offered = modeOrder(view);
+    const modes =
+      offered.length || view.stateObj || view.domain !== 'climate'
+        ? offered
+        : (this.config?.modes ?? ['off', 'heat', 'cool']);
+    const word = (m: string): string => modeLabel(this.hass, view, m);
+    // a mode's setpoint from when it last ran ("Cool · 24°"), while the device can be read
+    const recall = (m: string): string => (view.status === 'ok' ? this.recall(view.id, m) : '');
     if (view.domain === 'humidifier') {
-      const off = state !== 'on';
-      const available = view.attr<string[]>('available_modes') ?? [];
+      // on runs a mode, off is Off; out of reach is neither
+      const off = state === 'off';
+      const on = state === 'on';
       const mode = view.attr<string>('mode');
       const target = num('humidity');
       return {
@@ -294,29 +467,33 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
         low: undefined,
         high: undefined,
         current: num('current_humidity'),
+        action: undefined,
+        canRange: false,
+        canOff: true,
         arc: 'to-target',
         badgeText: stateText(this.hass, view),
-        modes: [
-          {
-            key: '__off',
-            label: this.t('climate.mode.off'),
-            value: off ? this.t('climate.standby') : '',
-            glyph: 'power',
-            tone: 'neutral',
-            active: off,
-          },
-          ...available.slice(0, 5).map((m): OptionItem => ({
-            key: m,
-            label: pretty(m),
-            value:
-              !off && m === mode && target !== undefined
-                ? `${formatNumber(this.hass, target, { digits: 0 })} %`
-                : '',
-            glyph: MODE_GLYPH[m] ?? 'humid',
-            tone: 'water',
-            active: !off && m === mode,
-          })),
-        ],
+        modes: modes.map((m): OptionItem =>
+          m === 'off'
+            ? {
+                key: m,
+                label: word(m),
+                value: off ? this.t('climate.standby') : '',
+                glyph: 'power',
+                tone: 'neutral',
+                active: off,
+              }
+            : {
+                key: m,
+                label: word(m),
+                value:
+                  on && m === mode && target !== undefined
+                    ? `${formatNumber(this.hass, target, { digits: 0 })} %`
+                    : '',
+                glyph: MODE_GLYPH[m] ?? 'humid',
+                tone: 'water',
+                active: on && m === mode,
+              },
+        ),
         presets: [],
         preset: undefined,
         fans: [],
@@ -328,7 +505,6 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
     const unit = this.hass?.config.unit_system.temperature ?? '°C';
     const fahrenheit = unit === '°F';
     if (view.domain === 'water_heater') {
-      const list = view.attr<string[]>('operation_list') ?? [];
       const off = state === 'off';
       const target = num('temperature');
       return {
@@ -343,17 +519,20 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
         low: undefined,
         high: undefined,
         current: num('current_temperature'),
+        action: undefined,
+        canRange: false,
+        canOff: modes.includes('off'),
         arc: 'to-target',
         badgeText: stateText(this.hass, view),
-        modes: list.slice(0, 6).map((m): OptionItem => ({
+        modes: modes.map((m): OptionItem => ({
           key: m,
-          label: pretty(m),
+          label: word(m),
           value:
             m === state
               ? m === 'off'
                 ? this.t('climate.standby')
                 : this.degrees(target, 1)
-              : this.recall(view.id, m),
+              : recall(m),
           glyph: MODE_GLYPH[m] ?? 'heater',
           tone: m === 'off' ? 'neutral' : 'heat',
           active: m === state,
@@ -384,9 +563,6 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
               ? 'accent'
               : 'heat';
     const target = num('temperature');
-    const hvacModes = [...(view.attr<string[]>('hvac_modes') ?? [])].sort(
-      (a, b) => MODE_ORDER.indexOf(a) - MODE_ORDER.indexOf(b),
-    );
     const setpoint = isRange
       ? `${this.degrees(low, 1).replace('°', '')}–${this.degrees(high, 1)}`
       : this.degrees(target, step);
@@ -404,6 +580,11 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
       low: isRange ? low : undefined,
       high: isRange ? high : undefined,
       current: num('current_temperature'),
+      action,
+      canRange:
+        (view.supports(TARGET_RANGE) || isRange) &&
+        (modes.includes('heat_cool') || modes.includes('auto')),
+      canOff: modes.includes('off'),
       arc: isRange
         ? 'range'
         : tone === 'cool'
@@ -417,21 +598,9 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
           : off
             ? this.t('climate.mode.off')
             : stateText(this.hass, view),
-      modes: hvacModes.map((m): OptionItem => ({
+      modes: modes.map((m): OptionItem => ({
         key: m,
-        label:
-          (`climate.mode.${m}` as MessageKey) in
-          {
-            'climate.mode.heat': 1,
-            'climate.mode.cool': 1,
-            'climate.mode.heat_cool': 1,
-            'climate.mode.auto': 1,
-            'climate.mode.dry': 1,
-            'climate.mode.fan_only': 1,
-            'climate.mode.off': 1,
-          }
-            ? this.t(`climate.mode.${m}` as MessageKey)
-            : pretty(m),
+        label: word(m),
         value:
           m === state
             ? m === 'off'
@@ -439,7 +608,7 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
               : setpoint
             : m === 'off'
               ? ''
-              : this.recall(view.id, m),
+              : recall(m),
         glyph: MODE_GLYPH[m] ?? 'thermo',
         tone: MODE_TONE[m] ?? 'accent',
         active: m === state,
@@ -468,7 +637,7 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
 
   private setMode(view: EntityView, m: Model, key: string): void {
     if (m.kind === 'humidifier') {
-      if (key === '__off') {
+      if (key === 'off') {
         this.expect(view.id, 'off');
         this.call('humidifier', 'turn_off');
         return;
@@ -488,10 +657,15 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
 
   private readonly head = new HeadFit(this);
 
-  /** The target the value row shows while a stepped change is on its way (5 s at most; released as soon as the entity reports it). */
-  private held: { value: number } | null = null;
+  /**
+   * The target the value row shows while a stepped change is on its way (5 s at most; released as soon as the entity
+   * reports it): the value, or a range's two ends.
+   */
+  private held: DialChangeDetail | null = null;
   private heldTimer = 0;
   private sendTimer = 0;
+  /** The end of a range the stepper drives once one was pressed; until then the low one, the high one while cooling. */
+  private rangeEnd: 0 | 1 | null = null;
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
@@ -499,24 +673,32 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
     clearTimeout(this.sendTimer);
   }
 
-  /** One step of the target from the value row's stepper: shown at once, sent after the taps settle (650 ms, like the light card). */
+  private end(m: Model): 0 | 1 {
+    return this.rangeEnd ?? (m.action === 'cooling' ? 1 : 0);
+  }
+
+  /**
+   * One step of the target, or of a range's chosen end, from the value row's stepper: shown at once, sent after the
+   * taps settle (650 ms, like the light card).
+   */
   private nudge(view: EntityView, m: Model, direction: 1 | -1): void {
-    const base = this.held?.value ?? m.target;
-    if (base === undefined) return;
-    const digits = decimalsOf(m.step);
-    const next = clamp(
-      Number((Math.round((base + direction * m.step) / m.step) * m.step).toFixed(digits)),
-      m.min,
-      m.max,
-    );
-    this.held = { value: next };
+    const shown: DialChangeDetail =
+      this.held ??
+      (m.low !== undefined && m.high !== undefined
+        ? { low: m.low, high: m.high }
+        : m.target !== undefined
+          ? { value: m.target }
+          : {});
+    if (shown.value === undefined && shown.low === undefined) return;
+    const next = stepTarget(shown, direction, m, this.end(m));
+    this.held = next;
     clearTimeout(this.heldTimer);
     this.heldTimer = window.setTimeout(() => {
       this.held = null;
       this.requestUpdate();
     }, 5000);
     clearTimeout(this.sendTimer);
-    this.sendTimer = window.setTimeout(() => this.setTarget(view, m, { value: next }), 650);
+    this.sendTimer = window.setTimeout(() => this.setTarget(view, m, next), 650);
     this.requestUpdate();
   }
 
@@ -525,7 +707,14 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
     return v === 'compact' || v === 'ruler' ? v : 'dial';
   }
 
-  /** The value row of the compact and ruler variants: the target as a large readout (with "Now …" in its label) and the stepper; the ruler variant adds the ruler(s). */
+  /**
+   * The value row of the compact and ruler variants: the target as a large readout ("Target · Now 20.8°" over it) and
+   * its stepper, laid out once from the width, the config and every figure the entity can show (`fitValueRow`), never
+   * from its state: stepping 9.5 → 10.0, a mode, the device going off move nothing — the stepper stays, still, while
+   * there is nothing to set. A range's ends are buttons: the one pressed is the end the stepper drives. Without a
+   * stepper (or in a column too narrow for even its halves) the readout is the card's tap. The ruler variant adds the
+   * ruler(s).
+   */
   private renderValueRow(
     view: EntityView,
     m: Model,
@@ -536,25 +725,60 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
     now: string,
   ): TemplateResult {
     const range = m.target === undefined && m.low !== undefined && m.high !== undefined;
-    if (this.held && m.target === this.held.value) this.held = null;
+    const held = this.held;
+    if (held && (range ? held.low === m.low && held.high === m.high : held.value === m.target))
+      this.held = null;
     const shown = this.held?.value ?? m.target;
+    const low = this.held?.low ?? m.low;
+    const high = this.held?.high ?? m.high;
     const idle = unusable || m.off;
+    const off = this.t('climate.mode.off');
+    const target = this.t('climate.target');
+    const ends = [figure(m.min), figure(m.max)];
+    const widest = ends.reduce((a, b) => (b.length > a.length ? b : a));
+    const fit = fitValueRow(this.head.ruler, {
+      width: this.contentWidth,
+      control: this.config?.show_stepper === false ? 0 : STEPPER,
+      narrow: STEPPER_HALVES,
+      labels: now ? [`${target} · ${now}`, target] : [target],
+      figures: [
+        ...ends.map((value) => ({ value, unit: m.unit })),
+        ...(m.canRange ? [{ value: `${widest} – ${widest}`, unit: m.unit }] : []),
+        ...(m.canOff ? [{ value: off }] : []),
+      ],
+    });
+    const stepped = fit.layout !== 'alone';
+    const unit = idle || (shown === undefined && !range) ? '' : m.unit;
     const text = unusable
       ? '—'
       : m.off
-        ? this.t('climate.mode.off')
+        ? off
         : range
-          ? `${figure(m.low as number)} – ${figure(m.high as number)}`
+          ? `${figure(low as number)} – ${figure(high as number)}`
           : shown === undefined
             ? '—'
             : figure(shown);
-    const unit = idle || (shown === undefined && !range) ? '' : m.unit;
+    // a range's ends, each a button that gives the stepper to its end (the one it drives in the accent's ink); the
+    // words between them as the row was measured with ("20.0 – 24.0")
+    const end = this.end(m);
+    const endButton = (index: 0 | 1, value: number): TemplateResult =>
+      html`<button
+        class="cl-end ${index === end ? 'is-on' : ''}"
+        aria-pressed=${index === end ? 'true' : 'false'}
+        aria-label="${name} · ${this.t(index ? 'climate.high' : 'climate.low')} ${figure(value)} ${m.unit}"
+        @click=${() => {
+          this.rangeEnd = index;
+          this.requestUpdate();
+        }}
+      >
+        ${figure(value)}
+      </button>`;
+    const value =
+      range && stepped && !idle
+        ? html`${endButton(0, low as number)} – ${endButton(1, high as number)}`
+        : text;
     const w = this.contentWidth;
     const tone: Tone = idle ? 'neutral' : m.tone;
-    const nav = {
-      decrease: `${name} · ${this.t('common.decrease')}`,
-      increase: `${name} · ${this.t('common.increase')}`,
-    };
     const ruler = (value: number, ariaLabel: string, commit: (v: number) => void): TemplateResult =>
       html`<fluvy-ruler
           .value=${value}
@@ -574,35 +798,24 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
           [0, edge(m.min)],
           [1, edge(m.max)],
         ])}`;
-    // "Target · Now 20.8°" beside the stepper when it fits on its one line (11/600 caps, 0.06em apart), else "Target"
-    const target = this.t('climate.target');
-    const beside = idle || range || shown === undefined ? 0 : 96 + 12; // the stepper and the gap before it
-    const room = w - beside - 2;
-    const caps = (text: string): number =>
-      textWidth(text.toUpperCase(), `600 11px ${getComputedStyle(this).fontFamily}`) +
-      text.length * 0.66;
-    const heading = now && caps(`${target} · ${now}`) <= room ? `${target} · ${now}` : target;
-    // the large figure ("21.5 °C", a range's "18 – 22 °C") beside its stepper: one size down where the row cannot hold it
-    const size =
-      this.head.ruler.width(
-        'fv-readout fv-readout--l > fv-readout__value',
-        text,
-        'fv-unit',
-        unit,
-      ) <=
-      w - beside
-        ? 'l'
-        : 'm';
-    return html`<div class="cl-value fv-value-row">
-        ${readout({ label: heading, value: text, unit, size })}
-        ${idle || range || shown === undefined ? nothing : stepper((direction) => this.nudge(view, m, direction), nav)}
+    return html`<div class="cl-value ${valueRowClass(fit.layout)}">
+        ${readout({ label: fit.label, value, unit, size: fit.size })}
+        ${
+          stepped
+            ? stepper((direction) => this.nudge(view, m, direction), {
+                disabled: idle || (!range && shown === undefined),
+                decrease: `${name} · ${this.t('common.decrease')}`,
+                increase: `${name} · ${this.t('common.increase')}`,
+              })
+            : this.readoutTap(view.id, `${name} · ${fit.label} ${text} ${unit}`)
+        }
       </div>
       ${
         this.variant() === 'ruler'
           ? range
             ? html`<div class="cl-range">
-                ${label(this.t('climate.low'))}${ruler(m.low as number, `${name} · ${this.t('climate.low')}`, (v) => this.setTarget(view, m, { low: v, high: Math.max(v, m.high as number) }))}
-                ${label(this.t('climate.high'))}${ruler(m.high as number, `${name} · ${this.t('climate.high')}`, (v) => this.setTarget(view, m, { low: Math.min(v, m.low as number), high: v }))}
+                ${label(this.t('climate.low'))}${ruler(low as number, `${name} · ${this.t('climate.low')}`, (v) => this.setTarget(view, m, { low: v, high: Math.max(v, high as number) }))}
+                ${label(this.t('climate.high'))}${ruler(high as number, `${name} · ${this.t('climate.high')}`, (v) => this.setTarget(view, m, { low: Math.min(v, low as number), high: v }))}
               </div>`
             : html`<div class="cl-bubble-row"></div>
                 ${ruler(shown ?? m.min, `${name} · ${this.t('climate.target')}`, (v) => {
@@ -613,12 +826,15 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
       }`;
   }
 
-  /** The modes the config asks for, in its order — every mode the entity offers by default. */
+  /**
+   * The modes the config asks for, in its order (a humidifier's older `__off` is its `off`), those the entity offers;
+   * else what the card shows by default (`defaultModes`). None where the config hides the row.
+   */
   private shownModes(m: Model): readonly OptionItem[] {
-    const wanted = this.config?.modes;
-    if (!wanted?.length) return m.modes;
-    return wanted
-      .map((key) => m.modes.find((o) => o.key === key))
+    if (this.config?.show_modes === false) return [];
+    if (!this.config?.modes?.length) return defaultModes(m.kind === 'climate', m.modes);
+    return this.config.modes
+      .map((key) => m.modes.find((o) => o.key === (key === '__off' ? 'off' : key)))
       .filter((o): o is OptionItem => o !== undefined);
   }
 
@@ -654,6 +870,7 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
         key: o.key,
         label: o.label,
         active: o.active ?? false,
+        unavailable: o.unavailable ?? false,
         ...(o.glyph ? { glyph: o.glyph } : {}),
       })),
       select,
@@ -665,23 +882,28 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
   protected renderCard(): TemplateResult {
     const view = this.entity();
     const name = this.config?.name ?? view.name;
-    if (view.status === 'missing')
-      return this.renderEmpty(`${name} · ${stateText(this.hass, view)}`);
+    // out of reach, the card keeps its anatomy and its size: the dial or the readout at "—", the modes, presets and
+    // fan speeds where they stand, nothing taking a tap; only the colours change (1.9)
     const unusable = !isUsable(view);
     const m = this.model(view);
     const tone: Tone = unusable ? 'off' : m.tone;
     const humidity = view.attr<number | null>('current_humidity');
-    const subParts = [
-      view.areaName,
-      m.kind === 'climate' && typeof humidity === 'number'
-        ? `${formatNumber(this.hass, humidity, { digits: 0 })} % RH`
-        : '',
-    ].filter(Boolean);
+    // the area where it says more than the name ("Garderobe / Garderobe" said it twice), and the room's humidity
+    const sub =
+      this.config?.subtitle ??
+      [
+        view.areaName === name ? '' : view.areaName,
+        m.kind === 'climate' && typeof humidity === 'number'
+          ? `${formatNumber(this.hass, humidity, { digits: 0 })} % RH`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
     const isPct = m.unit === '%';
     const figure = (v: number): string =>
       formatNumber(this.hass, v, { digits: m.step < 1 ? 1 : 0, minDigits: m.step < 1 ? 1 : 0 });
     const now =
-      m.current !== undefined
+      m.current !== undefined && this.config?.show_current !== false
         ? this.t('climate.current', {
             value: isPct
               ? `${formatNumber(this.hass, m.current, { digits: 0 })} %`
@@ -696,25 +918,30 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
     const fitted = this.head.fit({
       width: this.contentWidth,
       title: name,
-      sub: subParts.join(' · '),
+      sub,
       badge: { text: unusable ? stateText(this.hass, view) : m.badgeText, tone },
     });
-    const modes = this.shownModes(m);
+    // out of reach, a mode, a preset and a fan speed keep their place at rest: the dashed tile or chip takes no tap
+    const modes = this.shownModes(m).map((o) => (unusable ? { ...o, unavailable: true } : o));
     // the essentials while off: the head, the value and the modes stay; presets and fan speeds wait for a mode
     const essentials = m.off && this.config?.when_off === 'essentials';
+    // the dial's ring from the column: 84 where it has 216, down to 56 — the box is twice the ring, its 10 ticks and
+    // their 12, on the 4 grid
+    const radius = Math.min(84, Math.max(56, Math.floor(this.contentWidth / 8) * 4 - 22));
     return html`<article
-      class="fv-card cl-card ${unusable ? 'is-unavailable' : ''} ${this.contentWidth < 292 ? 'is-narrow' : ''}"
+      class="fv-card cl-card ${unusable ? 'is-unavailable is-off' : ''} ${this.contentWidth < 292 ? 'is-narrow' : ''}"
       data-card
     >
-      ${head({ icon: fitted.icon ? (this.config?.icon ?? glyphFor(view)) : null, tone, title: name, sub: fitted.sub, trailing: fitted.badge, onIconTap: () => this.tap(view.id), onHold: () => this.hold(view.id), iconLabel: name, name: true })}
+      ${head({ icon: fitted.icon ? (this.config?.icon ?? glyphFor(view)) : null, tone, title: name, sub: fitted.sub, trailing: fitted.badge, name: true, cut: fitted.cut, ...this.headActions(view.id) })}
       ${
         this.variant() !== 'dial'
           ? this.renderValueRow(view, m, name, unusable, figure, edge, now)
           : html`<div class="cl-dial-row">
               <fluvy-dial
-                .radius=${84}
+                .radius=${radius}
                 .tick=${10}
                 .large=${false}
+                .stepper=${this.config?.show_stepper !== false}
                 .tone=${m.off || unusable ? 'neutral' : m.tone}
                 .min=${m.min}
                 .max=${m.max}
@@ -739,7 +966,12 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
       ${
         m.presets.length && !essentials && this.config?.show_presets !== false
           ? html`${label(this.t('climate.preset'))}${chipRow(
-              m.presets.map((p) => ({ key: p, label: pretty(p), active: p === m.preset })),
+              m.presets.map((p) => ({
+                key: p,
+                label: pretty(p),
+                active: p === m.preset,
+                unavailable: unusable,
+              })),
               (key) => this.call('climate', 'set_preset_mode', { preset_mode: key }),
               this.config?.preset_style,
               { ruler: this.head.ruler, width: this.contentWidth },
@@ -749,7 +981,12 @@ export class FluvyThermostatCard extends Card<ThermostatCardConfig> {
       ${
         m.fans.length && !essentials && this.config?.show_fan !== false
           ? html`${label(this.t('climate.fan'))}${chipRow(
-              m.fans.map((f) => ({ key: f, label: pretty(f), active: f === m.fan })),
+              m.fans.map((f) => ({
+                key: f,
+                label: pretty(f),
+                active: f === m.fan,
+                unavailable: unusable,
+              })),
               (key) => this.call('climate', 'set_fan_mode', { fan_mode: key }),
               this.config?.fan_style,
               { ruler: this.head.ruler, width: this.contentWidth },

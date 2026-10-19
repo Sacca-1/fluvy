@@ -1,13 +1,26 @@
 import type { HassEntity, HomeAssistant, UnsubscribeFunc } from '@fluvy/core';
 import { simulate } from '@fluvy/demo-home/simulate';
 import { renderTemplate } from './template.js';
+import {
+  ADMIN_ONLY,
+  houseWs,
+  layerOf,
+  mergeWs,
+  storedData,
+  type Layer,
+  type RepairIssue,
+  type StatisticSeed,
+  type WsTable,
+} from './ws.js';
 
 /**
  * A small, honest stand-in for Home Assistant's `hass`: a state store, service calls that change it
- * after a network-like delay, the formatting hooks, canned answers for the WebSocket reads the
- * cards make (history, statistics, forecasts, to-do items, calendar events), REST calls answered by
- * the sheet and recorded with their bodies, an event bus (`subscribe_events`, and `fire` to speak on
- * it), and templates rendered live by a small Jinja of its own.
+ * after a network-like delay, the formatting hooks, the WebSocket as one table of answers (Home Assistant's
+ * own reads answered from the house — history, statistics, related items, repairs, stored data — and the
+ * sheet's own on top: forecasts, to-do items, energy preferences), REST calls answered by the sheet and
+ * recorded with their bodies, an event bus (`subscribe_events`, and `fire` to speak on it), and templates
+ * rendered live by a small Jinja of its own. Its registries are made once, as Home Assistant's are: a
+ * card that caches on them sees what it would see at home.
  */
 
 /** A sample of Home Assistant's Spanish state words (its `es` translations), by domain, device class and state. */
@@ -150,14 +163,24 @@ export interface MockOptions {
   readonly now?: Date;
   /** The registries a sheet needs beyond its states (areas, floors, devices, entity entries). */
   readonly registry?: Partial<Pick<HomeAssistant, 'entities' | 'devices' | 'areas' | 'floors'>>;
+  /** entity id → its states over any window asked (`history/history_during_period`). */
   readonly history?: Record<string, readonly number[]>;
-  readonly ws?: Record<string, (message: Record<string, unknown>) => unknown>;
+  /** statistic id → what the recorder keeps for it (`recorder/statistics_during_period`, `…/statistic_during_period`). */
+  readonly statistics?: Record<string, StatisticSeed>;
+  /** The repairs Home Assistant lists (`repairs/list_issues`). */
+  readonly issues?: readonly RepairIssue[];
+  /** What is stored by key, for the person (`frontend/*_user_data`) and the house (`frontend/*_system_data`). */
+  readonly data?: Partial<Record<Layer, Record<string, unknown>>>;
+  /** The sheet's own answers by message type, asked before the house's (see `mergeWs`). */
+  readonly ws?: WsTable;
   /** REST answers: (method, path, body) → the answer, or a throw as Home Assistant's frontend throws (`{ error, status_code, body }`). */
   readonly api?: (method: string, path: string, body?: unknown) => unknown;
   /** How long Home Assistant takes to answer a template, in ms (30: before the first paint; a real socket 50–200). */
   readonly templateDelay?: number;
   /** The house's units: metric (°C, km), or imperial (°F, mi) as a house in the US keeps them. */
   readonly units?: 'metric' | 'imperial';
+  /** The integrations' own words by key (a repair's title, `component.<domain>.issues.<key>.title`): what `loadBackendTranslation` loads. */
+  readonly translations?: Readonly<Record<string, string>>;
 }
 
 const iso = (date: Date): string => date.toISOString();
@@ -179,6 +202,10 @@ export function createHass(
   remove: (id: string) => void;
   /** Fires a bus event (`automation_reloaded`) to whoever subscribed to its type, as Home Assistant would. */
   fire: (eventType: string, data?: Record<string, unknown>) => void;
+  /** The repairs listed: change them, then fire `repairs_issue_registry_updated` as Home Assistant does. */
+  issues: RepairIssue[];
+  /** Every WebSocket message the cards sent (asked or subscribed), in order: what a card costs the recorder. */
+  wsCalls: Array<{ type: string; message: Record<string, unknown> }>;
   /** How many `render_template` subscriptions are open: what the cards hold, and must let go of. */
   templates: () => number;
 } {
@@ -229,20 +256,45 @@ export function createHass(
     };
   };
 
+  const wsCalls: Array<{ type: string; message: Record<string, unknown> }> = [];
+  const issues: RepairIssue[] = [...(options.issues ?? [])];
+  const data = storedData(options.data);
+  /** The WebSocket's answers: the sheet's first, then the house's own. */
+  const answers = mergeWs([
+    options.ws,
+    houseWs({
+      hass: () => current,
+      history: options.history ?? {},
+      statistics: options.statistics ?? {},
+      issues: () => issues,
+      data,
+    }),
+  ]);
+
   /** One connection for the mock's life: the cards key their caches and their stores on it. */
   const connection: HomeAssistant['connection'] = {
     subscribeMessage: async <T>(
       callback: (message: T) => void,
       message: { type: string; [k: string]: unknown },
     ) => {
-      if (message.type === 'render_template')
-        return watch(message, callback as (event: unknown) => void);
-      if (message.type === 'subscribe_events')
-        return listen(message, callback as (event: unknown) => void);
-      const handler = options.ws?.[message.type];
-      if (handler) setTimeout(() => callback(handler(message) as T), 30);
+      wsCalls.push({ type: message.type, message });
+      const send = callback as (event: unknown) => void;
+      if (message.type === 'render_template') return watch(message, send);
+      if (message.type === 'subscribe_events') return listen(message, send);
+      // stored data: what is there now, then every write to that key
+      if (/^frontend\/subscribe_(user|system)_data$/.test(message.type)) {
+        const layer = layerOf(message.type);
+        const key = String(message['key']);
+        setTimeout(() => send({ value: data.get(layer, key) }), 0);
+        return data.listen(layer, key, send);
+      }
+      // anything else the table answers once, as a socket would a moment later
+      const handler = answers[message.type];
+      if (handler) setTimeout(async () => send(await handler(message)), 30);
       return () => undefined;
     },
+    subscribeEvents: async <T>(callback: (event: T) => void, eventType?: string) =>
+      listen(eventType ? { event_type: eventType } : {}, callback as (event: unknown) => void),
   };
 
   const watches = new Set<Watch>();
@@ -293,13 +345,19 @@ export function createHass(
     };
   };
 
+  // the registries, made once: Home Assistant hands the same objects until one of them changes
+  const entities = options.registry?.entities ?? {};
+  const devices = options.registry?.devices ?? {};
+  const areas = options.registry?.areas ?? {};
+  const floors = options.registry?.floors;
+
   const build = (): HomeAssistant =>
     ({
       states: { ...states },
-      entities: options.registry?.entities ?? {},
-      devices: options.registry?.devices ?? {},
-      areas: options.registry?.areas ?? {},
-      ...(options.registry?.floors ? { floors: options.registry.floors } : {}),
+      entities,
+      devices,
+      areas,
+      ...(floors ? { floors } : {}),
       themes: {
         default_theme: 'Fluvy',
         themes: {},
@@ -334,21 +392,16 @@ export function createHass(
         }, LATENCY);
         return undefined;
       },
-      callWS: async <T>(message: { type: string; [k: string]: unknown }): Promise<T> => {
-        if (message.type === 'history/history_during_period') {
-          const id = (message['entity_ids'] as string[])[0] ?? '';
-          const series = options.history?.[id] ?? [];
-          const start = new Date(String(message['start_time'])).getTime();
-          const end = new Date(String(message['end_time'])).getTime();
-          return {
-            [id]: series.map((v, i) => ({
-              s: String(v),
-              lu: (start + (i / Math.max(1, series.length - 1)) * (end - start)) / 1000,
-            })),
-          } as T;
-        }
-        const handler = options.ws?.[message.type];
-        if (handler) return handler(message) as T;
+      // a method: a frame's view of the house (a guest's) asks as that view
+      callWS: async function <T>(
+        this: HomeAssistant | undefined,
+        message: { type: string; [k: string]: unknown },
+      ): Promise<T> {
+        wsCalls.push({ type: message.type, message });
+        if (ADMIN_ONLY.has(message.type) && !(this ?? current).user?.is_admin)
+          throw { code: 'unauthorized', message: 'Unauthorized' };
+        const handler = answers[message.type];
+        if (handler) return (await handler(message)) as T;
         throw new Error(`mock hass: unhandled WS message ${message.type}`);
       },
       callApi: async <T>(method: string, path: string, body?: unknown): Promise<T> => {
@@ -356,10 +409,15 @@ export function createHass(
         return options.api ? (options.api(method, path, body) as T) : ([] as unknown as T);
       },
       hassUrl: (path = '') => path,
-      localize: (key) => {
+      localize: (key, values = {}) => {
         const measure = MEASURE_KEY.exec(key)?.[1];
-        return (measure && MEASURE_WORDS[options.language ?? 'en']?.[measure]) || key;
+        const own = options.translations?.[key]?.replace(/\{(\w+)\}/g, (match, name: string) =>
+          name in values ? String(values[name]) : match,
+        );
+        return (measure && MEASURE_WORDS[options.language ?? 'en']?.[measure]) || own || key;
       },
+      // the integrations' words are here from the start: loading them answers the same `localize`
+      loadBackendTranslation: async () => (key, values) => current.localize(key, values),
       formatEntityState: (stateObj) => {
         const raw = stateObj.state;
         const unit = stateObj.attributes.unit_of_measurement;
@@ -421,6 +479,8 @@ export function createHass(
       notify();
     },
     fire,
+    issues,
+    wsCalls,
     templates: () => watches.size,
   };
 }

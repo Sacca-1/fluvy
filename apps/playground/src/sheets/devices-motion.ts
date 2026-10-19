@@ -394,5 +394,13 @@ export const sheet: SheetSpec = {
         { type: 'custom:fluvy-cover-card', entity: 'cover.nothing_here' },
       ],
     },
+    // the compact fan at its own size in the design's section: half of 360
+    {
+      title: 'Fan · compact · half a section',
+      cards: [
+        { type: 'custom:fluvy-fan-card', entity: 'fan.ceiling', variant: 'compact', cols: 6 },
+        { type: 'custom:fluvy-fan-card', entity: 'fan.bedroom', variant: 'compact', cols: 6 },
+      ],
+    },
   ],
 };

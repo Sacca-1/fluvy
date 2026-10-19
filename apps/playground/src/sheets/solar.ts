@@ -1050,5 +1050,28 @@ export const sheet: SheetSpec = {
         },
       ],
     },
+    // the bar at its own size: half a section
+    {
+      title: 'Gauge · bar · half a section',
+      cards: [
+        {
+          type: 'custom:fluvy-gauge-card',
+          entity: 'sensor.so_solar_power',
+          icon: 'sun',
+          variant: 'bar',
+          subtitle: 'South roof · 5.4 kWp',
+          max_entity: 'sensor.so_solar_capacity',
+          cols: 6,
+        },
+        {
+          type: 'custom:fluvy-gauge-card',
+          entity: 'sensor.so_solar_power_night',
+          icon: 'sun',
+          variant: 'bar',
+          max_entity: 'sensor.so_solar_capacity',
+          cols: 6,
+        },
+      ],
+    },
   ],
 };

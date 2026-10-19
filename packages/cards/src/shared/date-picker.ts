@@ -15,7 +15,11 @@ import {
 import { monthGrid } from './days.js';
 import { dayRange, sameRange, shiftRange, type ActivityRange } from './range.js';
 
-type ActivityString = KeyOf<'activity' | 'page'>;
+/**
+ * What the picker says: the pages' shared words only, so every page that opens it (the Activity page, the History
+ * page — each passes its own `t`, its words and then the page's) has every one of them.
+ */
+export type PickerString = KeyOf<'page'>;
 
 /** A period picked: where to go, and which way that is from where the page is. */
 export interface DatesDetail {
@@ -39,12 +43,12 @@ const at = (day: Date, minutes: number): number => {
 };
 
 /**
- * The period picker of the Activity page: Today · Yesterday over Last 7 days, the month (the language's calendar,
- * `monthGrid` choosing a period: the chosen days one band, today marked; days to come are not offered; the arrows
- * walk it, turning the month), the hours of the first and the last day in our time fields (the house's clock; the last day whole
- * reads 24:00), and Show — kept back, with the reason under it, while the end is not after the start. A first tap
- * picks one day; a second tap on another day makes the band. (Week presets are left to the grid: a week is two taps,
- * and the presets stay one short row.)
+ * The period picker of the Activity and History pages: Today · Yesterday over Last 7 days, the month (the language's
+ * calendar, `monthGrid` choosing a period: the chosen days one band, today marked; days to come are not offered; the
+ * arrows walk it, turning the month), the hours of the first and the last day in our time fields (the house's clock;
+ * the last day whole reads 24:00), and Show — kept back, with the reason under it, while the end is not after the
+ * start. A first tap picks one day; a second tap on another day makes the band. (Week presets are left to the grid: a
+ * week is two taps, and the presets stay one short row.)
  */
 export class FluvyDates extends LitElement {
   static override styles = [
@@ -142,7 +146,7 @@ export class FluvyDates extends LitElement {
   declare range: ActivityRange;
   declare now: number;
   declare language: string;
-  declare t: (key: ActivityString, values?: Record<string, string | number>) => string;
+  declare t: (key: PickerString, values?: Record<string, string | number>) => string;
   /** The month on show (its first day). */
   declare month: Date;
   declare from: Date;
@@ -277,7 +281,7 @@ export class FluvyDates extends LitElement {
     week.setDate(week.getDate() - 6);
     const chip = (
       which: 'today' | 'yesterday' | 'week',
-      key: ActivityString,
+      key: PickerString,
       active: boolean,
     ): TemplateResult =>
       html`<button

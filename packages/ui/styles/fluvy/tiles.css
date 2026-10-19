@@ -59,6 +59,23 @@
   margin-top: -4px;
 }
 
+/* a tile's button (`pressCover`): stretched over the whole tile, its tap and its hold, laid last over what the tile
+   draws (a circle that pops too); its controls (the switch, a circle that is one, the ruler) are raised over it, beside
+   it — never a switch inside a button. The same button is a room's photo and row, and a greeting's words */
+.fv-tile__tap {
+  all: unset;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  cursor: pointer;
+  -webkit-touch-callout: none;
+}
+
+.fv-tile:has(> .fv-tile__tap) :where(button:not(.fv-tile__tap), .fv-hit, fluvy-ruler) {
+  position: relative;
+  z-index: 1;
+}
+
 .fv-tile__value {
   height: 44px;
   font-size: 16px;
@@ -67,15 +84,24 @@
   font-variant-numeric: tabular-nums;
 }
 
-.fv-tile.is-on {
+/* a card lit as a tile (`.fv-card.is-lit`: a light card showing its light's whole colour, 1.9) wears the lit tile's
+   skin, every rule of it, so the two match on every palette */
+.fv-tile.is-on,
+.fv-card.is-lit {
   background: var(--tone-fill);
   box-shadow: inset 0 0 0 1px var(--tone-border);
   color: var(--tone-on);
 }
 
+/* what sits inside a lit card where the page's fill would (the stepper) stands on it as the card does: a plain disc */
+.fv-card.is-lit {
+  --fluvy-inset: var(--fluvy-card);
+}
+
 /* the state line on the on-fill: the fill's ink at 80 % (4.5 on every palette's fill; the tokens' gates hold it) */
 .fv-tile.is-on .fv-tile__state,
-.fv-tile.is-on .fv-row__sub {
+.fv-tile.is-on .fv-row__sub,
+.fv-card.is-lit .fv-card__sub {
   color: var(--tone-on);
   opacity: 0.8;
 }
@@ -83,12 +109,13 @@
 /* A solid fill is the colour itself: what is drawn on it takes the fill's ink (a black track with a thumb in the
    tile's colour, ref Volt), and a dark tick loses its glow. On a tint (--fluvy-solid 0%) every value below is
    the one it replaces. */
-.fv-tile.is-on {
+.fv-tile.is-on,
+.fv-card.is-lit {
   --tone-fill-ink: color-mix(in srgb, var(--tone-on) var(--fluvy-solid, 0%), var(--tone-ink));
   --tk-glow: color-mix(in srgb, transparent var(--fluvy-solid, 0%), var(--tone-ink));
 }
 
-.fv-tile.is-on :is(.fv-switch, .fv-ruler, .fv-knob, .fv-dial) {
+:is(.fv-tile.is-on, .fv-card.is-lit) :is(.fv-switch, .fv-ruler, .fv-knob, .fv-dial) {
   --tone-ink: var(--tone-fill-ink);
 }
 
@@ -113,7 +140,7 @@
   --knob-halo: color-mix(in srgb, var(--tone-fill) var(--fluvy-solid, 0%), var(--fluvy-card));
 }
 
-.fv-tile.is-on .fv-switch.is-on .fv-switch__thumb {
+:is(.fv-tile.is-on, .fv-card.is-lit) .fv-switch.is-on .fv-switch__thumb {
   background: color-mix(in srgb, var(--tone-fill) var(--fluvy-solid, 0%), var(--fluvy-card));
 }
 
@@ -125,7 +152,13 @@
   );
 }
 
-.fv-tile.is-on .fv-ico {
+/* a lit card's labels (its level's, its rulers' and their words) are its state line's ink, on every palette: the
+   secondary ink falls just short of 4.5 on a few tints' fills (Sage, Harbour) */
+.fv-card.is-lit :is(.fv-readout__label, .fv-unit, .fv-label, .fv-ruler-labels span) {
+  color: color-mix(in srgb, var(--tone-on) 80%, transparent);
+}
+
+:is(.fv-tile.is-on, .fv-card.is-lit) .fv-ico {
   background: var(--fluvy-card);
 }
 
@@ -136,7 +169,7 @@
 
 /* an on tile's four tone variables (.fv-tile--X.is-on) come from the generated tones.css */
 
-.fv-tile.is-on .fv-ico {
+:is(.fv-tile.is-on, .fv-card.is-lit) .fv-ico {
   color: var(--tone-ink);
 }
 
@@ -269,11 +302,12 @@
 }
 
 /* the inner tile: a compact tile inside a card (a room's controls) — 84 tall, the control radius, the page's fill
-   and no hairline; on, the tone's fill alone (like an option tile) */
+   (the wash's deeper step on a card of its own colour) and no hairline; on, the tone's fill alone (like an option
+   tile) */
 .fv-tile--inner {
   height: 84px;
   border-radius: var(--fluvy-radius-control);
-  background: var(--fluvy-page);
+  background: var(--fluvy-inset, var(--fluvy-page));
   box-shadow: none;
 }
 

@@ -1,3 +1,5 @@
+// the panel's words first: they are here before anything in its chunk says them
+import './english.js';
 import {
   applyZoom,
   type DevicePatch,
@@ -23,6 +25,7 @@ import {
   writeDevice,
 } from '@fluvy/core';
 import { THEME_NAME, THEME_SENTINEL } from '@fluvy/tokens/config';
+import { statusesKey } from '@fluvy/tokens/runtime';
 
 import { baseStyles, fitPills, ico, motionPreference, reducedMotion, sideScroll } from '@fluvy/ui';
 
@@ -33,6 +36,7 @@ import { keyed } from 'lit/directives/keyed.js';
 import { houseEnergy } from '../strategy/home-strategy.js';
 import { energySources, hasSources } from '../strategy/layout.js';
 
+import { TextRuler } from '../shared/fit.js';
 import { HOME_TEMPLATE, templateOf, type Template } from '../strategy/templates.js';
 import { knownPalettes, matchOf } from './palettes.js';
 
@@ -95,6 +99,10 @@ interface Route {
 const WIDE = 648;
 /** From this width the preview leaves the column for a side column of its own (400), always in view. */
 const SIDE = 1184;
+/** A card's sides (20 each): its content is the open tab's column less them. */
+const CARD_SIDES = 40;
+/** From this width the apply bar's pair stands beside its words, 352 wide (styles.ts). */
+const BAR_BESIDE = 760;
 /** How long the apply bar takes to leave (it enters in 220). */
 const BAR_LEAVE = 160;
 
@@ -128,6 +136,7 @@ export class FluvyPanel extends LitElement {
     recreateArmed: { state: true },
     wide: { state: true },
     side: { state: true },
+    content: { state: true },
     meters: { state: true },
     leaving: { state: true },
     creating: { state: true },
@@ -162,6 +171,10 @@ export class FluvyPanel extends LitElement {
   declare wide: boolean;
   /** The preview sits in a side column, on every tab. */
   declare side: boolean;
+  /** The apply bar's pair stands beside its words (`BAR_BESIDE`). */
+  private beside = false;
+  /** A card's content width in the open tab's column (0 until it is laid out): what its rows of choices fit. */
+  declare content: number;
   /** The house's power meters for the preview's energy flow; null: it has none (the preview's own are drawn). */
   declare meters: EnergyMeters | null | undefined;
   /** The apply bar is on its way out (it keeps its last words while it goes). */
@@ -181,6 +194,8 @@ export class FluvyPanel extends LitElement {
   /** Something is shown on the page that is not saved (the look on trial, an edit). */
   private previewing = false;
   private readonly lookSheet = new CSSStyleSheet();
+  /** What the panel wears: the look being chosen, in the status colours shown, and the mode (its sheet's key). */
+  private worn = '';
   private noticeTimer = 0;
   resetTimer = 0;
   recreateTimer = 0;
@@ -193,6 +208,10 @@ export class FluvyPanel extends LitElement {
   private strip: HTMLElement | undefined;
   private stopStrip: (() => void) | undefined;
   private resize: ResizeObserver | undefined;
+  /** The open tab's column, watched for its width (a tab draws a new one). */
+  private column: Element | undefined;
+  /** The panel's words measured in its own classes (the choices' labels), afresh when a face lands. */
+  private readonly ruler = new TextRuler(() => this.renderRoot);
   private barShown = false;
   private lastBar: TemplateResult | undefined;
   /** The tab the strip was last centred on ('' until it has been). */
@@ -204,6 +223,9 @@ export class FluvyPanel extends LitElement {
   private readonly refit = (): void => {
     if (!this.isConnected) return;
     this.fit(true);
+    // the choices' labels are measured again in the face that landed
+    this.ruler.clear();
+    this.requestUpdate();
     // only when the pills moved: a face that loads for something else leaves a strip the person scrolled alone
     if (this.strip && this.strip.scrollWidth !== this.stripWidth) this.centre(this.strip, true);
   };
@@ -227,6 +249,7 @@ export class FluvyPanel extends LitElement {
     this.showAllCommunity = false;
     this.wide = false;
     this.side = false;
+    this.content = 0;
     this.leaving = false;
     this.creating = '';
     this.dark = false;
@@ -242,10 +265,13 @@ export class FluvyPanel extends LitElement {
     super.connectedCallback();
     // a language's words arriving (fetched after the first paint) re-render the page in them
     this.offWords = onWords(() => this.requestUpdate());
-    this.resize = new ResizeObserver(([entry]) => {
-      if (!entry) return;
-      this.wide = entry.contentRect.width >= WIDE;
-      this.side = entry.contentRect.width >= SIDE;
+    this.resize = new ResizeObserver((entries) => {
+      for (const { target, contentRect } of entries)
+        if (target === this) {
+          this.wide = contentRect.width >= WIDE;
+          this.side = contentRect.width >= SIDE;
+          this.beside = contentRect.width >= BAR_BESIDE;
+        } else this.content = Math.floor(contentRect.width) - CARD_SIDES;
     });
     this.resize.observe(this);
     this.toggleAttribute('reduced-motion', motionPreference() === 'reduced');
@@ -282,6 +308,7 @@ export class FluvyPanel extends LitElement {
     this.off = undefined;
     this.resize?.disconnect();
     this.resize = undefined;
+    this.column = undefined;
     // whatever the panel showed without saving ends with it
     if (this.previewing) this.look?.preview(null);
     this.previewing = false;
@@ -331,13 +358,18 @@ export class FluvyPanel extends LitElement {
       }
       this.previewHouse().update(this.hass);
     }
-    // the whole panel wears the look being chosen: a tap on a palette re-skins the page it was made on
-    if ((changed.has('draft') || changed.has('dark')) && this.draft)
+    // the whole panel wears the look being chosen, in the status colours shown: a tap on a palette or a status's
+    // colour re-skins the page it was made on
+    const statuses = this.houseEdit.statuses ?? this.settings?.statuses ?? {};
+    const worn = `${statusesKey(statuses)}|${this.dark}`;
+    if ((changed.has('draft') || worn !== this.worn) && this.draft) {
+      this.worn = worn;
       this.lookSheet.replaceSync(
         // the panel in the app's mode; a wall preview at night in the dark one, scoped to it
-        lookRule(this.draft, this.dark ? 'dark' : 'light', ':host') +
-          lookRule(this.draft, 'dark', '.pn-night'),
+        lookRule(this.draft, this.dark ? 'dark' : 'light', ':host', false, statuses) +
+          lookRule(this.draft, 'dark', '.pn-night', false, statuses),
       );
+    }
     resyncCardThemes(); // the preview's cards derive their colours on the look being chosen
     if (
       changed.has('tryOnApp') ||
@@ -370,6 +402,13 @@ export class FluvyPanel extends LitElement {
 
   protected override updated(): void {
     this.fit();
+    // the open tab's column (a new one a tab): its width lays out the rows of choices
+    const column = this.renderRoot.querySelector('.pn-body') ?? undefined;
+    if (column !== this.column) {
+      if (this.column) this.resize?.unobserve(this.column);
+      this.column = column;
+      if (column) this.resize?.observe(column);
+    }
     // the cards rise in once (420 ms, up to 240 ms staggered) with the first body that has them; after that a
     // tab change only fades its body in
     if (!this.entered && this.renderRoot.querySelector('.pn-body .fv-card')) {
@@ -589,6 +628,7 @@ export class FluvyPanel extends LitElement {
       admin: hass.user?.is_admin ?? false,
       mode: this.dark ? 'dark' : 'light',
       wide: this.wide,
+      fit: this.content > 0 ? { ruler: this.ruler, width: this.content } : undefined,
       handle,
       settings,
       shown: { ...settings, ...this.houseEdit, ...this.personalEdit },
@@ -988,6 +1028,15 @@ export class FluvyPanel extends LitElement {
           ? ctx.t('apply.changes', { n: lines.length })
           : ctx.t('apply.trying');
     const pair = ctx.dirty && ctx.admin;
+    // an equal pair while the longer label holds its half (the bar's 12 sides and the 8 between them); else one over
+    // the other, as wide as the bar (fr "Appliquer à la maison" on a phone)
+    const half = ((this.beside ? 352 : this.content + CARD_SIDES - 24) - 8) / 2;
+    const stack =
+      pair &&
+      this.content > 0 &&
+      [ctx.t('apply.me'), ctx.t('apply.house')].some(
+        (label) => this.ruler.width('fv-btn', label) + 32 > half,
+      );
     return html`<div
       class="pn-bar ${pair ? '' : 'pn-bar--single'} ${lines.length ? '' : 'pn-bar--trial'}"
       role="region"
@@ -1006,7 +1055,10 @@ export class FluvyPanel extends LitElement {
         !lines.length
           ? nothing
           : pair
-            ? html`<div class="pn-bar__pair" data-fill-row>
+            ? html`<div
+                class="pn-bar__pair ${stack ? 'pn-bar__pair--stack' : ''}"
+                data-fill-row=${stack ? nothing : ''}
+              >
                 <button class="fv-btn fv-btn--quiet" data-target @click=${() => ctx.apply('me')}>
                   ${ctx.t('apply.me')}
                 </button>

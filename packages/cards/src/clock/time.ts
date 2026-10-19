@@ -92,9 +92,10 @@ export function clockParts(date: Date, format: ClockFormat, seconds = false): Cl
 }
 
 /**
- * "Thursday 17 September" (full) or "Thu 17 Sep" (short), in the clock's zone. `locale` writes the
- * order; when it is a regional stand-in for `language` (en-GB for a day-first "en"), the month keeps
- * the language's own abbreviation — "Sep", which the rest of that user's Home Assistant shows, not "Sept".
+ * "Thursday 17 September" (full), "Thu 17 Sep" (short) or "17 Sep" (tiny: the day alone, where not even the short
+ * one holds), in the clock's zone. `locale` writes the order; when it is a regional stand-in for `language` (en-GB
+ * for a day-first "en"), the month keeps the language's own abbreviation — "Sep", which the rest of that user's Home
+ * Assistant shows, not "Sept".
  */
 export function dateText(
   date: Date,
@@ -103,12 +104,12 @@ export function dateText(
     readonly locale: string;
     readonly timeZone: string | undefined;
   },
-  style: 'full' | 'short',
+  style: 'full' | 'short' | 'tiny',
 ): string {
   const length = style === 'full' ? 'long' : 'short';
   const zone = format.timeZone ? { timeZone: format.timeZone } : {};
   const parts = dateFormat(format.locale, {
-    weekday: length,
+    ...(style === 'tiny' ? {} : { weekday: length }),
     day: 'numeric',
     month: length,
     ...zone,

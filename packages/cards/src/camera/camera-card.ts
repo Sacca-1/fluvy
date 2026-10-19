@@ -21,7 +21,7 @@ import {
 
 import { ROW_KEYS, RowsCard, rowSchema, type RowsCardConfig } from '../lock/rows.js';
 
-import { Card } from '../shared/base.js';
+import { Card, HEAD_BASE } from '../shared/base.js';
 
 import { glyphFor } from '../shared/domain.js';
 
@@ -36,6 +36,7 @@ import {
   nameIconFields,
   numberField,
   selectField,
+  showIconField,
   textField,
 } from '../shared/form.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
@@ -161,6 +162,11 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
       }
       .dv-cam__live.is-stale {
         opacity: 0;
+      }
+      /* the stream could not play (the stills show meanwhile): the pill says so, its dot the glass's own white */
+      .dv-cam__live.is-failed i {
+        background: rgb(255 255 255 / 0.55);
+        box-shadow: none;
       }
       .dv-cam__actions {
         z-index: 4;
@@ -300,6 +306,7 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
     this.fullscreen_ = false;
   }
 
+  static override base = HEAD_BASE;
   static override keys = configKeys<CameraCardConfig>()([
     'rows',
     'show_rows',
@@ -328,6 +335,7 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
       schema: [
         entityField(['camera']),
         nameIconFields(),
+        showIconField(),
         textField('subtitle'),
         fieldRow(
           selectField('camera_view', ['auto', 'live']),
@@ -563,9 +571,8 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
   protected renderCard(): TemplateResult {
     const view = this.entity();
     const name = this.config?.name ?? view.name;
-    if (view.status === 'missing')
-      return this.renderEmpty(`${name} · ${stateText(this.hass, view)}`);
-
+    // a camera out of reach — unavailable, unknown or gone from the house — keeps its head, its plate in its shape
+    // and its rows: the plate says why, the colours say the rest (1.9: an unavailable card keeps its size)
     const unusable = view.status !== 'ok';
     const streaming = this.streaming;
     const off =
@@ -587,15 +594,21 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
     const fitted = this.headFit.fit({ width: this.contentWidth, title: name, sub, trailing: 44 });
     // inside the picture: "Live" at the top start; where the plate is low its rounds share its rows, and the snapshot
     // round goes before the two would touch; on a taller plate the clock goes before it would touch "Live".
-    // "Live" is as wide as its word (12 in, the dot and its 6, 10 out, on the 4 grid), never under 64
-    const liveWord = this.headFit.ruler.width('dv-cam__pill dv-cam__live', s(this.hass, 'live'));
+    // "Live" is as wide as its word (12 in, the dot and its 6, 10 out, on the 4 grid), never under 64. A live card
+    // whose stream could not play says so in the pill's place ("Stream unavailable"), the stills showing meanwhile
+    // and the stream asked for again after its wait
+    const failed = this.config?.camera_view === 'live' && this.holder.state === 'none';
+    const liveText = s(this.hass, failed ? 'stream_failed' : 'live');
+    const liveWord = this.headFit.ruler.width('dv-cam__pill dv-cam__live', liveText);
     const live = Math.max(64, Math.ceil((26 + liveWord + 10) / 4) * 4);
     const w = this.contentWidth;
     // the rounds share "Live"'s rows under a 100 plate (12 + 24 + 8 + 44 + 12); the clock needs 108 beside them
     const low = height < ROUNDS_PLATE;
     const snapshot = !low || live + 12 + 8 + 96 + 12 <= w;
-    // too narrow for the word beside the one round left: its dot alone (32)
-    const dot = !this.fullscreen_ && low && !snapshot && live + 12 + 8 + 44 + 12 > w;
+    // too narrow for the word beside the one round left, or for the word at all (a long one in a narrow plate):
+    // its dot alone (32), the words its label
+    const dot =
+      !this.fullscreen_ && ((low && !snapshot && live + 12 + 8 + 44 + 12 > w) || live + 24 > w);
     const clock = height >= CLOCK_PLATE && live + 12 + 8 + 80 + 12 <= w;
 
     return html`<article
@@ -604,14 +617,14 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
     >
       ${head({
         icon: fitted.icon ? (this.config?.icon ?? glyphFor(view)) : null,
+        small: fitted.small,
         tone: isUsable(view) ? toneOf(this.config, 'accent') : 'off',
         title: name,
         name: true,
         sub: fitted.sub,
         trailing: round('dots', 'quiet', this.t('common.more'), () => this.moreInfo()),
-        onIconTap: () => this.tap(view.id),
-        onHold: () => this.hold(view.id),
-        iconLabel: name,
+        cut: fitted.cut,
+        ...this.headActions(view.id),
       })}
       <div
         class="dv-cam fv-plate ${off ? 'is-off' : ''} ${contain ? 'is-contain' : ''} ${
@@ -636,12 +649,12 @@ export class FluvyCameraCard extends RowsCard<CameraCardConfig> {
                     @click=${() => this.moreInfo()}
                   ></button>
                   <span
-                    class="dv-cam__pill dv-cam__live ${this.stale_ && !streaming ? 'is-stale' : ''} ${dot ? 'is-dot' : ''}"
+                    class="dv-cam__pill dv-cam__live ${this.stale_ && !streaming ? 'is-stale' : ''} ${dot ? 'is-dot' : ''} ${failed ? 'is-failed' : ''}"
                     style="width:${dot ? 32 : live}px"
                     role="img"
-                    aria-label=${s(this.hass, 'live')}
+                    aria-label=${liveText}
                     aria-hidden=${this.stale_ && !streaming ? 'true' : nothing}
-                    ><i></i><span aria-hidden="true">${s(this.hass, 'live')}</span></span
+                    ><i></i><span aria-hidden="true">${liveText}</span></span
                   >
                   ${
                     streaming

@@ -10,7 +10,7 @@
  * readouts are what is configured, the target and the time come from numbers or entities; a mode is chosen from its
  * tiles or chips through `select_option`; readings change live; taps open more-info; the words follow the language.
  */
-import { calls, frame, moreInfo, reset, settle, startSuite } from './lib/suite.mjs';
+import { calls, frame, moreInfo, reset, settle, startSuite, tapHead } from './lib/suite.mjs';
 
 const suite = await startSuite();
 const { check } = suite;
@@ -128,11 +128,13 @@ const read = (card) =>
   );
 
   const down = await read(batteries(page, 'A power unavailable'));
+  // 1.9 (the owner's rule): the time keeps its place beside the charge, "—" in it
   check(
     'a power that cannot be read: the badge says so, its row too, and no time is guessed',
     down.badge === 'Unavailable' &&
       down.rows[0].sub === '10 kWh · unavailable' &&
-      down.readouts.length === 1,
+      down.readouts.length === 2 &&
+      down.readouts[1] === 'Full in —',
     JSON.stringify(down),
   );
 
@@ -142,7 +144,7 @@ const read = (card) =>
     blind.readouts[0] === 'State of charge —' &&
       blind.ruler?.inactive === true &&
       blind.mark === '64px' &&
-      blind.readouts.length === 1,
+      blind.readouts[1] === 'Full in —',
     JSON.stringify(blind),
   );
 
@@ -181,7 +183,7 @@ const read = (card) =>
   // a row opens its charge's more-info; the head opens the first battery's
   await reset(page);
   await batteries(page, 'Batteries').locator('.ef-rows .fv-row').nth(1).click();
-  await batteries(page, 'Batteries').locator('.fv-card__head .fv-ico').click();
+  await tapHead(batteries(page, 'Batteries'), 'icon');
   await settle(page, 200);
   check(
     'a row opens its battery’s charge, the head the first battery',
@@ -324,11 +326,15 @@ const read = (card) =>
     await read(charger(page, 'A missing charger', 0)),
     await read(charger(page, 'A missing charger', 1)),
   ];
+  // 1.9 (the owner's rule): a charger that is not there keeps the card, its badge saying so
   check(
-    'a charger that is not there, and none configured: the empty card says which',
-    missing[0].empty === 'Car charger · Entity not found' &&
+    'a charger that is not there is the card with its badge saying so; none configured, the empty card says which',
+    missing[0].empty === '' &&
+      missing[0].title === 'Car charger' &&
+      missing[0].badge === 'Entity not found' &&
+      missing[0].readouts.join('|') === 'Power —' &&
       missing[1].empty === 'Choose an entity',
-    JSON.stringify(missing.map((m) => m.empty)),
+    JSON.stringify(missing),
   );
 
   // live: the car turns to feed the house, then charges faster
@@ -345,7 +351,7 @@ const read = (card) =>
   );
 
   await reset(page);
-  await charger(page, 'Car charger').locator('.fv-card__head .fv-ico').click();
+  await tapHead(charger(page, 'Car charger'), 'icon');
   await settle(page, 200);
   check(
     'the head opens the charger’s more-info',

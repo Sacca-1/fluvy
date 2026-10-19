@@ -10,7 +10,14 @@ const white = (name: string, level?: number): Attributes => ({
   friendly_name: name,
   supported_color_modes: ['color_temp'],
   color_mode: 'color_temp',
-  ...(level !== undefined ? { brightness: Math.round((level / 100) * 255) } : {}),
+  // lit, its colour as Home Assistant reports it beside its temperature
+  ...(level !== undefined
+    ? {
+        brightness: Math.round((level / 100) * 255),
+        hs_color: [28.4, 65.7],
+        rgb_color: [255, 167, 87],
+      }
+    : {}),
   color_temp_kelvin: 2700,
 });
 /** A coloured bulb, on in `rgb`. */

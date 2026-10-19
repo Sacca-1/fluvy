@@ -1,15 +1,14 @@
 /**
- * A new language's catalogue, key for key from English, every string left in English to be translated (the check
- * reports how many are still English); the naming words start empty and take the language's own stems.
+ * A new language's catalogue, key for key from English (every part of it: a language other than English is one file),
+ * every string left in English to be translated (the check reports how many are still English); its naming words
+ * (`words/<code>.json`) start empty and take the language's own stems.
  *
  *   pnpm i18n scaffold nl
  */
-import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { LOCALES, readCatalogue, type Table, type Words } from './lib.js';
+import { readCatalogue, writeCatalogue, type Table, type Words } from './lib.js';
 
 const code = process.argv[2];
-if (!code || !/^[a-z]{2}(-[A-Z]{2})?$/.test(code)) {
+if (!code || code === 'en' || !/^[a-z]{2}(-[A-Z]{2})?$/.test(code)) {
   console.error('usage: pnpm i18n scaffold <code>   (es, pt-BR)');
   process.exit(2);
 }
@@ -20,8 +19,7 @@ for (const [namespace, table] of Object.entries(english))
     namespace === 'words'
       ? Object.fromEntries(Object.keys(table).map((category) => [category, []]))
       : table;
-const file = join(LOCALES, `${code}.json`);
-await writeFile(file, `${JSON.stringify(scaffold, null, 2)}\n`);
+const files = await writeCatalogue(code, scaffold);
 console.log(
-  `${file}: ${Object.keys(scaffold).length} namespaces, in English — translate it, then add the language to languages.ts`,
+  `${files.join(', ')}: ${Object.keys(scaffold).length - 1} namespaces and the naming words, in English — translate them, then add the language to languages.ts`,
 );

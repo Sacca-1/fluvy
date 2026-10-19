@@ -5,7 +5,6 @@ import {
   formatNumber,
   houseZone,
   isUsable,
-  stateText,
   strings as words,
   wallClock,
   type EntityView,
@@ -30,10 +29,12 @@ import {
 import { HeadFit } from '../energy/head.js';
 import { legendColumns } from '../energy/legend-row.js';
 import { family, scaled, scaleOf } from '../energy/power.js';
+import { RecordedSensors } from '../energy-model/recorded.js';
 
 import { baseOf, ceilingFor, figure, scaleFor, toBase } from '../gauge/units.js';
 
-import { Card } from '../shared/base.js';
+import { Card, HEAD_BASE } from '../shared/base.js';
+import { stateWord } from '../shared/domain.js';
 
 import {
   actionFields,
@@ -44,6 +45,7 @@ import {
   fieldRow,
   iconField,
   selectField,
+  showIconField,
   textField,
 } from '../shared/form.js';
 import { Refresher } from '../shared/refresh.js';
@@ -53,7 +55,8 @@ import { houseDay, loadDay, loadPowerDay, type DayRecord } from './day.js';
 import { hourlyForecast } from './forecast.js';
 import { configKeys, ITEM_ALIASES, type AliasSpec } from '../shared/config.js';
 import { toneOf } from '../shared/colour.js';
-import { statsColumns, statsSize, type StatText } from '../shared/readouts.js';
+import { statsRow, type StatText } from '../shared/readouts.js';
+import { sideStacked } from '../shared/value-row.js';
 
 const strings = words('production');
 
@@ -113,8 +116,8 @@ const sum = (values: readonly number[]): number =>
  */
 export class FluvyProductionCard extends Card<ProductionCardConfig> {
   /** The card's height at a 360 column, for the automatic dashboard's columns. */
-  static override layoutHeight(config: ProductionCardConfig): number {
-    return productionHeight(config);
+  static override layoutHeight(config: ProductionCardConfig, hass?: HomeAssistant): number {
+    return productionHeight(config, hass);
   }
 
   static override styles: CSSResultGroup = [
@@ -139,9 +142,6 @@ export class FluvyProductionCard extends Card<ProductionCardConfig> {
       .so-cols .fv-readout__label {
         white-space: nowrap;
       } /* a label never drops onto its value */
-      .so-cols--odd > :last-child {
-        grid-column: 1 / -1;
-      }
       .fv-axis span {
         white-space: nowrap;
       } /* "12 AM" on a 12-hour clock is one label */
@@ -192,6 +192,14 @@ export class FluvyProductionCard extends Card<ProductionCardConfig> {
   private readonly history = new Refresher<DayRecord | null>();
   private readonly arrayHistory = new Refresher<ReadonlyArray<DayRecord | null>>();
   private readonly head = new HeadFit(this);
+  /** The card's meter while it is missing from the house: as the recorder describes it (its unit). */
+  private readonly recorded = new RecordedSensors(this);
+
+  /** The card's meter as it is read: one no longer in the house in the unit the recorder kept it in. */
+  protected override entity(id: string | undefined = this.config?.entity): EntityView {
+    const view = super.entity(id);
+    return id === this.config?.entity ? this.recorded.view(view) : view;
+  }
 
   constructor() {
     super();
@@ -199,6 +207,7 @@ export class FluvyProductionCard extends Card<ProductionCardConfig> {
     this.arrays_ = undefined;
   }
 
+  static override base = HEAD_BASE;
   static override keys = configKeys<ProductionCardConfig>()([
     'subtitle',
     'forecast_entity',
@@ -233,7 +242,7 @@ export class FluvyProductionCard extends Card<ProductionCardConfig> {
       schema: [
         entityField(['sensor']),
         fieldRow(textField('name'), textField('subtitle')),
-        iconField(),
+        fieldRow(iconField(), showIconField()),
         ...colourFields(),
         fieldRow(
           { name: 'forecast_entity', selector: { entity: { domain: ['sensor'] } } },
@@ -318,7 +327,8 @@ export class FluvyProductionCard extends Card<ProductionCardConfig> {
   private loadHours(): void {
     const hass = this.hass;
     const view = this.entity();
-    if (!hass || view.status === 'missing') return;
+    // a meter out of reach, even one no longer there, keeps the day the recorder holds of it
+    if (!hass || !this.recorded.ready(view)) return;
     const now = this.now();
     const day = `${view.id}|${houseDay(hass, now)}`;
     const previous = this.history.request(
@@ -388,9 +398,7 @@ export class FluvyProductionCard extends Card<ProductionCardConfig> {
   protected renderCard(): TemplateResult {
     const view = this.entity();
     const name = this.config?.name ?? view.name;
-    if (view.status === 'missing')
-      return this.renderEmpty(`${name} · ${stateText(this.hass, view)}`);
-
+    // out of reach, the card is the live one in the off skin (the owner's rule, 1.9): the day so far is the recorder's
     const unusable = !isUsable(view);
     const tone: Tone = unusable ? 'off' : toneOf(this.config, 'solar');
     const compact = this.compact;
@@ -487,7 +495,7 @@ export class FluvyProductionCard extends Card<ProductionCardConfig> {
             ? `${this.t('common.today')} · ${strings(this.hass, 'vs_forecast')}`
             : this.t('common.today')),
         badge: unusable
-          ? { text: stateText(this.hass, view), tone: 'off' }
+          ? { text: stateWord(this.hass, view), tone: 'off' }
           : delta !== null && compared
             ? {
                 text: `${delta >= 0 ? '+' : '−'}${formatNumber(this.hass, Math.abs(delta) * 100, { digits: 0 })} %`,
@@ -507,6 +515,30 @@ export class FluvyProductionCard extends Card<ProductionCardConfig> {
     // the arrays' chart centres a bar in each hour's slot: the boundary of hour h is h / 24
     const at = (hour: number): number => (arrays.length ? hour / HOURS : boundary(hour));
     const top = narrow ? 'm' : 'l';
+    // the day's figure with the forecast beside it, in the longest of its words that leaves the forecast its room
+    // ("So far" where "So far today" would wrap); else the forecast under it, and the longest the column holds:
+    // measured at the day's widest figure and on what an hour of the bars says, so reading them never moves the row
+    const widest = { value: shown(Math.max(total, forecastTotal ?? 0)), unit: scale.unit };
+    const hour = { label: `${this.hourLabel(10)} – ${this.hourLabel(11)}`, ...widest };
+    const side =
+      forecastShown && forecastTotal !== null
+        ? [{ label: strings(this.hass, 'forecast'), value: shown(forecastTotal), unit: scale.unit }]
+        : [];
+    const labels = [strings(this.hass, 'so_far'), strings(this.hass, 'so_far_short')] as const;
+    const beside = side.length
+      ? labels.find(
+          (label) =>
+            !sideStacked(this.head.ruler, this.contentWidth, [{ label, ...widest }, hour], side),
+        )
+      : undefined;
+    const stacked = side.length > 0 && beside === undefined;
+    const soFar =
+      beside ??
+      labels.find(
+        (label) =>
+          this.head.ruler.width('fv-readout > fv-readout__label', label) <= this.contentWidth,
+      ) ??
+      labels[1];
     const ticks: [number, string][] = [
       [0, this.hourLabel(0)],
       [at(6), this.hourLabel(6)],
@@ -524,15 +556,14 @@ export class FluvyProductionCard extends Card<ProductionCardConfig> {
         title: name,
         sub: fitted.sub,
         trailing: fitted.badge,
-        onIconTap: () => this.tap(view.id),
-        onHold: () => this.hold(view.id),
-        iconLabel: name,
+        cut: fitted.cut,
+        ...this.headActions(view.id),
         name: true,
       })}
       ${
         compact
           ? nothing
-          : html`<div class="so-top fv-value-row">
+          : html`<div class="so-top fv-value-row ${stacked ? 'is-stacked' : ''}">
               ${
                 hovered !== null
                   ? readout({
@@ -542,14 +573,14 @@ export class FluvyProductionCard extends Card<ProductionCardConfig> {
                       size: top,
                     })
                   : readout({
-                      label: strings(this.hass, 'so_far'),
+                      label: soFar,
                       value: known ? shown(total) : '—',
                       unit: known ? scale.unit : '',
                       size: top,
                     })
               }
               ${
-                forecastTotal !== null && forecastTotal > 0 && !narrow
+                forecastShown && forecastTotal !== null
                   ? html`<div class="so-top__side">
                       ${readout({ label: strings(this.hass, 'forecast'), value: shown(forecastTotal), unit: scale.unit, size: 's' })}
                     </div>`
@@ -611,13 +642,12 @@ export class FluvyProductionCard extends Card<ProductionCardConfig> {
         unit: sunHours === null ? '' : strings(this.hass, 'hour'),
       },
     ];
-    const columns = statsColumns(this.head.ruler, this.contentWidth, stats);
-    const size = statsSize(this.head.ruler, this.contentWidth, stats, columns);
+    const row = statsRow(this.head.ruler, this.contentWidth, stats);
     return html`<div
-      class="so-cols fv-cols ${stats.length % columns ? 'so-cols--odd' : ''}"
-      style="grid-template-columns:repeat(${columns}, minmax(0, 1fr))"
+      class="so-cols fv-cols ${row.odd ? 'fv-cols--odd' : ''}"
+      style="grid-template-columns:repeat(${row.columns}, minmax(0, 1fr))"
     >
-      ${stats.map((stat) => readout({ ...stat, size }))}
+      ${stats.map((stat) => readout({ ...stat, size: row.size }))}
     </div>`;
   }
 

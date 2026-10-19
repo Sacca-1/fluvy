@@ -1,0 +1,8 @@
+{
+  "about": [
+    "Violations a later block owns: measure-all passes while what it sees is listed here, and fails when a listed one is no longer seen (remove it: this file only shrinks).",
+    "An entry is a page, a frame, a rule and a selector; `at` holds the widths it is seen at per language (page widths 360/412/1400, card widths 152/172/211/266); `owner` is the block that removes it.",
+    "Rewrite it with `node tools/render/measure-all.mjs --write-known` (new entries are `triage`); see docs/development.md."
+  ],
+  "violations": []
+}

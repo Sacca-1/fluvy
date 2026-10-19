@@ -1,6 +1,7 @@
 import { html, nothing, svg, type TemplateResult } from 'lit';
 import {
   clickPress,
+  holdKey,
   preventMenu,
   startPress,
   startStepRepeat,
@@ -39,6 +40,8 @@ export function icon(
 
 export interface IcoOptions {
   readonly hero?: boolean;
+  /** The head's smaller circle (a compact row's 40, a 16 glyph): a name must keep its floor beside it and its control. */
+  readonly small?: boolean;
   readonly onTap?: ((event: Event) => void) | undefined;
   /** A still press of 500 ms on the circle (a card's hold action); the click that follows is swallowed. */
   readonly onHold?: (() => void) | undefined;
@@ -52,7 +55,7 @@ export function ico(
   tone: Tone = 'accent',
   options: IcoOptions = {},
 ): TemplateResult {
-  const cls = `fv-ico fv-ico--${tone}${options.hero ? ' fv-ico--hero' : ''}${options.onTap ? ' fv-ico--tap' : ''}`;
+  const cls = `fv-ico fv-ico--${tone}${options.hero ? ' fv-ico--hero' : ''}${options.small ? ' fv-ico--small' : ''}${options.onTap ? ' fv-ico--tap' : ''}`;
   if (options.onTap)
     return html`<button
       class=${cls}
@@ -75,42 +78,68 @@ export function ico(
 export interface HeadOptions {
   /** `null`: no icon circle at all — a chart card in a column too narrow for the circle and its title. */
   readonly icon?: IconRef | string | null | undefined;
+  /** The head's smaller circle (`HeadFit`'s `small`): the full one would leave the name under its floor. */
+  readonly small?: boolean;
   readonly tone?: Tone;
   readonly title: string;
   readonly sub?: string;
   readonly trailing?: TemplateResult | typeof nothing;
-  readonly onIconTap?: ((event: Event) => void) | undefined;
-  readonly iconLabel?: string;
+  /**
+   * The card's tap: the head is then the card's button — the title is a button whose overlay is stretched over the
+   * whole row (the circle, the name, the line under it, the room up to what trails them, a passive badge); the
+   * controls in the row keep their own tap, beside it and above it, never inside it.
+   */
+  readonly onTap?: (() => void) | undefined;
+  /** What a reader hears for the head's button where the title alone says less; the title by default. */
+  readonly label?: string | undefined;
   /** The title is a name (a device's, a person's): it may end in an ellipsis in a narrow column, as names do. */
   readonly name?: boolean;
+  /** The title still ends in an ellipsis where it stands: the button carries it whole (read on hover). */
+  readonly cut?: boolean;
   /** The title is a sentence (a note's): it takes the lines it needs, and the head grows with it. */
   readonly wrap?: boolean;
   /** A still press of 500 ms anywhere on the head (a card's hold action); the click that follows is swallowed. */
   readonly onHold?: (() => void) | undefined;
 }
 
-/** The click of a held head, seen before the icon's own: a hold never also taps. */
-const clickHead = { handleEvent: clickPress, capture: true };
+/** The click of a pressed head, seen before its button's own: a hold, or a mouse's drag, never also taps. */
+export const clickHead = { handleEvent: clickPress, capture: true };
+
+/**
+ * The button a head is: the title's own words (they name it), its overlay stretched over the positioned row that
+ * holds it (`.fv-card__head--tap`) — `head()`'s, and a custom head's (a player's art and words). The row binds the
+ * press (`startPress`, `clickHead`) and the hold; the button taps, and the keyboard's menu key holds.
+ */
+export function headTap(
+  title: string,
+  o: Pick<HeadOptions, 'onHold' | 'label' | 'name' | 'cut'> & { readonly onTap: () => void },
+): TemplateResult {
+  return html`<button
+    class="fv-card__tap"
+    data-name=${o.name ? '' : nothing}
+    aria-label=${o.label ?? nothing}
+    title=${o.cut ? title : nothing}
+    @click=${o.onTap}
+    @keydown=${holdKey(o.onHold)}
+  >
+    ${title}
+  </button>`;
+}
 
 export function head(o: HeadOptions): TemplateResult {
+  const press = Boolean(o.onTap ?? o.onHold);
   const titleClass = `fv-card__title ${o.wrap ? 'fv-card__title--wrap' : ''}`;
+  const title = o.onTap ? headTap(o.title, { ...o, onTap: o.onTap }) : o.title;
   return html`<div
-    class="fv-card__head ${o.onHold ? 'fv-card__head--hold' : ''} ${o.wrap ? 'fv-card__head--wrap' : ''}"
+    class="fv-card__head ${o.onTap ? 'fv-card__head--tap' : ''} ${o.onHold ? 'fv-card__head--hold' : ''} ${o.wrap ? 'fv-card__head--wrap' : ''}"
     .fvHold=${o.onHold as PressTarget['fvHold']}
-    @pointerdown=${o.onHold ? startPress : nothing}
+    @pointerdown=${press ? startPress : nothing}
     @contextmenu=${o.onHold ? preventMenu : nothing}
-    @click=${o.onHold ? clickHead : nothing}
+    @click=${press ? clickHead : nothing}
   >
-    ${
-      o.icon === null
-        ? nothing
-        : ico(o.icon, o.tone ?? 'accent', {
-            onTap: o.onIconTap,
-            ...(o.iconLabel ? { label: o.iconLabel } : {}),
-          })
-    }
+    ${o.icon === null ? nothing : ico(o.icon, o.tone ?? 'accent', { small: o.small ?? false })}
     <div class="fv-card__titles">
-      <h3 class=${titleClass} data-name=${o.name ? '' : nothing}>${o.title}</h3>
+      <h3 class=${titleClass} data-name=${o.name ? '' : nothing}>${title}</h3>
       ${o.sub ? html`<p class="fv-card__sub">${o.sub}</p>` : nothing}
     </div>
     ${o.trailing ?? nothing}
@@ -145,13 +174,16 @@ export function readout(o: ReadoutOptions): TemplateResult {
   </div>`;
 }
 
-/** 48×28 switch inside a 56×44 hit area. */
+/**
+ * 48×28 switch inside a 56×44 hit area. `disabled`: it cannot be moved here — out of reach (`true`, drawn disabled, as a
+ * disabled stepper or round is), or shown to someone who may only look (`'readonly'`, at full strength).
+ */
 export function toggle(
   on: boolean,
   tone: Tone,
   onToggle: (next: boolean) => void,
   ariaLabel = '',
-  disabled = false,
+  disabled: boolean | 'readonly' = false,
 ): TemplateResult {
   const flip = (event: Event): void => {
     event.stopPropagation();
@@ -170,7 +202,8 @@ export function toggle(
       role="switch"
       tabindex=${disabled ? -1 : 0}
       aria-checked=${on ? 'true' : 'false'}
-      aria-disabled=${disabled ? 'true' : 'false'}
+      aria-disabled=${disabled === true ? 'true' : 'false'}
+      aria-readonly=${disabled === 'readonly' ? 'true' : nothing}
       aria-label=${ariaLabel || nothing}
       @keydown=${key}
       ><span class="fv-switch__thumb"></span></span
@@ -213,6 +246,8 @@ export interface OptionItem {
   /** The label is a name (an entity's): it may end in an ellipsis in a narrow tile, as names do. */
   readonly name?: boolean;
   readonly value?: string;
+  /** The value is a word that describes (a sensor, a list of days), not a figure: the label's ink, a lighter weight. */
+  readonly word?: boolean;
   readonly glyph?: IconRef | string;
   readonly tone?: Tone;
   readonly active?: boolean;
@@ -271,7 +306,9 @@ export function options(
           class="fv-option__label"
           data-name=${o.name ? '' : nothing}
           >${o.label}</span
-        ><span class="fv-option__value">${o.value ?? ''}</span>`;
+        ><span class="fv-option__value ${o.word ? 'fv-option__value--word' : ''}"
+          >${o.value ?? ''}</span
+        >`;
       // a minimum, not a height: a tile whose value takes two lines grows, and its row grows with it
       const style = `min-height:${height}px${grid.spans[index] === 1 ? '' : `;grid-column:span ${grid.spans[index]}`}`;
       return stat
@@ -354,17 +391,23 @@ export interface ActionItem {
   readonly disabled?: boolean;
 }
 
-/** Action row: glyph buttons in equal cells that fill the column (16 gap, 44 tall, radius 12) — a row whose cells share its width. */
+/**
+ * Action row: glyph buttons in equal cells that fill the column (16 gap, 44 tall, radius 12) — a row whose cells share
+ * its width; in `columns` (measured by the card) its cells wrap into full rows, a shorter last row splitting it among
+ * its own cells, as chips do.
+ */
 export function actions(
   items: readonly ActionItem[],
   onAction: (key: string) => void,
+  columns = items.length,
 ): TemplateResult {
+  const grid = optionGrid(items.length, columns);
   return html`<div
     class="fv-actions"
     data-fill-row
-    style="grid-template-columns:repeat(${items.length}, minmax(0, 1fr))"
+    style="grid-template-columns:repeat(${grid.tracks}, minmax(0, 1fr))"
   >
-    ${items.map((a) => html`<button class="fv-action ${a.primary ? 'fv-action--accent' : ''}" data-control data-target aria-label=${a.label} title=${a.label} ?disabled=${a.disabled ?? false} @click=${() => onAction(a.key)}>${icon(a.glyph)}</button>`)}
+    ${items.map((a, index) => html`<button class="fv-action ${a.primary ? 'fv-action--accent' : ''}" data-control data-target aria-label=${a.label} title=${a.label} style=${grid.spans[index] === 1 ? nothing : `grid-column:span ${grid.spans[index]}`} ?disabled=${a.disabled ?? false} @click=${() => onAction(a.key)}>${icon(a.glyph)}</button>`)}
   </div>`;
 }
 
@@ -395,6 +438,7 @@ export function button(
   kind: 'quiet' | 'accent' | 'link',
   onClick: (event: Event) => void,
   fill = false,
+  disabled = false,
 ): TemplateResult {
   return html`<button
     class="fv-btn fv-btn--${kind}"
@@ -402,6 +446,7 @@ export function button(
     data-target
     style=${fill ? 'width:100%' : nothing}
     data-fit=${fill ? nothing : '32'}
+    ?disabled=${disabled}
     @click=${onClick}
   >
     ${text}
@@ -442,6 +487,10 @@ export interface ListRowOptions {
   readonly open?: boolean;
   /** What a reader hears for the row, where its words leave something out (a sensor gone, said only by its skin). */
   readonly label?: string;
+  /** What ends the row goes under its words (`fv-row--stack`): a column too narrow for both, even without the circle. */
+  readonly stack?: boolean;
+  /** The sub is the owner's own words (a template's), a name that may end in its ellipsis. */
+  readonly subName?: boolean;
 }
 
 /** A value that reads as words, not a figure: it may take two lines instead of one. */
@@ -468,7 +517,7 @@ export function listRow(o: ListRowOptions): TemplateResult {
           o.switchTone ?? 'accent',
           o.onToggle ?? (() => undefined),
           o.title,
-          (o.unavailable ?? false) || (o.readonly ?? false),
+          (o.unavailable ?? false) || (o.readonly ? 'readonly' : false),
         )
       : trailing === 'value'
         ? html`<span
@@ -483,7 +532,7 @@ export function listRow(o: ListRowOptions): TemplateResult {
               >`
             : nothing;
   return html`<div
-    class="fv-row ${o.onTap ? 'fv-row--tap' : ''} ${o.unavailable ? 'is-unavailable' : ''} ${o.compact ? 'fv-row--compact' : ''} ${o.icon === null ? 'fv-row--bare' : ''} ${o.open ? 'is-open' : ''}"
+    class="fv-row ${o.onTap ? 'fv-row--tap' : ''} ${o.unavailable ? 'is-unavailable' : ''} ${o.compact ? 'fv-row--compact' : ''} ${o.icon === null ? 'fv-row--bare' : ''} ${o.stack ? 'fv-row--stack' : ''} ${o.open ? 'is-open' : ''}"
     data-accent=${o.accent ?? nothing}
     role=${o.onTap ? 'button' : nothing}
     aria-expanded=${o.open === undefined ? nothing : o.open ? 'true' : 'false'}
@@ -499,7 +548,7 @@ export function listRow(o: ListRowOptions): TemplateResult {
     ${rowIcon(o.icon, o.tone)}
     <span class="fv-row__text"
       ><span class="fv-row__title" data-name=${o.name ? '' : nothing}>${o.title}</span
-      >${o.sub && !o.compact ? html`<span class="fv-row__sub ${o.subTone ? `fv-row__sub--${o.subTone}` : ''}">${o.sub}</span>` : nothing}</span
+      >${o.sub && !o.compact ? html`<span class="fv-row__sub ${o.subTone ? `fv-row__sub--${o.subTone}` : ''}" data-name=${o.subName ? '' : nothing}>${o.sub}</span>` : nothing}</span
     >
     ${tail}
   </div>`;
@@ -514,9 +563,17 @@ const rowIcon = (
     ? nothing
     : html`<span class="fv-ico fv-ico--${tone ?? 'neutral'}" data-icon>${icon(ref)}</span>`;
 
-/** The language's empty state: a 44 ring with a glyph over one secondary line, centred in a 120 panel. */
-export function emptyState(ref: IconRef | string, text: string, hint = ''): TemplateResult {
-  return html`<div class="fv-empty-state" role="status">
+/**
+ * The language's empty state: a 44 ring with a glyph over one secondary line, centred in a 120 panel — in the page's
+ * fill inside a card, in its other fill where the panel stands on the page itself (`page`: a group of tiles, the tabs).
+ */
+export function emptyState(
+  ref: IconRef | string,
+  text: string,
+  hint = '',
+  page = false,
+): TemplateResult {
+  return html`<div class="fv-empty-state ${page ? 'fv-empty-state--page' : ''}" role="status">
     <span class="fv-empty-state__ring">${icon(ref)}</span
     ><span class="fv-empty-state__text">${text}</span>
     ${hint ? html`<span class="fv-empty-state__hint">${hint}</span>` : nothing}
@@ -543,6 +600,8 @@ export interface BarRowOptions {
   readonly onTap?: (() => void) | undefined;
   /** The 48 row: a 40 circle, the title and the value on one line (no sub), the bar 4 under the title. */
   readonly compact?: boolean;
+  /** The sub is the owner's own words ("Watered 3 days ago"), a name that may end in its ellipsis. */
+  readonly subName?: boolean;
 }
 
 /** Enter / Space on an element that plays a button (`role="button"`), ignoring keys bubbling up from a control inside it. */
@@ -558,6 +617,26 @@ export const activateKey =
       run();
     }
   };
+
+/**
+ * A button stretched over the surface that holds it (`.fv-tile__tap`): a large tile's, a room's photo and row, a
+ * greeting's words. It taps and holds (a still press, or the keyboard's menu key) and reads `label`.
+ */
+export const pressCover = (
+  label: string,
+  onTap: (() => void) | undefined,
+  onHold: (() => void) | undefined,
+): TemplateResult =>
+  html`<button
+    class="fv-tile__tap"
+    aria-label=${label}
+    .fvTap=${onTap}
+    .fvHold=${onHold}
+    @pointerdown=${startPress}
+    @click=${clickPress}
+    @contextmenu=${onHold ? preventMenu : nothing}
+    @keydown=${holdKey(onHold)}
+  ></button>`;
 
 /** 76 px row with a 4 px bar under the text (plants, strings, batteries, meters); 48 compact, the title alone over the bar. */
 export function barRow(o: BarRowOptions): TemplateResult {
@@ -575,7 +654,7 @@ export function barRow(o: BarRowOptions): TemplateResult {
     ${rowIcon(o.icon, o.tone)}
     <span class="fv-row__text"
       ><span class="fv-row__title" data-name=${o.name ? '' : nothing}>${o.title}</span
-      >${o.sub && !o.compact ? html`<span class="fv-row__sub">${o.sub}</span>` : nothing}</span
+      >${o.sub && !o.compact ? html`<span class="fv-row__sub" data-name=${o.subName ? '' : nothing}>${o.sub}</span>` : nothing}</span
     >
     <span
       class="fv-row__value ${o.valueTone ? `fv-row__value--${o.valueTone}` : ''} ${wordsClass(o.value)}"

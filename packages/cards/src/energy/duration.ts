@@ -1,7 +1,7 @@
 import { localize, type HomeAssistant } from '@fluvy/core';
 import { html, nothing, type TemplateResult } from 'lit';
 import { durationParts, type DurationUnit } from '../shared/duration.js';
-import type { Figure } from './value-row.js';
+import type { Figure } from '../shared/value-row.js';
 
 const word = (hass: HomeAssistant | undefined, unit: DurationUnit): string =>
   localize(hass, unit === 'd' ? 'time.unit_d' : unit === 'h' ? 'time.unit_h' : 'time.unit_min');
@@ -27,7 +27,7 @@ export function durationReadout(
   hass: HomeAssistant | undefined,
   label: string,
   seconds: number | null,
-  size: 's' | 'l' = 's',
+  size: 'xs' | 's' | 'l' = 's',
 ): TemplateResult {
   const parts = seconds === null ? null : durationParts(seconds);
   const last = parts?.[parts.length - 1];

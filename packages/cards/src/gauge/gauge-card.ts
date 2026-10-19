@@ -2,7 +2,6 @@ import {
   fetchHistory,
   formatNumber,
   isUsable,
-  stateText,
   strings as words,
   type EntityView,
   type FluvyCardConfig,
@@ -26,9 +25,9 @@ import {
 
 import { HeadFit } from '../energy/head.js';
 
-import { Card } from '../shared/base.js';
+import { Card, HEAD_BASE } from '../shared/base.js';
 
-import { glyphFor } from '../shared/domain.js';
+import { glyphFor, stateWord } from '../shared/domain.js';
 import {
   actionFields,
   colourFields,
@@ -38,9 +37,10 @@ import {
   iconField,
   numberField,
   selectField,
+  showIconField,
   textField,
 } from '../shared/form.js';
-import { statsSize } from '../shared/readouts.js';
+import { statsRow } from '../shared/readouts.js';
 import { Refresher } from '../shared/refresh.js';
 
 import { baseOf, ceilingFor, figure, scaleFor, toBase, type Scale } from './units.js';
@@ -163,10 +163,6 @@ export class FluvyGaugeCard extends Card<GaugeCardConfig> {
         overflow: hidden;
         text-overflow: ellipsis;
       }
-      /* the directions make the figures long: in a narrow column they stand one above the other */
-      .so-cols.so-cols--stack {
-        grid-template-columns: minmax(0, 1fr);
-      }
       /* the ring is placed on a whole pixel (its ticks stay crisp in an odd column) instead of centred on a half */
       .so-gauge {
         justify-content: flex-start;
@@ -193,6 +189,7 @@ export class FluvyGaugeCard extends Card<GaugeCardConfig> {
     this.series_ = undefined;
   }
 
+  static override base = HEAD_BASE;
   static override keys = configKeys<GaugeCardConfig>()([
     'subtitle',
     'variant',
@@ -211,6 +208,7 @@ export class FluvyGaugeCard extends Card<GaugeCardConfig> {
         entityField(['sensor', 'number', 'input_number', 'counter']),
         fieldRow(textField('name'), textField('subtitle')),
         fieldRow(iconField(), selectField('variant', GAUGE_VARIANTS)),
+        showIconField(),
         ...colourFields(),
         fieldRow(
           numberField('min', -1_000_000, 1_000_000, 0.1),
@@ -263,10 +261,10 @@ export class FluvyGaugeCard extends Card<GaugeCardConfig> {
   override getCardSize(): number {
     return this.bar ? 5 : 8;
   }
-  /** The ring takes a section; the bar half of one, and reads in a third. */
+  /** The ring takes a section; the bar half of one (in a third its readouts ran into each other). */
   override getGridOptions(): LovelaceGridOptions {
     return this.bar
-      ? { columns: 6, rows: 'auto', min_columns: 4 }
+      ? { columns: 6, rows: 'auto', min_columns: 6 }
       : { columns: 12, rows: 'auto', min_columns: 6 };
   }
 
@@ -333,11 +331,13 @@ export class FluvyGaugeCard extends Card<GaugeCardConfig> {
     return words.charAt(0).toUpperCase() + words.slice(1);
   }
 
+  /**
+   * Unavailable, unknown or missing, the gauge is the live one in the off skin (the owner's rule, 1.9): its ring or
+   * bar, its range, its label and its row of the window, the value "—"; the window is history and stays.
+   */
   protected renderCard(): TemplateResult {
     const view = this.entity();
     const name = this.config?.name ?? view.name;
-    if (view.status === 'missing')
-      return this.renderEmpty(`${name} · ${stateText(this.hass, view)}`);
     if (this.signed) return this.renderSigned(view, name);
 
     const unusable = !isUsable(view);
@@ -345,7 +345,7 @@ export class FluvyGaugeCard extends Card<GaugeCardConfig> {
     const value = view.number === null ? null : view.number * base.value;
     const min = (this.config?.min ?? 0) * base.value;
     const max = this.ceiling(view, min, base.value);
-    const series = unusable ? null : this.series_;
+    const series = this.series_;
 
     const scale = scaleFor(
       Math.max(
@@ -372,7 +372,7 @@ export class FluvyGaugeCard extends Card<GaugeCardConfig> {
     const headTone: Tone = unusable ? 'off' : active ? tone : 'neutral';
     const badgeText =
       unusable || value === null
-        ? stateText(this.hass, view)
+        ? stateWord(this.hass, view)
         : (this.config?.badge ??
           (!active
             ? this.t('energy.idle')
@@ -396,7 +396,7 @@ export class FluvyGaugeCard extends Card<GaugeCardConfig> {
       value: raw === undefined ? '—' : shown(raw * base.value),
       unit: raw === undefined ? '' : scale.unit,
     }));
-    const size = statsSize(this.head.ruler, width, stats);
+    const row = statsRow(this.head.ruler, width, stats);
     const fitted = this.head.fit({
       width,
       title: name,
@@ -414,9 +414,8 @@ export class FluvyGaugeCard extends Card<GaugeCardConfig> {
         title: name,
         sub: fitted.sub,
         trailing: fitted.badge,
-        onIconTap: () => this.tap(view.id),
-        onHold: () => this.hold(view.id),
-        iconLabel: name,
+        cut: fitted.cut,
+        ...this.headActions(view.id),
         name: true,
       })}
       ${
@@ -460,8 +459,12 @@ export class FluvyGaugeCard extends Card<GaugeCardConfig> {
               ></fluvy-dial>
             </div>`
       }
-      <div class="so-cols fv-cols so-cols--center" data-align="center">
-        ${stats.map((stat) => readout({ ...stat, size }))}
+      <div
+        class="so-cols fv-cols so-cols--center ${row.odd ? 'fv-cols--odd' : ''}"
+        style="grid-template-columns:repeat(${row.columns}, minmax(0, 1fr))"
+        data-align="center"
+      >
+        ${stats.map((stat) => readout({ ...stat, size: row.size }))}
       </div>
     </article>`;
   }
@@ -512,9 +515,10 @@ export class FluvyGaugeCard extends Card<GaugeCardConfig> {
     const unusable = !isUsable(view);
     const base = toBase(1, view.unit);
     const value = view.number === null || unusable ? null : view.number * base.value;
-    const power = base.unit === 'W';
+    // a meter that is not there has no unit to say what it is: it is laid out as the grid meter this gauge is for
+    const power = base.unit === 'W' || view.status === 'missing';
     const ends = this.extent(view, base.value, value);
-    const series = unusable ? null : this.series_;
+    const series = this.series_;
     const scale: Scale = scaleFor(
       Math.max(
         Math.abs(ends?.min ?? 0),
@@ -575,7 +579,7 @@ export class FluvyGaugeCard extends Card<GaugeCardConfig> {
     // only a badge the card is given shows
     const badgeText =
       unusable || value === null
-        ? stateText(this.hass, view)
+        ? stateWord(this.hass, view)
         : (this.config?.badge ??
           (!power
             ? ''
@@ -591,9 +595,10 @@ export class FluvyGaugeCard extends Card<GaugeCardConfig> {
       r.width('fv-readout fv-readout--xs > fv-readout__value', stat.value, 'fv-unit', stat.unit);
     // the gauge with its power's directions in words, or signed: everything in one way, the needle saying which
     const lay = (ways: boolean) => {
-      const left = ends ? edge(ends.min, ways) : '—';
-      const right = ends ? edge(ends.max, ways) : '—';
-      const leftW = r.width('en-gauge__end', left);
+      const [left, right] = ends ? [edge(ends.min, ways), edge(ends.max, ways)] : ['—', '—'];
+      // a range nobody can name (the meter away, its window not read yet) reads "—" at its ends, and the ring is laid
+      // out for a household's, a 5 kW connection ("5 kW out", its wider end): it keeps its size while the meter is away
+      const leftW = r.width('en-gauge__end', ends ? left : `5 kW ${way(-1)}`);
       const rightW = r.width('en-gauge__end', right);
       const g = signedGeometry(width, Math.max(leftW, rightW));
       const shown = said(value, ways);
@@ -626,10 +631,8 @@ export class FluvyGaugeCard extends Card<GaugeCardConfig> {
     const room = labelRoom(g, size);
     const labelFits = r.width('en-gauge__label', label) <= room;
 
-    // three columns while the figures hold in them (small, else extra small); else one above the other
-    const column = (width - 32) / 3;
-    const stack = !stats.every((stat) => statWidth(stat) <= column);
-    const statSize = statsSize(this.head.ruler, width, stats, stack ? 1 : 3);
+    // the directions make the figures long: as many columns as hold them and their labels, two and one before one a line
+    const row = statsRow(this.head.ruler, width, stats);
     const fitted = this.head.fit({
       width,
       title: name,
@@ -647,9 +650,8 @@ export class FluvyGaugeCard extends Card<GaugeCardConfig> {
         title: name,
         sub: fitted.sub,
         trailing: fitted.badge,
-        onIconTap: () => this.tap(view.id),
-        onHold: () => this.hold(view.id),
-        iconLabel: name,
+        cut: fitted.cut,
+        ...this.headActions(view.id),
         name: true,
       })}
       <div class="en-gauge fv-tone--${tone}" style="height:${g.height}px">
@@ -690,10 +692,11 @@ export class FluvyGaugeCard extends Card<GaugeCardConfig> {
         >
       </div>
       <div
-        class="so-cols fv-cols so-cols--center ${stack ? 'so-cols--stack' : ''}"
+        class="so-cols fv-cols so-cols--center ${row.odd ? 'fv-cols--odd' : ''}"
+        style="grid-template-columns:repeat(${row.columns}, minmax(0, 1fr))"
         data-align="center"
       >
-        ${stats.map((stat) => readout({ ...stat, size: statSize }))}
+        ${stats.map((stat) => readout({ ...stat, size: row.size }))}
       </div>
     </article>`;
   }

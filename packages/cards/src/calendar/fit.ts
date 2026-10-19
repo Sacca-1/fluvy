@@ -20,8 +20,12 @@ export const FACE = {
   title: { size: 16, weight: 600 },
   sub: { size: 13, weight: 500 },
   badge: { size: 13, weight: 600 },
+  /** A list row's title (`fv-row__title`). */
+  row: { size: 15, weight: 600 },
   time: { size: 13, weight: 600 },
   tile: { size: 14, weight: 500 },
+  /** The week strip's weekday (`cd-wday__n`). */
+  weekday: { size: 11, weight: 600, tracking: 0.06, upper: true },
 } as const satisfies Record<string, Face>;
 
 let family = '';

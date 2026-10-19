@@ -1,7 +1,5 @@
 import {
-  formatDate,
   formatNumber,
-  formatTime,
   stateText,
   strings,
   type EntityView,
@@ -9,8 +7,6 @@ import {
   type HomeAssistant,
   type LovelaceConfigForm,
   type LovelaceGridOptions,
-  houseZone,
-  wallClock,
 } from '@fluvy/core';
 import {
   activateKey,
@@ -19,6 +15,7 @@ import {
   head,
   ico,
   preventMenu,
+  pressCover,
   readout,
   round,
   sheetStyles,
@@ -49,9 +46,19 @@ import {
   nameIconFields,
   orderedField,
   selectField,
+  showIconField,
   textField,
 } from '../shared/form.js';
+import {
+  clockSeconds,
+  durationSeconds,
+  elapsedSeconds,
+  finishedAt,
+  timeLeft,
+  when,
+} from '../shared/job-time.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
+import { sideStacked } from '../shared/value-row.js';
 import {
   PRINTER_PLATFORMS,
   PRINTER_ROLES,
@@ -62,16 +69,7 @@ import {
   type PrinterEntities,
   type PrinterRole,
 } from './roles.js';
-import {
-  busy,
-  clockSeconds,
-  durationSeconds,
-  elapsedSeconds,
-  finishedAt,
-  printerPhase,
-  timeLeft,
-  type PrinterPhase,
-} from './state.js';
+import { busy, printerPhase, type PrinterPhase } from './state.js';
 
 const s = strings('printer');
 
@@ -147,6 +145,8 @@ const HEATING_FROM = { c: 3, f: 5 } as const;
 const HEATING_UNTIL = { c: 1, f: 2 } as const;
 /** What a heater's readout is measured as, so a change of state never moves the layout: its widest form. */
 const WIDEST_HEATER = '888 / 888';
+/** What the progress is measured as beside the time left: its widest form. */
+const WIDEST_PROGRESS = '100';
 
 /** The editor's role choices, each by its word. */
 const ROLE_SELECTOR = {
@@ -215,6 +215,10 @@ interface Reading {
   readonly elapsed: number | null;
   /** Why a failed print failed, in the integration's words; '' otherwise. */
   readonly failure: string;
+  /**
+   * Out of reach (its status unavailable, unknown or gone from the house): the card draws itself at rest in the off
+   * skin — the job's progress, its readouts, its trays and its buttons where they stand, still (1.9).
+   */
   readonly unavailable: boolean;
 }
 
@@ -302,6 +306,29 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
       .pr-plate.is-preview {
         background: var(--fluvy-page);
       }
+      /* the picture out of reach: its plate in its shape, the camera's glyph and why, on the page's fill (1.9) */
+      .pr-plate.is-off {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 0 16px;
+        background: var(--fluvy-page);
+        outline: 1px dashed var(--fluvy-unavailable-border);
+        outline-offset: -1px;
+        cursor: default;
+      }
+      .pr-plate.is-off p {
+        max-width: 100%;
+        overflow: hidden;
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 24px;
+        color: var(--fluvy-unavailable);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
       .pr-plate.is-preview .fv-plate__img,
       .pr-plate.is-contain .fv-plate__img {
         object-fit: contain;
@@ -323,21 +350,6 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
       }
       .pr-top__side .fv-readout__value {
         justify-content: flex-end;
-      }
-      /* a column too narrow for the time left beside the progress: it goes under it, on the column's start, 12 below */
-      .pr-top.is-stacked {
-        flex-direction: column;
-        align-items: flex-start;
-        justify-content: flex-start;
-        gap: 12px;
-        height: auto;
-      }
-      .pr-top.is-stacked .pr-top__side {
-        padding-bottom: 0;
-        text-align: left;
-      }
-      .pr-top.is-stacked .pr-top__side .fv-readout__value {
-        justify-content: flex-start;
       }
       .pr-progress {
         margin-top: 12px;
@@ -459,8 +471,10 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
         gap: var(--pr-gap, 16px);
         margin-top: 16px;
       }
-      /* the row: the compact anatomy (76, 16 in), the printer's circle ringed by its progress 3 clear of it */
+      /* the row: the compact anatomy (76, 16 in), the printer's circle ringed by its progress 3 clear of it; the row is
+         the card's button (a cover over it, the head's rule), its round raised beside it */
       .pr-card--row {
+        position: relative;
         display: flex;
         align-items: center;
         gap: 12px;
@@ -502,6 +516,13 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
       .pr-card--row .fv-row__text {
         flex: 1 1 auto;
         min-width: 0;
+      }
+      .pr-card--row > .fv-round {
+        position: relative;
+        z-index: 1;
+      }
+      .pr-card--row > .fv-tile__tap {
+        border-radius: inherit;
       }
     `,
   ];
@@ -550,6 +571,7 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
     'card_color',
     'tap_action',
     'hold_action',
+    'show_icon',
   ];
   static override keys = configKeys<PrinterCardConfig>()([
     'device',
@@ -607,6 +629,7 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
         },
         entityField(undefined, 'entity', false),
         nameIconFields(),
+        showIconField(),
         selectField('variant', PRINTER_VARIANTS),
         orderedField(
           'readouts',
@@ -818,14 +841,23 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
       this.timer = 0;
       this.period = 0;
       const path = picture.view.attr<string | null>('entity_picture') ?? '';
-      // remembered once its fetch has started (a hidden page or a still in flight puts it off to the next look)
-      if (path !== this.previewPath && this.isConnected && this.pull()) this.previewPath = path;
+      // remembered once its fetch has started (a hidden page, a card off screen or a still in flight puts it off to
+      // the next look)
+      if (path !== this.previewPath && this.isConnected && this.holder.onScreen && this.pull())
+        this.previewPath = path;
       return;
     }
     this.previewPath = '';
     if (this.config?.camera_view === 'live' && picture && picture.view.domain === 'camera')
       this.holder.ask(picture.view.id);
-    const period = !picture || streaming ? 0 : busy(this.phase()) ? STILL_BUSY : STILL_IDLE;
+    // off screen the stills pause (no period): the viewport's next word runs `sync` again, which re-arms the
+    // interval and pulls one at once, as the camera card does
+    const period =
+      !picture || streaming || !this.holder.onScreen
+        ? 0
+        : busy(this.phase())
+          ? STILL_BUSY
+          : STILL_IDLE;
     if (period === this.period) return;
     window.clearInterval(this.timer);
     this.timer = 0;
@@ -873,7 +905,8 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
   private phase(): PrinterPhase {
     const status = this.view('status');
     const printing = this.view('printing');
-    if (status && status.status !== 'ok') return status.status === 'missing' ? 'idle' : 'offline';
+    // a status that cannot be read — unavailable, unknown, gone from the house — is a printer out of reach
+    if (status && status.status !== 'ok') return 'offline';
     return printerPhase(status?.state, printing?.state === 'on');
   }
 
@@ -970,11 +1003,15 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
       } else if (key === 'layer') {
         const layer = this.number('layer');
         const layers = this.number('layers');
-        // layers belong to a job: at rest there are none to count; a narrow card writes "112" with "/ 240" as its unit
-        if (this.view('layer') && busy(r.phase)) {
+        // layers belong to a job: at rest there are none to count; a narrow card writes "112" with "/ 240" as its unit.
+        // Out of reach the readout keeps its place, a dash: the card stands at the size of a job (1.9)
+        if (this.view('layer') && (busy(r.phase) || r.unavailable)) {
           const narrow = this.narrowForms && layer !== null && layers;
-          out.push(
-            plain(
+          // measured as its widest form — the job's count of layers in eights (three where it says none, out of
+          // reach) — so a layer counting up never moves the layout
+          const widest = '8'.repeat(String(Math.round(layers ?? 888)).length);
+          out.push({
+            ...plain(
               s(this.hass, 'layer'),
               layer === null
                 ? '—'
@@ -984,7 +1021,10 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
               narrow && layers ? `/ ${this.figure(layers)}` : '',
               this.roles().layer,
             ),
-          );
+            measure: this.narrowForms
+              ? { value: widest, unit: `/ ${widest}` }
+              : { value: `${widest} / ${widest}`, unit: '' },
+          });
         }
       } else if (key === 'speed') {
         const v = this.view('speed');
@@ -1181,13 +1221,14 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
     void this.call(id.slice(0, id.indexOf('.')), 'toggle', { entity_id: id });
   }
 
-  /** A cell of the action row: a glyph, its word for the reader, what it does. */
+  /** A cell of the action row: a glyph, its word for the reader, what it does; `still` while out of reach. */
   private cell(
     key: string,
     name: GlyphName,
     label: string,
     onTap: () => void,
     state = '',
+    still = false,
   ): TemplateResult {
     return html`<button
       class="fv-action ${state}"
@@ -1196,14 +1237,18 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
       data-action=${key}
       aria-label=${label}
       title=${label}
+      ?disabled=${still}
       @click=${onTap}
     >
       ${glyph(name)}
     </button>`;
   }
 
-  /** What can be pressed now: pause or resume while a job runs (the primary), stop, and the light. */
-  private actionItems(phase: PrinterPhase): TemplateResult[] {
+  /**
+   * What can be pressed now: pause or resume while a job runs (the primary), stop, and the light — `still` out of
+   * reach, where they stand as a job's would.
+   */
+  private actionItems(phase: PrinterPhase, still = false): TemplateResult[] {
     if (this.config?.show_controls === false) return [];
     const roles = this.roles();
     const items: TemplateResult[] = [];
@@ -1216,6 +1261,7 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
             s(this.hass, 'resume'),
             () => this.press('resume'),
             'fv-action--accent',
+            still,
           ),
         );
       else if (phase !== 'paused' && roles.pause)
@@ -1226,10 +1272,13 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
             s(this.hass, 'pause'),
             () => this.press('pause'),
             'fv-action--accent',
+            still,
           ),
         );
       if (roles.stop)
-        items.push(this.cell('stop', 'stop', s(this.hass, 'stop'), () => this.press('stop')));
+        items.push(
+          this.cell('stop', 'stop', s(this.hass, 'stop'), () => this.press('stop'), '', still),
+        );
     }
     if (roles.light) {
       const on = this.view('light')?.state === 'on';
@@ -1239,7 +1288,8 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
           'bulb',
           s(this.hass, 'light'),
           () => this.toggleLight(),
-          on ? 'is-on' : '',
+          on && !still ? 'is-on' : '',
+          still,
         ),
       );
     }
@@ -1362,20 +1412,43 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
       sub: fitted.sub,
       trailing: fitted.badge,
       name: true,
-      onIconTap: () => this.tap(this.roles().status),
-      onHold: () => this.hold(this.roles().status),
-      iconLabel: r.title,
+      cut: fitted.cut,
+      ...this.headActions(this.roles().status),
     });
   }
 
+  /**
+   * The picture's plate while it cannot be shown because the printer, or its camera, is out of reach: in its shape, the
+   * camera's glyph and why, still — the card keeps its size (1.9). Nothing where no picture was asked for or found.
+   */
+  private restingPicture(
+    r: Reading,
+    height: number,
+    width: number,
+  ): TemplateResult | typeof nothing {
+    if (this.config?.show_image === false || this.variant !== 'full') return nothing;
+    const image = this.config?.image ?? 'auto';
+    const camera = image === 'preview' ? undefined : this.view('camera');
+    const role = camera ?? (image === 'camera' ? undefined : this.view('preview'));
+    // the printer out of reach, or its camera: the plate stays; a preview with nothing to show yet is no plate
+    if (!role || !(r.unavailable || (camera && camera.status !== 'ok'))) return nothing;
+    return html`<div
+      class="pr-plate dv-cam fv-plate is-off"
+      style="height:${height}px${width && width < this.contentWidth ? `;width:${width}px;margin-inline:auto` : ''}"
+    >
+      <span class="fv-ico fv-ico--off" data-icon>${glyph('camera')}</span>
+      <p>${r.unavailable ? r.word : stateText(this.hass, role)}</p>
+    </div>`;
+  }
+
   /** The picture: the camera's stills or its stream, else the job's preview, in its shape, never taller than 360. */
-  private renderPicture(): TemplateResult | typeof nothing {
+  private renderPicture(r: Reading): TemplateResult | typeof nothing {
     const picture = this.picture();
-    if (!picture) return nothing;
     const ratio = cameraRatio(this.config?.aspect_ratio);
     const height = Math.min(PLATE_CAP, plateHeight(this.contentWidth, ratio));
     // capped on a wide card, the picture keeps its shape: as wide as its height asks, centred on the page's fill
     const width = height === PLATE_CAP ? Math.round((PLATE_CAP * ratio) / 4) * 4 : 0;
+    if (!picture) return this.restingPicture(r, height, width);
     const contain = this.config?.fit_mode === 'contain';
     const stream = this.streaming
       ? this.holder.draw({
@@ -1404,52 +1477,45 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
     </div>`;
   }
 
-  /** Whether the time left goes under the progress: the two readouts (label or figure, the wider) and 16 do not fit. */
+  /**
+   * Whether the time left goes under the progress: the two readouts (label or figure, the wider) and 16 do not fit —
+   * each measured as its widest form as well ("100 %", "88 h 88 min"), so a job counting down never moves the layout,
+   * and a printer out of reach stands as one printing does.
+   */
   private stacked(r: Reading, left: { value: string; unit: string }): boolean {
-    if (r.left === null || r.progress === null) return false;
-    const ruler = this.head.ruler;
-    const block = (label: string, size: 'l' | 's', value: string, unit: string): number =>
-      Math.max(
-        ruler.width('fv-readout > fv-readout__label', label),
-        ruler.width(`fv-readout fv-readout--${size} > fv-readout__value`, value, 'fv-unit', unit),
-      );
-    return (
-      block(s(this.hass, 'progress'), 'l', this.figure(r.progress), '%') +
-        16 +
-        block(s(this.hass, 'left'), 's', left.value, left.unit) >
-      this.contentWidth
+    if (!r.unavailable && (r.left === null || r.progress === null)) return false;
+    const progress = s(this.hass, 'progress');
+    const label = s(this.hass, 'left');
+    const hours = `88 ${this.t('time.unit_h')} 88`;
+    return sideStacked(
+      this.head.ruler,
+      this.contentWidth,
+      [
+        { label: progress, value: this.figure(r.progress ?? 0), unit: '%' },
+        { label: progress, value: WIDEST_PROGRESS, unit: '%' },
+      ],
+      [
+        { label, ...left },
+        { label, value: hours, unit: this.t('time.unit_min') },
+      ],
     );
   }
 
   /**
    * When it will be ready, or when it finished: the time today; another day's with its weekday ("Ready Fri at 05:27");
    * a job finished before today by how long ago ("Finished 2 d ago" — a printer stays finished until its next job).
+   * The days are the house's calendar's (`when`); the words the printer's own, which agree with its noun.
    */
   private whenText(phase: PrinterPhase, at: Date): string {
-    const now = new Date(this.now());
-    const time = formatTime(this.hass, at);
-    // calendar days apart on the house's calendar, the one its times are written in (a job finished yesterday morning
-    // finished yesterday, whatever the hours say; and a viewer away from home reads the house's days)
-    const zone = houseZone(this.hass);
-    const midnight = (d: Date): number => {
-      const wall = wallClock(d, zone);
-      return Date.UTC(wall.year, wall.month - 1, wall.day);
-    };
-    const days = Math.round((midnight(at) - midnight(now)) / 86_400_000);
+    const { time, days, day, ago } = when(this.hass, at.getTime(), this.now());
     if (phase === 'finished')
       return days === 0
         ? s(this.hass, 'done_at', { time })
-        : s(this.hass, 'done_ago', {
-            when:
-              days === -1
-                ? this.t('time.yesterday')
-                : this.t('time.days_ago', { n: Math.abs(days) }),
-          });
+        : s(this.hass, 'done_ago', { when: ago });
     if (!busy(phase)) return '';
-    if (days === 0) return s(this.hass, 'ready_at', { time });
-    // within the week its weekday; further out its date, so a job eight days long never reads like tomorrow's
-    const day = formatDate(this.hass, at, days < 6 ? 'weekday' : 'short');
-    return s(this.hass, 'ready_on', { day, time });
+    return days === 0
+      ? s(this.hass, 'ready_at', { time })
+      : s(this.hass, 'ready_on', { day, time });
   }
 
   /** The line under the bar: its parts by importance, the last ones left out whole where they do not fit. */
@@ -1468,7 +1534,7 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
     const failure = r.failure;
     const at = r.at !== null ? new Date(r.at) : null;
     const left = this.durationText(r.left);
-    const stats = r.unavailable ? [] : this.stats(r);
+    const stats = this.stats(r);
     // the layer said once: by its readout when it has one, else in the line under the bar
     const layerShown = stats.some((stat) => stat.entity && stat.entity === this.roles().layer);
     const layer = this.number('layer');
@@ -1488,16 +1554,19 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
     // compact: the progress and the time left lead its one line; full: they are the row above the bar
     const line = compact
       ? this.meta([
-          `${this.figure(r.progress ?? 0)} %`,
+          r.unavailable ? '—' : `${this.figure(r.progress ?? 0)} %`,
           r.left !== null ? s(this.hass, 'left_text', { time: `${left.value} ${left.unit}` }) : '',
           when,
           elapsed,
           layerText,
         ])
-      : this.meta([when, elapsed, layerText]);
+      : this.meta([when, elapsed, layerText]) || (r.unavailable ? '—' : '');
     const { columns, size } = this.readoutLayout(stats, compact);
-    const trays = r.unavailable || compact ? [] : this.trays();
-    const items = compact || r.unavailable ? [] : this.actionItems(r.phase);
+    const trays = compact ? [] : this.trays();
+    // out of reach the buttons of a job stand where they would, still
+    const items = compact
+      ? []
+      : this.actionItems(r.unavailable ? 'printing' : r.phase, r.unavailable);
     // the trays over the buttons share one gap, 8 to 16 (never wider than the 16 between the two groups): both rows'
     // cells on whole pixels; 4 only where nothing wider keeps every cell 44 (three buttons in half a phone's column)
     const layout: TrayLayout = trays.length
@@ -1509,25 +1578,25 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
     const counts = [layout.columns, buttons].filter((n) => n > 0);
     const touchable = (g: number): boolean => counts.every((n) => cell(g, n) >= 44);
     // the trays' columns were decided at the narrowest gap: a wider one is taken only where they still hold
-    const wide = sharedGap(this.contentWidth, counts, [16, 12, 8].filter(layout.holds));
-    const narrow = sharedGap(this.contentWidth, counts, [4]);
+    const wide = sharedGap(this.contentWidth, counts, [16, 12, 8].filter(layout.holds)).gap;
+    const narrow = sharedGap(this.contentWidth, counts, [4]).gap;
     const gap = touchable(wide) && layout.holds(wide) ? wide : touchable(narrow) ? narrow : 4;
     return html`<article
       class="fv-card dv-card pr-card ${r.unavailable ? 'is-unavailable is-off' : ''}"
       data-card
     >
       ${this.renderHead(r)} ${failure ? html`<p class="pr-note">${failure}</p>` : nothing}
-      ${this.renderPicture()}
+      ${this.renderPicture(r)}
       ${
-        working && r.progress !== null
+        (working && r.progress !== null) || r.unavailable
           ? html`${
                 compact
                   ? nothing
                   : html`<div
                       class="fv-value-row pr-top ${this.stacked(r, left) ? 'is-stacked' : ''}"
                     >
-                      ${readout({ label: s(this.hass, 'progress'), value: this.figure(r.progress), unit: '%', size: 'l' })}
-                      ${r.left !== null ? html`<div class="pr-top__side">${readout({ label: s(this.hass, 'left'), value: left.value, unit: left.unit, size: 's' })}</div>` : nothing}
+                      ${readout({ label: s(this.hass, 'progress'), value: r.progress === null ? '—' : this.figure(r.progress), unit: r.progress === null ? '' : '%', size: 'l' })}
+                      ${r.left !== null || r.unavailable ? html`<div class="pr-top__side">${readout({ label: s(this.hass, 'left'), value: left.value, unit: left.unit, size: 's' })}</div>` : nothing}
                     </div>`
               }
               <div class="pr-progress fv-tone--${r.tone}">
@@ -1536,12 +1605,12 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
                   role="progressbar"
                   aria-valuemin="0"
                   aria-valuemax="100"
-                  aria-valuenow=${Math.round(r.progress)}
+                  aria-valuenow=${Math.round(r.progress ?? 0)}
                   aria-label=${s(this.hass, 'progress')}
                   ><span
                     class="fv-bar__fill"
                     data-measure="value"
-                    style="width:${r.progress}%"
+                    style="width:${r.progress ?? 0}%"
                   ></span
                 ></span>
               </div>
@@ -1556,7 +1625,7 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
           : nothing
       }
       ${trays.length ? this.renderTrays(trays, layout, gap) : nothing}
-      ${compact || r.unavailable ? nothing : this.controls(items, gap, buttons)}
+      ${compact ? nothing : this.controls(items, gap, buttons)}
     </article>`;
   }
 
@@ -1590,7 +1659,12 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
    */
   private trayLayout(trays: readonly Tray[]): TrayLayout {
     const w = this.contentWidth;
-    const widest = Math.max(...trays.map((tray) => this.head.ruler.width('pr-tray', tray.type)));
+    // a tray emptied, or one that cannot be read ("—"), never reflows the unit: each holds at least the empty one's word
+    const widest = Math.max(
+      ...[...trays.map((tray) => tray.type), s(this.hass, 'empty')].map((type) =>
+        this.head.ruler.width('pr-tray', type),
+      ),
+    );
     const needs = widest + SWATCH + 16;
     // decided at the narrowest gap the rows share (8), never at the gap a width happens to land on: the columns
     // then only grow as the card widens (a 4 ↔ 2 flip between 380 and 404 was the gap's doing, not the room's)
@@ -1680,6 +1754,7 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
     const length = 2 * Math.PI * radius;
     const tap = (): void => this.tap(roles.status);
     const hold = (): void => this.hold(roles.status);
+    const { onTap, onHold } = this.headActions(roles.status, r.title);
     if (!ring)
       return html`<article
         class="fv-card dv-card pr-card pr-card--row is-bare ${r.unavailable ? 'is-unavailable is-off' : ''}"
@@ -1713,13 +1788,13 @@ export class FluvyPrinterCard extends Card<PrinterCardConfig> {
             ? svg`<svg viewBox="0 0 58 58" aria-hidden="true" data-measure="drawn"><circle class="pr-ring__track" cx="29" cy="29" r=${radius} /><circle class="pr-ring__fill" cx="29" cy="29" r=${radius} stroke-dasharray=${length.toFixed(2)} stroke-dashoffset=${(length * (1 - r.progress / 100)).toFixed(2)} /></svg>`
             : nothing
         }
-        ${ico(this.headGlyph(r), this.headTone(r), { onTap: tap, onHold: hold, label: r.title })}
+        ${ico(this.headGlyph(r), this.headTone(r))}
       </span>
       <span class="fv-row__text"
         ><span class="fv-row__title" data-name>${r.title}</span
         ><span class="fv-row__sub">${line}</span></span
       >
-      ${control}
+      ${control} ${onTap || onHold ? pressCover(`${r.title} · ${line}`, onTap, onHold) : nothing}
     </article>`;
   }
 }

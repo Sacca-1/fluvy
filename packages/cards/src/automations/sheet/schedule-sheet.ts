@@ -55,20 +55,31 @@ import {
   type Verb,
   type Weekday,
 } from '../schedule.js';
+import type { TargetChoice } from '../scope.js';
 import { apiMessage } from '../store.js';
 import { dayChips } from './day-chips.js';
 import { heldValue, pairWidth } from './fit.js';
 import {
   clockOf,
+  later,
   minutesOf,
   modeChips,
   momentOf,
   OFFSET_LIMIT,
+  quickEnds,
   sunOffsetLine,
   timeField,
   type MomentMode,
 } from './moments.js';
-import { candidateRows, chosenChips, findCandidates, searchField } from './targets.js';
+import {
+  candidateRows,
+  chosenChips,
+  findCandidates,
+  fixedTarget,
+  MATCHES,
+  searchField,
+  targetChips,
+} from './targets.js';
 
 const s = strings('automations');
 
@@ -79,6 +90,13 @@ export interface ScheduleRequest {
   readonly domains: readonly string[];
   /** The candidates are this area's alone. */
   readonly area?: string;
+  /**
+   * What a schedule may target instead (a card's `targets` that exist, in its order; `domains` and `area` then say
+   * nothing): one is a fixed row a new schedule starts on, two to six are chips, more are searched among themselves.
+   */
+  readonly only?: readonly TargetChoice[];
+  /** The card's clock (a frozen one in the playground): the next whole hour, "Today 19:11". */
+  readonly now?: () => Date;
   /** The house's workday sensor, for the Workdays tile's second line (the data layer writes it). */
   readonly workday?: string;
   /** Minutes the time field's arrows and the sun offset's stepper move by. */
@@ -100,6 +118,8 @@ export interface DetailsRequest {
   readonly alias: string;
   /** The config's id, for Home Assistant's editor and its traces; a YAML automation has none. */
   readonly configId?: string;
+  /** The card's clock: "2 days ago". */
+  readonly now?: () => Date;
   run(): void;
   toggle(on: boolean): void;
 }
@@ -122,6 +142,15 @@ interface Draft {
   readonly start: Moment;
   readonly hasEnd: boolean;
   readonly end: Moment;
+  /**
+   * The end was set by hand (its kind, its time, its offset; an existing schedule's own): it stays. Until then it
+   * follows the start — `span` minutes after it when a quick end was chosen, else as a window starts (`endAfter`).
+   */
+  readonly endTouched: boolean;
+  readonly span: number | undefined;
+  /** The last time on the clock each moment had: what "At a time" comes back to after Sunrise or Sunset. */
+  readonly startClock: string;
+  readonly endClock: string;
   /** What the end does; undefined: the opposite of the start. */
   readonly after: Verb | undefined;
   /** The name typed; '' while the sheet suggests one. */
@@ -151,6 +180,10 @@ const EMPTY: Draft = {
   start: { kind: 'time', at: '08:00' },
   hasEnd: false,
   end: { kind: 'time', at: '09:00' },
+  endTouched: false,
+  span: undefined,
+  startClock: '08:00',
+  endClock: '09:00',
   after: undefined,
   alias: '',
   query: '',
@@ -162,18 +195,44 @@ function endAfter(start: Moment): Moment {
   return { kind: 'sun', event: start.event === 'sunrise' ? 'sunset' : 'sunrise', offset: 0 };
 }
 
-/** A new schedule's draft: nothing chosen, every day, the next whole hour on the clock. */
-function freshDraft(now: Date): Draft {
+/** A moment and the draft's memory of the clock: a time on the clock is remembered as its moment's last. */
+const withClock = (which: 'start' | 'end', moment: Moment): Partial<Draft> => ({
+  [which]: moment,
+  ...(moment.kind === 'time' ? { [`${which}Clock`]: moment.at } : {}),
+});
+
+/**
+ * A new schedule's draft: every day, the next whole hour on the clock (on the card's clock), nothing chosen — or, for
+ * a card about one entity, that entity and what a new schedule for it does (its verb, else its domain's first: on,
+ * open, run), so Save works at once.
+ */
+function freshDraft(now: Date, only: readonly TargetChoice[] | undefined): Draft {
   const minutes = now.getHours() * 60 + now.getMinutes();
-  const start: Moment = {
-    kind: 'time',
-    at: clockOf(Math.min(23 * 60, Math.ceil((minutes + 1) / 60) * 60)),
+  const at = clockOf(Math.min(23 * 60, Math.ceil((minutes + 1) / 60) * 60));
+  const start: Moment = { kind: 'time', at };
+  const draft: Draft = {
+    ...EMPTY,
+    start,
+    end: endAfter(start),
+    startClock: at,
+    endClock: clockOf(minutesOf(at) + 60),
   };
-  return { ...EMPTY, start, end: endAfter(start) };
+  const choice = only?.length === 1 ? only[0] : undefined;
+  if (!choice) return draft;
+  const verb = choice.verb ?? verbsFor(domainsOf([choice.id]))[0];
+  return {
+    ...draft,
+    targets: [choice.id],
+    verb,
+    level: verb === 'on' ? choice.level : undefined,
+    temperature: verb === 'on' ? choice.temperature : undefined,
+  };
 }
 
-/** An existing schedule as a draft. */
+/** An existing schedule as a draft: its end, when it has one, is its own. */
 function draftOf(schedule: Schedule): Draft {
+  const startClock = schedule.start.kind === 'time' ? schedule.start.at : EMPTY.startClock;
+  const end = schedule.end ?? endAfter(schedule.start);
   return {
     targets: schedule.targets,
     verb: schedule.then.verb,
@@ -183,7 +242,11 @@ function draftOf(schedule: Schedule): Draft {
     custom: schedule.days.kind === 'custom' ? schedule.days.days : WORKDAYS,
     start: schedule.start,
     hasEnd: schedule.end !== undefined,
-    end: schedule.end ?? endAfter(schedule.start),
+    end,
+    endTouched: schedule.end !== undefined,
+    span: undefined,
+    startClock,
+    endClock: end.kind === 'time' ? end.at : clockOf(minutesOf(startClock) + 60),
     after: schedule.after?.verb,
     alias: schedule.alias,
     query: '',
@@ -212,6 +275,16 @@ const DAY_WORD: Readonly<Record<DayKind, 'every_day' | 'workdays' | 'weekend' | 
   weekend: 'weekend',
   custom: 'custom',
 };
+
+/**
+ * What the dialog keeps to itself, sitting in a popup (Bubble Card's) that closes on a window's Escape and slides
+ * closed from a touch on itself: Escape closes the sheet alone (the dialog's own cancel still runs), and a touch that
+ * starts in the sheet is the sheet's — its scroll, never the popup's slide.
+ */
+const keepEscape = (event: KeyboardEvent): void => {
+  if (event.key === 'Escape') event.stopPropagation();
+};
+const keepTouch = { handleEvent: (event: Event): void => event.stopPropagation(), passive: true };
 
 /** The verbs any of those domains has, in the sheet's order: what the Do tiles show before a target is chosen. */
 const verbsOffered = (domains: readonly string[]): readonly Verb[] =>
@@ -301,8 +374,9 @@ export class FluvyScheduleSheet extends LitElement {
         height: auto;
         min-height: 44px;
       }
-      .fv-sheet__title {
-        overflow-wrap: anywhere;
+      .ss-title--s {
+        font-size: 16px;
+        line-height: 20px;
       }
       .fv-sheet__title[data-name] {
         overflow: hidden;
@@ -343,6 +417,11 @@ export class FluvyScheduleSheet extends LitElement {
       .ss-block > .fv-chips + .ss-time,
       .ss-block > .fv-chips + .in-field {
         margin-top: 8px;
+      }
+      /* a card's targets as chips, and an end's quick spans, right under their label; the next chips 8 under them */
+      .ss-targets > .fv-chips,
+      .ss-spans > .fv-chips {
+        margin-top: 0;
       }
       /* the targets chosen: content-sized chips that wrap */
       .ss-chosen {
@@ -396,18 +475,16 @@ export class FluvyScheduleSheet extends LitElement {
         -webkit-box-orient: vertical;
         -webkit-line-clamp: 2;
         white-space: normal;
-        overflow-wrap: anywhere;
       }
       .ss-footer {
         margin-top: 24px;
       }
-      /* delete: a full-width link in the danger ink; armed, it says so on a wash of the same */
+      /* delete: a full-width link in the danger ink; armed, it says so on the danger's own fill (the armed button) */
       .ss-delete {
         width: 100%;
-        color: var(--fluvy-danger);
       }
-      .ss-delete.is-armed {
-        background: color-mix(in srgb, var(--fluvy-danger) 16%, var(--fluvy-page));
+      .ss-delete.fv-btn--quiet {
+        color: var(--fluvy-danger);
       }
       .ss-delete + .dv-actions {
         margin-top: 16px;
@@ -519,7 +596,7 @@ export class FluvyScheduleSheet extends LitElement {
       ? EMPTY
       : request.schedule
         ? draftOf(request.schedule)
-        : freshDraft(new Date());
+        : freshDraft(this.now(), request.only);
     this.busy_ = false;
     this.error_ = '';
     this.disarm();
@@ -582,17 +659,41 @@ export class FluvyScheduleSheet extends LitElement {
       this.settlePending(undefined);
   }
 
-  /** The focus on opening: the search for a new schedule, the first verb tile for an existing one, Run for details. */
+  /**
+   * The focus on opening: Run for details; the verb chosen (an existing schedule's, a card's one target's) — else the
+   * first verb — where there is one; else where a target is chosen (the search, a card's first target).
+   */
   private focusFirst(): void {
     const request = this.request_;
     if (!request || this.docked) return;
     const root = this.renderRoot;
+    // the first selector that finds something wins (one selector list would take the first in the document's order)
+    const find = (...selectors: string[]): HTMLElement | null => {
+      for (const selector of selectors) {
+        const found = root.querySelector<HTMLElement>(selector);
+        if (found) return found;
+      }
+      return null;
+    };
     const target = isDetails(request)
-      ? root.querySelector<HTMLElement>('.dv-actions .fv-btn--accent')
-      : request.schedule
-        ? root.querySelector<HTMLElement>('.ss-do .fv-option, .ss-do .fv-chip')
-        : root.querySelector<HTMLElement>('.ss-search input');
+      ? find('.dv-actions .fv-btn--accent')
+      : this.draft_.verb
+        ? find('.ss-do .is-active', '.ss-do .fv-option, .ss-do .fv-chip')
+        : find('.ss-search input', '.ss-what .fv-chip:not([disabled])');
     target?.focus();
+  }
+
+  /** The card's clock, else the browser's. */
+  private now(): Date {
+    return this.request_?.now?.() ?? new Date();
+  }
+
+  /** A target's name: the card's for it, else the entity's own. */
+  private nameOf(id: string): string {
+    return (
+      this.request?.only?.find((choice) => choice.id === id)?.name ??
+      resolveEntity(this.hass, id).name
+    );
   }
 
   /**
@@ -615,13 +716,10 @@ export class FluvyScheduleSheet extends LitElement {
     row.classList.toggle('dv-actions--stacked', stacked);
   }
 
-  /** A tile's value where it holds a cell of `cell` px, its shorter form where that holds, else nothing. */
-  private held(full: string, short: string, cell: number): string {
-    return heldValue(
-      full,
-      short,
-      (text) => this.ruler.width('fv-option > fv-option__value', text) <= cell,
-    );
+  /** A tile's value where it holds a cell of `cell` px, its shorter form where that holds, else nothing (`word`: a descriptor's style). */
+  private held(full: string, short: string, cell: number, word = false): string {
+    const cls = `fv-option > fv-option__value${word ? ' fv-option__value--word' : ''}`;
+    return heldValue(full, short, (text) => this.ruler.width(cls, text) <= cell);
   }
 
   /** The sheet's content width (its 16 sides off), the design's 360 before it is laid out. */
@@ -687,18 +785,19 @@ export class FluvyScheduleSheet extends LitElement {
     return this.request_ && !isDetails(this.request_) ? this.request_ : undefined;
   }
 
-  /** The verbs the targets allow, or the ones the house's domains offer while nothing is chosen. */
+  /** The verbs the targets allow, or the ones the house's domains (a card's targets) offer while nothing is chosen. */
   private verbs(): readonly Verb[] {
     const request = this.request;
     if (!request) return [];
     const draft = this.draft_;
-    return draft.targets.length
-      ? verbsFor(domainsOf(draft.targets))
-      : verbsOffered(request.domains);
+    if (draft.targets.length) return verbsFor(domainsOf(draft.targets));
+    return verbsOffered(
+      request.only ? domainsOf(request.only.map((choice) => choice.id)) : request.domains,
+    );
   }
 
   private suggestion(draft: Draft): string {
-    const names = draft.targets.map((id) => resolveEntity(this.hass, id).name);
+    const names = draft.targets.map((id) => this.nameOf(id));
     return suggestAlias(
       this.hass,
       names,
@@ -734,22 +833,37 @@ export class FluvyScheduleSheet extends LitElement {
     return checkSchedule(schedule) ? undefined : schedule;
   }
 
-  private pick(id: string): void {
-    haptic(this, 'selection');
-    const targets = [...this.draft_.targets, id];
+  /** The targets as they now are: the verb stays while they all still have it. */
+  private setTargets(targets: readonly string[], part: Partial<Draft> = {}): void {
     const verbs = verbsFor(domainsOf(targets));
     const verb =
       this.draft_.verb && verbs.includes(this.draft_.verb) ? this.draft_.verb : undefined;
-    this.patch({ targets, verb, after: undefined, query: '' });
+    this.patch({ targets, verb, after: undefined, ...part });
+  }
+
+  private pick(id: string): void {
+    haptic(this, 'selection');
+    this.setTargets([...this.draft_.targets, id], { query: '' });
   }
 
   private drop(id: string): void {
     haptic(this, 'light');
-    const targets = this.draft_.targets.filter((target) => target !== id);
-    const verbs = verbsFor(domainsOf(targets));
-    const verb =
-      this.draft_.verb && verbs.includes(this.draft_.verb) ? this.draft_.verb : undefined;
-    this.patch({ targets, verb, after: undefined });
+    this.setTargets(this.draft_.targets.filter((target) => target !== id));
+  }
+
+  /** A card's target pressed or released where it stands: the chosen ones in the card's order, any others after them. */
+  private toggleTarget(id: string): void {
+    const chosen = this.draft_.targets;
+    if (chosen.includes(id)) {
+      this.drop(id);
+      return;
+    }
+    haptic(this, 'selection');
+    const ids = (this.request?.only ?? []).map((choice) => choice.id);
+    this.setTargets([
+      ...ids.filter((each) => each === id || chosen.includes(each)),
+      ...chosen.filter((each) => !ids.includes(each)),
+    ]);
   }
 
   private chooseVerb(verb: Verb): void {
@@ -790,13 +904,32 @@ export class FluvyScheduleSheet extends LitElement {
     this.patch({ custom: next, days: { kind: 'custom', days: next } });
   }
 
+  /**
+   * A moment set: the start, and with it an end not yet set by hand (its quick span after the start, else as a window
+   * starts: "Sunset" ends at "Sunrise", 07:00 at 08:00); or the end, which is then the user's and stays.
+   */
+  private setMoment(which: 'start' | 'end', moment: Moment): void {
+    const draft = this.draft_;
+    if (which === 'end') {
+      this.patch({ ...withClock('end', moment), endTouched: true, span: undefined });
+      return;
+    }
+    const end = draft.endTouched
+      ? undefined
+      : draft.span === undefined
+        ? endAfter(moment)
+        : later(moment, draft.span);
+    this.patch({ ...withClock('start', moment), ...(end ? withClock('end', end) : {}) });
+  }
+
   private setMode(which: 'start' | 'end', mode: MomentMode): void {
     haptic(this, 'selection');
-    const previous = which === 'start' ? this.draft_.start : this.draft_.end;
-    const start = this.draft_.start;
-    const at =
-      which === 'start' || start.kind !== 'time' ? '08:00' : clockOf(minutesOf(start.at) + 60);
-    this.patch({ [which]: momentOf(mode, previous, at) });
+    const draft = this.draft_;
+    const previous = which === 'start' ? draft.start : draft.end;
+    this.setMoment(
+      which,
+      momentOf(mode, previous, which === 'start' ? draft.startClock : draft.endClock),
+    );
   }
 
   private stepOffset(which: 'start' | 'end', direction: 1 | -1): void {
@@ -807,7 +940,17 @@ export class FluvyScheduleSheet extends LitElement {
       -OFFSET_LIMIT,
       Math.min(OFFSET_LIMIT, moment.offset + direction * step),
     );
-    this.patch({ [which]: { ...moment, offset } });
+    this.setMoment(which, { ...moment, offset });
+  }
+
+  /** A quick end: the end that long after the start, and following it while the start moves. */
+  private chooseSpan(minutes: number): void {
+    haptic(this, 'selection');
+    this.patch({
+      ...withClock('end', later(this.draft_.start, minutes)),
+      endTouched: false,
+      span: minutes,
+    });
   }
 
   private setEnd(on: boolean): void {
@@ -907,22 +1050,47 @@ export class FluvyScheduleSheet extends LitElement {
     return html`<section class="ss-section ${className}">${label(word)}${body}</section>`;
   }
 
+  /**
+   * What: the house's entities searched; or a card's targets (`only`) — the one fixed (while the schedule is about it
+   * alone), up to six as chips, more searched among themselves. A target from elsewhere (a schedule written for the
+   * lamp and the hall) stays as a chip that removes it, never dropped unseen.
+   */
   private renderWhat(request: ScheduleRequest, draft: Draft): TemplateResult {
     const hass = this.hass;
-    const candidates = hass
-      ? findCandidates(hass, request.domains, request.area, draft.query, draft.targets)
-      : { groups: [], more: 0 };
-    return this.section(
-      s(hass, 'what'),
-      html`${searchField({
+    const only = request.only;
+    const ids = only?.map((choice) => choice.id);
+    const [single] = only ?? [];
+    const nameOf = (id: string): string => this.nameOf(id);
+    let body: TemplateResult;
+    const alone = draft.targets.length === 1 && draft.targets[0] === single?.id;
+    if (only?.length === 1 && single && alone) {
+      body = fixedTarget(hass, single, nameOf(single.id));
+    } else if (only && ids && only.length <= MATCHES) {
+      body = html`${targetChips(hass, only, draft.targets, nameOf, (id) => this.toggleTarget(id), this.fit)}
+      ${chosenChips(
+        hass,
+        draft.targets.filter((id) => !ids.includes(id)),
+        (id) => this.drop(id),
+        nameOf,
+      )}`;
+    } else {
+      const candidates = hass
+        ? findCandidates(
+            hass,
+            ids ? { only: ids } : { domains: request.domains, area: request.area },
+            draft.query,
+            draft.targets,
+          )
+        : { groups: [], more: 0 };
+      body = html`${searchField({
         value: draft.query,
         label: s(hass, 'search'),
         onInput: (query) => this.patch({ query }),
       })}
-      ${chosenChips(hass, draft.targets, (id) => this.drop(id))}
-      ${candidateRows(hass, candidates, (id) => this.pick(id))}`,
-      'ss-what',
-    );
+      ${chosenChips(hass, draft.targets, (id) => this.drop(id), nameOf)}
+      ${candidateRows(hass, candidates, (id) => this.pick(id))}`;
+    }
+    return this.section(s(hass, 'what'), body, 'ss-what');
   }
 
   private renderDo(draft: Draft): TemplateResult {
@@ -1008,16 +1176,23 @@ export class FluvyScheduleSheet extends LitElement {
   ): TemplateResult {
     const hass = this.hass;
     const fit = this.fit;
+    // the end's own label is the Until row over it ("Until · 22:00–23:00"): never said twice
     return html`<div class="ss-block ss-${which}">
-      ${label(word)} ${modeChips(hass, moment, (mode) => this.setMode(which, mode), fit)}
+      ${which === 'start' ? label(word) : nothing}
+      ${
+        which === 'end'
+          ? quickEnds(hass, this.draft_.start, moment, (minutes) => this.chooseSpan(minutes), fit)
+          : nothing
+      }
+      ${modeChips(hass, moment, (mode) => this.setMode(which, mode), fit)}
       ${
         moment.kind === 'time'
           ? timeField(hass, moment.at, request.timeStep, word, (at) =>
-              this.patch({ [which]: { kind: 'time', at } }),
+              this.setMoment(which, { kind: 'time', at }),
             )
           : this.fieldRow(
               s(hass, 'offset'),
-              sunOffsetLine(hass, moment, request.sun, new Date()),
+              sunOffsetLine(hass, moment, request.sun, this.now()),
               stepper((direction) => this.stepOffset(which, direction), {
                 decrease: localize(hass, 'common.decrease'),
                 increase: localize(hass, 'common.increase'),
@@ -1032,20 +1207,22 @@ export class FluvyScheduleSheet extends LitElement {
     const hass = this.hass;
     const fit = this.fit;
     const kind = draft.days.kind;
-    // two tiles a row: a value holds its cell whole or takes its shorter word, else goes (never wrapped)
+    // two tiles a row: a value holds its cell whole or takes its shorter word, else goes (never wrapped); the values
+    // here are descriptors (the sensor, the days), set in the word's style, never a figure's
     const cell = optionCell(fit.width, 4, 2);
     const workdaysSub = request.workday
-      ? this.held(s(hass, 'workday_sensor'), s(hass, 'sensor'), cell)
-      : this.held(s(hass, 'weekdays_only'), '', cell);
+      ? this.held(s(hass, 'workday_sensor'), s(hass, 'sensor'), cell, true)
+      : this.held(s(hass, 'weekdays_only'), '', cell, true);
     const customSub =
       kind === 'custom'
-        ? this.held(daysText(hass, draft.days), daysShort(hass, draft.days), cell)
+        ? this.held(daysText(hass, draft.days), daysShort(hass, draft.days), cell, true)
         : '';
     const items: OptionItem[] = DAY_KINDS.map((each) => ({
       key: each,
       label: s(hass, DAY_WORD[each]),
       glyph: DAY_GLYPH[each],
       value: each === 'workdays' ? workdaysSub : each === 'custom' ? customSub : '',
+      word: true,
       active: each === kind,
     }));
     const hold = optionsHold(
@@ -1181,9 +1358,18 @@ export class FluvyScheduleSheet extends LitElement {
             request.schedule?.alias ?? '',
           )
         : round('close', 'quiet', localize(hass, 'keypad.close'), () => this.close());
+    // a title wraps at its words; a word wider than its line steps the title down to a card's 16 first; where not even
+    // that holds, its short form, at the size it holds at (it "Programmazione" → "Programma" beside the switch at 211)
+    const room = this.fit.width - (existing && request.entity && request.toggle ? 56 : 44) - 12;
+    const holds = (text: string, cls: string): boolean =>
+      text.split(' ').every((word) => this.ruler.width(cls, word) <= room);
+    const full = s(hass, existing ? 'schedule' : 'new');
+    const title =
+      existing && !holds(full, 'fv-sheet__title ss-title--s') ? s(hass, 'schedule_short') : full;
+    const step = !holds(title, 'fv-sheet__title');
     return html`<div class="fv-sheet__head">
         <div class="fv-card__titles">
-          <h2 class="fv-sheet__title" id="ss-title">${s(hass, existing ? 'schedule' : 'new')}</h2>
+          <h2 class="fv-sheet__title ${step ? 'ss-title--s' : ''}" id="ss-title">${title}</h2>
           ${existing ? html`<p class="fv-card__sub" data-name>${request.schedule?.alias}</p>` : nothing}
         </div>
         ${trailing}
@@ -1196,7 +1382,7 @@ export class FluvyScheduleSheet extends LitElement {
         ${
           existing && request.remove
             ? html`<button
-                class="fv-btn fv-btn--quiet ss-delete ${this.armed_ ? 'is-armed' : ''}"
+                class="fv-btn ${this.armed_ ? 'fv-btn--armed' : 'fv-btn--quiet'} ss-delete"
                 data-control
                 data-target
                 aria-live="polite"
@@ -1237,16 +1423,23 @@ export class FluvyScheduleSheet extends LitElement {
     const on = this.pendingOn_ ?? this.liveOn();
     const raw = view.attr<unknown>('last_triggered');
     const last = typeof raw === 'string' && raw ? new Date(raw) : undefined;
-    const when = lastText(hass, last, new Date());
+    const when = lastText(hass, last, this.now());
     const full = `${when} · ${localize(hass, on ? 'common.on' : 'common.off')}`;
     // the line gives way from its end: beside the switch (56) and the gap, "2 days ago · On" keeps "2 days ago"
     const sub = this.ruler.width('fv-card__sub', full) <= this.fit.width - 56 - 12 ? full : when;
     const id = request.configId;
-    const links = [s(hass, 'open_in_ha'), localize(hass, 'activity.trace')];
+    const trace = localize(hass, 'common.trace');
     // the rows keep their circles while every link holds one line beside one (a 44 circle, two 12 gaps, the chevron's 44)
-    const keep = links.every(
+    const keep = [s(hass, 'open_in_ha'), trace].every(
       (text) => this.ruler.width('fv-row__title', text) <= this.fit.width - 56 - 12 - 44,
     );
+    // a word wider than even the bare row takes its short form (de "Ablaufverfolgung" → "Ablauf"), never broken
+    const links = [
+      s(hass, 'open_in_ha'),
+      this.ruler.width('fv-row__title', trace) <= this.fit.width - 12 - 44
+        ? trace
+        : localize(hass, 'common.trace_short'),
+    ];
     return html`<div class="fv-sheet__head">
         <div class="fv-card__titles">
           <h2 class="fv-sheet__title" id="ss-title" data-name>${request.alias}</h2>
@@ -1304,6 +1497,8 @@ export class FluvyScheduleSheet extends LitElement {
       }}
       @close=${() => this.finishClose()}
       @click=${(event: MouseEvent) => this.onDialogClick(event)}
+      @keydown=${keepEscape}
+      @touchstart=${keepTouch}
     >
       ${this.renderSheet(request)}
     </dialog>`;

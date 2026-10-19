@@ -23,3 +23,9 @@ export const statusToneOf = (item: Coloured | undefined, status: Tone): Tone =>
 
 /** When an item's colour shows on its surface: while it is on (the default), or always — a quiet wash and its hairline at rest. */
 export type Tint = 'on' | 'always';
+
+/** What a card with lights says of their colours (1.9). */
+export interface LightColours {
+  /** A lit light wears its bulb's colour (the house's default, in fluvy's settings, where the card says none). */
+  light_colors?: boolean;
+}

@@ -141,3 +141,91 @@ describe('the holder', () => {
     expect(changes).toContain('none');
   });
 });
+
+describe('the holder across a reconnect and a recovered stream (1.9)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  /** A viewport whose observer the test drives: its last callback, called with one entry. */
+  function viewport(): { connect(): void; see(seen: boolean): void } {
+    let callback: IntersectionObserverCallback | undefined;
+    class FakeObserver {
+      constructor(cb: IntersectionObserverCallback) {
+        callback = cb;
+      }
+      observe(): void {}
+      disconnect(): void {}
+    }
+    (globalThis as unknown as { IntersectionObserver: unknown }).IntersectionObserver =
+      FakeObserver;
+    return {
+      connect: () => undefined,
+      see: (seen) =>
+        callback?.(
+          [{ isIntersecting: seen } as IntersectionObserverEntry],
+          {} as IntersectionObserver,
+        ),
+    };
+  }
+
+  it('comes back from a disconnect with the element out until the viewport says it is seen', () => {
+    const view = viewport();
+    const holder = new StreamHolder(host(), () => undefined);
+    holder.hostConnected();
+    holder.state = 'ready';
+    view.see(true);
+    expect(holder.playing).toBe(true);
+    // the card leaves the page while on screen (another view): teardown remembers it as seen
+    holder.hostDisconnected();
+    // and comes back off screen: nothing plays, and the first report that it is not seen is not dropped
+    holder.hostConnected();
+    expect(holder.attached).toBe(false);
+    expect(holder.playing).toBe(false);
+    view.see(false);
+    expect(holder.playing).toBe(false);
+    // seen again: it plays at once
+    view.see(true);
+    expect(holder.playing).toBe(true);
+    delete (globalThis as unknown as { IntersectionObserver?: unknown }).IntersectionObserver;
+  });
+
+  it('waits a minute again after a stream that played, not twice the last wait', async () => {
+    const holder = new StreamHolder(host(), () => undefined);
+    holder.hostConnected();
+    holder.report(true);
+    const props = {
+      hass: {},
+      stateObj: {},
+      fitMode: 'cover' as const,
+      aspectRatio: 1,
+      className: 'x',
+    };
+    /** Home Assistant's element, drawn and in the page, saying whether it has video. */
+    const streams = async (hasVideo: boolean): Promise<void> => {
+      holder.state = 'ready';
+      const element = holder.draw(props);
+      if (!element.isConnected) document.body.append(element);
+      if (!hasVideo && !element.shadowRoot)
+        element.attachShadow({ mode: 'open' }).innerHTML = '<ha-alert>Stream failed</ha-alert>';
+      element.dispatchEvent(new CustomEvent('streams', { detail: { hasVideo }, bubbles: true }));
+      await vi.advanceTimersByTimeAsync(1);
+    };
+    // two failures: the waits grow to a minute, then two
+    await streams(false);
+    expect(holder.state).toBe('none');
+    await streams(false);
+    expect(holder.state).toBe('none');
+    // then the stream plays: the players say they have video
+    await streams(true);
+    expect(holder.state).toBe('ready');
+    // it fails later: the next ask waits one minute, not four
+    await streams(false);
+    expect(holder.state).toBe('none');
+    await vi.advanceTimersByTimeAsync(RETRY_AFTER - 1000);
+    holder.ask('camera.one');
+    expect(holder.state).toBe('none'); // not before its minute
+    await vi.advanceTimersByTimeAsync(1001);
+    holder.ask('camera.one');
+    expect(holder.state).toBe('asking');
+  });
+});

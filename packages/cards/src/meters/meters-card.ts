@@ -26,12 +26,13 @@ import { fetchPrefs } from '../energy-model/house.js';
 import { houseMidnight } from '../energy-model/period.js';
 import { readPrefs, type EnergyPrefs } from '../energy-model/prefs.js';
 import { isEntityId } from '../energy-model/outage.js';
-import { HeadFit } from '../energy/head.js';
+import { RecordedSensors } from '../energy-model/recorded.js';
+import { HeadFit, SWITCH_SLOT } from '../energy/head.js';
 import { shortName } from '../energy/power.js';
 import { Card, type BaseKey } from '../shared/base.js';
 import { toneOf } from '../shared/colour.js';
 import { configKeys, ITEM_ALIASES, type AliasSpec } from '../shared/config.js';
-import { glyphFor } from '../shared/domain.js';
+import { glyphFor, stateWord } from '../shared/domain.js';
 import { fitLine, type Segment } from '../shared/fit.js';
 import {
   actionFields,
@@ -43,6 +44,7 @@ import {
   nameIconFields,
   numberField,
   selectField,
+  showIconField,
   titleFields,
 } from '../shared/form.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
@@ -96,8 +98,6 @@ export interface MetersCardConfig extends FluvyCardConfig {
   _now?: string;
 }
 
-/** Below this, a row's name needs its circle's room. */
-const BARE = 200;
 /** The bar and its note need this much beside the figure; below it they go under it. */
 const BARS_MIN = 96;
 const FIGURE_MIN = 120;
@@ -128,6 +128,8 @@ interface Meter {
   readonly trouble: string;
   /** `undefined`: no flow sensor; `null`: one that cannot be read. */
   readonly rate: string | null | undefined;
+  /** It has a line under its figure, read or not: a typical day, a flow, or the recorder holding nothing of it. */
+  readonly lined: boolean;
 }
 
 /**
@@ -193,6 +195,7 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
     'card_color',
     'tap_action',
     'hold_action',
+    'show_icon',
   ];
   static override keys = configKeys<MetersCardConfig>()([
     'title',
@@ -238,6 +241,7 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
       schema: [
         titleFields(),
         fieldRow(iconField(), selectField('variant', METERS_VARIANTS)),
+        showIconField(),
         ...colourFields(),
         actionFields(),
       ],
@@ -271,6 +275,8 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
   >();
   private readonly weeks = new Map<string, readonly StatRow[] | null>();
   private readonly asked = new Map<string, string>();
+  /** The meters missing from the house: as the recorder describes them (their unit), so their day is still read. */
+  private readonly recorded = new RecordedSensors(this);
   private ticker: number | undefined;
   private shownHour = 0;
 
@@ -350,8 +356,8 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
     const now = this.now();
     const midnight = houseMidnight(hass, now).getTime();
     for (const m of this.configured()) {
-      const view = this.entity(m.entity);
-      if (view.status === 'missing') continue;
+      const view = this.meterView(m.entity);
+      if (!this.recorded.ready(view)) continue;
       const unit = view.unit;
       const hour = `${m.entity}|${unit}|${Math.floor(now.getTime() / 3_600_000)}`;
       if (this.asked.get(`day|${m.entity}`) !== hour) {
@@ -381,15 +387,20 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
     return s(this.hass, `kind_${kind}`);
   }
 
+  /** A meter as it is read: one missing from the house as the recorder describes it. */
+  private meterView(id: string): EntityView {
+    return this.recorded.view(this.entity(id));
+  }
+
   private meters(): Meter[] {
     const list = this.configured();
     const midnight = this.hass ? houseMidnight(this.hass, this.now()).getTime() : 0;
     const kinds = list.map((m) => {
-      const view = this.entity(m.entity);
+      const view = this.meterView(m.entity);
       return m.kind ?? kindOf(view.deviceClass, view.unit);
     });
     return list.map((m, i): Meter => {
-      const view = this.entity(m.entity);
+      const view = this.meterView(m.entity);
       const kind = kinds[i] as MeterKind;
       const same = kinds.filter((k) => k === kind).length;
       const label =
@@ -433,15 +444,17 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
         typical,
         trouble,
         rate,
+        lined: typical !== null || rate !== undefined || (day !== undefined && !day.rows?.length),
       };
     });
   }
 
   /**
    * "6 L/min now · typical 150 L": what flows now first, the typical day after it (the first to go when narrow); the
-   * rate alone where even "6 L/min now" would not fit — a figure per minute says it is now.
+   * rate alone where even "6 L/min now" would not fit — a figure per minute says it is now. Measured in the class that
+   * draws it: the block's note, or a row's second line.
    */
-  private note(m: Meter, room: number): string {
+  private note(m: Meter, room: number, cls = 'ef-meter__note'): string {
     const segments: Segment[] = [];
     if (m.trouble) segments.push({ text: m.trouble });
     else if (m.rate !== undefined)
@@ -452,7 +465,7 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
         optional: segments.length > 0,
       });
     if (!segments.length) return '';
-    const width = (text: string): number => this.head.ruler.width('ef-meter__note', text);
+    const width = (text: string): number => this.head.ruler.width(cls, text);
     const line = fitLine(segments, room, width);
     return width(line) > room && !m.trouble && m.rate !== undefined
       ? fitLine([{ text: m.rate ?? '—' }], room, width)
@@ -474,32 +487,44 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
     const title = this.config?.title ?? (only ? this.kindWord(only) : s(this.hass, 'title'));
     const typical = meters.some((m) => m.typical !== null);
     const first = meters[0]?.id;
+    const today = this.t('common.today');
+    const sub =
+      this.config?.subtitle ?? (typical ? `${today} · ${s(this.hass, 'vs_typical')}` : today);
     const fit = (round: boolean) =>
-      this.head.fit({
-        width: w,
-        title,
-        sub:
-          this.config?.subtitle ??
-          (typical
-            ? `${this.t('common.today')} · ${s(this.hass, 'vs_typical')}`
-            : this.t('common.today')),
-        ...(round ? { trailing: 44 } : {}),
-      });
+      this.head.fit({ width: w, title, sub, ...(round ? { trailing: 44 } : {}) });
     // the "…" round opens the first meter's details, as the energy card's does (fig-029); it gives way before the
-    // title is cut, after the icon
+    // title or the day ("Aujourd'hui" in half a column) is cut, after the icon
     let more = first !== undefined && isEntityId(first);
     let fitted = fit(more);
-    if (more && !fitted.icon && this.head.ruler.width('fv-card__title', title) > w - 44 - 12) {
+    const r = this.head.ruler;
+    if (
+      more &&
+      !fitted.icon &&
+      (r.width('fv-card__title', title) > w - 44 - 12 ||
+        r.width('fv-card__sub', sub.split(' · ')[0] ?? '') > w - 44 - 12)
+    ) {
       more = false;
       fitted = fit(false);
     }
     const waiting = !(this.config?.meters ?? []).length && this.prefs === undefined;
     const empty = !meters.length && !rows.length && !waiting;
     const variant = this.config?.variant === 'rows' ? 'rows' : 'full';
-    const list = `ef-rows ${w < BARE ? 'ef-rows--bare' : ''}`;
+    // a column too narrow for a row's name beside its figure or its switch gives every row's circle to the names, as
+    // every list does (the full card's rows are its entity rows alone)
+    const keep = this.head.rowsKeepIcon(w, [
+      ...(variant === 'rows' ? meters : []).map((m) => ({
+        title: m.label,
+        value: m.today === null ? '—' : this.amount(m.today, m.unit),
+        // what flows now is the note's figure, whole or gone with its circle
+        sub: m.trouble ? '' : (m.rate ?? ''),
+      })),
+      ...rows.map((r) => this.rowEnd(r)),
+    ]);
+    const list = `ef-rows ${keep ? '' : 'ef-rows--bare'}`;
     return html`<article class="fv-card ef-card" data-card>
       ${head({
         icon: fitted.icon ? (this.config?.icon ?? (only === 'gas' ? 'flame' : 'drop')) : null,
+        small: fitted.small,
         tone: toneOf(this.config, only === 'gas' ? 'gas' : 'water'),
         title,
         sub: fitted.sub,
@@ -511,8 +536,8 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
             }
           : {}),
         name: Boolean(this.config?.title),
-        onIconTap: () => this.tap(first),
-        onHold: () => this.hold(first),
+        cut: fitted.cut,
+        ...this.headActions(first),
       })}
       ${
         empty
@@ -524,10 +549,10 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
             )
           : variant === 'rows'
             ? html`<div class=${list}>
-                ${meters.map((m) => this.meterRow(m, w))}${rows.map((r) => this.entityRow(r, w))}
+                ${meters.map((m) => this.meterRow(m, w, keep))}${rows.map((r) => this.entityRow(r, w, keep))}
               </div>`
             : html`${meters.map((m) => this.meterBlock(m, w))}
-              ${rows.length ? html`<div class=${list}>${rows.map((r) => this.entityRow(r, w))}</div>` : nothing}`
+              ${rows.length ? html`<div class=${list}>${rows.map((r) => this.entityRow(r, w, keep))}</div>` : nothing}`
       }
     </article>`;
   }
@@ -543,8 +568,14 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
     // one under: the figure's width is rounded up to the 4 grid, the note's measure is not (fr's "Pas encore de
     // statistiques" left its box by a pixel at 412)
     const room = (stacked ? w : w - figure - GAP) - 1;
-    const note = this.note(m, room);
-    const bar = m.typical !== null && !m.trouble;
+    // out of reach, the row keeps its lines (the owner's rule, 1.9): the bar, empty, where the meter has a typical day,
+    // and its state in the note; a stacked row with no line of its own says its state beside the dash, in the short
+    // word a figure's line has room for ("— Not found")
+    const away = m.view.status !== 'ok';
+    const aside = stacked && away && !m.lined;
+    const note = aside ? '' : this.note(m, room);
+    const after = aside ? stateWord(this.hass, m.view) : unit;
+    const bar = m.typical !== null && (away || !m.trouble);
     const open = (): void => this.tap(m.id, { action: 'more-info' });
     return html`<div
       class="ef-meter fv-row--tap ${stacked ? 'ef-meter--stack' : ''} ${m.trouble ? 'is-dead' : ''}"
@@ -555,7 +586,7 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
       @click=${open}
       @keydown=${activateKey(open)}
     >
-      ${readout({ label: m.label, value, unit, name: true })}
+      ${readout({ label: m.label, value, unit: after, name: true })}
       <div class="ef-meter__bars">
         ${
           bar
@@ -574,14 +605,14 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
   }
 
   /** The `rows` layout: a bar row per meter — its icon, its name, the note, the bar and today's figure. */
-  private meterRow(m: Meter, w: number): TemplateResult {
+  private meterRow(m: Meter, w: number, keep: boolean): TemplateResult {
     const value = m.today === null ? '—' : this.amount(m.today, m.unit);
     return barRow({
-      icon: m.glyph,
+      icon: keep ? m.glyph : null,
       tone: m.trouble ? 'off' : m.kind,
       title: m.label,
       name: true,
-      sub: this.note(m, this.rowRoom(w, value)),
+      sub: this.note(m, this.rowRoom(w, value, keep), 'fv-row__sub'),
       value,
       fraction: fractionOf(m.today, m.typical),
       barTone: m.kind,
@@ -589,12 +620,33 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
     });
   }
 
+  /**
+   * What ends an entity's row, for the rows' rule: its switch's slot, or its value's words — and what of its second
+   * line must stay whole beside them (a state's short word, the time it last checked in; a room's name may end in
+   * its ellipsis).
+   */
+  private rowEnd(r: MeterRowConfig): { title: string; value: string; end?: number; sub: string } {
+    const view = this.entity(r.entity);
+    const title = r.name ?? view.name;
+    if (SWITCHED.has(view.domain)) return { title, value: '', end: SWITCH_SLOT, sub: '' };
+    return { title, value: this.rowValue(view), sub: this.rowSub(view)[0]?.short ?? '' };
+  }
+
+  /** An entity row's figure or state: "3.1 bar", "Dry", a dash while it cannot be read. */
+  private rowValue(view: EntityView): string {
+    if (view.status !== 'ok') return '—';
+    const parts = valueParts(this.hass, view);
+    return view.number !== null
+      ? [parts.value, parts.unit].filter(Boolean).join(' ')
+      : stateText(this.hass, view);
+  }
+
   /** A row under the meters: a valve or a switch gets its switch; anything else says its state ("Dry", "3.1 bar"). */
-  private entityRow(r: MeterRowConfig, w: number): TemplateResult {
+  private entityRow(r: MeterRowConfig, w: number, keep: boolean): TemplateResult {
     const view = this.entity(r.entity);
     const usable = view.status === 'ok';
     const title = r.name ?? view.name;
-    const glyph = r.icon ?? glyphFor(view);
+    const glyph = keep ? (r.icon ?? glyphFor(view)) : null;
     const open = (): void => this.tap(view.id, { action: 'more-info' });
     if (SWITCHED.has(view.domain)) {
       const state = this.stateOf(view);
@@ -615,12 +667,7 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
         onToggle: (next) => this.flip(view, next),
       });
     }
-    const parts = valueParts(this.hass, view);
-    const value = !usable
-      ? '—'
-      : view.number !== null
-        ? [parts.value, parts.unit].filter(Boolean).join(' ')
-        : stateText(this.hass, view);
+    const value = this.rowValue(view);
     // a leak said out loud: a moisture or water sensor that is on
     const alarm =
       usable &&
@@ -632,7 +679,7 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
       tone: alarm ? 'warning' : usable ? 'neutral' : 'off',
       title,
       name: true,
-      sub: this.head.fitRowSub(this.rowSub(view), this.rowRoom(w, value)),
+      sub: this.head.fitRowSegments(this.rowSub(view), this.rowRoom(w, value, keep)),
       trailing: 'value',
       value,
       valueTone: alarm ? 'warning' : '',
@@ -641,20 +688,25 @@ export class FluvyMetersCard extends Card<MetersCardConfig> {
   }
 
   /** Room for a row's second line beside its value: the circle's too, when the rows have none. */
-  private rowRoom(w: number, value: string): number {
-    return this.head.rowRoom(w, value) + (w < BARE ? 56 : 0);
+  private rowRoom(w: number, value: string, keep: boolean): number {
+    return this.head.rowRoom(w, value, { icon: keep });
   }
 
-  /** "Kitchen · checked 21:40": where it is and when it last reported (a sensor that stays dry still checks in). */
-  private rowSub(view: EntityView): string {
-    if (view.status !== 'ok') return stateText(this.hass, view);
+  /**
+   * "Kitchen · checked 21:40": where it is and when it last reported (a sensor that stays dry still checks in), the
+   * time alone where its words would be cut ("21:40"); a state's short word where its long one would ("Not found").
+   */
+  private rowSub(view: EntityView): Segment[] {
+    if (view.status !== 'ok')
+      return [{ text: stateText(this.hass, view), short: stateWord(this.hass, view) }];
     const state = view.stateObj as { last_reported?: string; last_updated?: string } | undefined;
     const at = Date.parse(state?.last_reported ?? state?.last_updated ?? '');
-    const checked = Number.isFinite(at)
-      ? s(this.hass, 'checked', { time: formatTime(this.hass, new Date(at)) })
-      : '';
-    if (view.areaName) return [view.areaName, checked].filter(Boolean).join(' · ');
-    return checked.charAt(0).toUpperCase() + checked.slice(1);
+    if (!Number.isFinite(at)) return view.areaName ? [{ text: view.areaName }] : [];
+    const time = formatTime(this.hass, new Date(at));
+    const checked = s(this.hass, 'checked', { time });
+    return view.areaName
+      ? [{ text: view.areaName }, { text: checked, short: time, optional: true }]
+      : [{ text: checked.charAt(0).toUpperCase() + checked.slice(1), short: time }];
   }
 
   /** The switch flips at once; the valve or switch is called through the card's own helper. */

@@ -41,12 +41,13 @@ import {
   iconField,
   numberField,
   selectField,
+  showIconField,
   textField,
   titleFields,
 } from '../shared/form.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 import { BAR, layoutSankey, type LaidNode, type SankeyLayout } from './layout.js';
-import { sankeyModel, type DeviceInput, type SankeyModel } from './model.js';
+import { idNamed, sankeyModel, type DeviceInput, type SankeyModel } from './model.js';
 
 const s = strings('energy-sankey');
 const flow = strings('energy-flow');
@@ -81,6 +82,8 @@ interface Device {
   readonly id: string;
   readonly name: string;
   readonly parent: string | undefined;
+  /** Its name is only its id's: a device no longer in the house, with no name of its own in the config or the prefs. */
+  readonly idName?: boolean;
 }
 
 interface Scene {
@@ -89,7 +92,7 @@ interface Scene {
   /** Each node's words and what a tap on them opens. */
   readonly words: ReadonlyMap<
     string,
-    { name: string; value: string; unit: string; entity?: string }
+    { name: string; value: string; unit: string; entity?: string; idName?: boolean }
   >;
 }
 
@@ -129,6 +132,7 @@ export class FluvyEnergySankeyCard extends Card<EnergySankeyCardConfig> {
     'card_color',
     'tap_action',
     'hold_action',
+    'show_icon',
   ];
   static override keys = configKeys<EnergySankeyCardConfig>()([
     'title',
@@ -162,6 +166,7 @@ export class FluvyEnergySankeyCard extends Card<EnergySankeyCardConfig> {
       schema: [
         titleFields(),
         fieldRow(iconField(), selectField('period', PERIODS)),
+        showIconField(),
         fieldRow(boolField('show_period'), numberField('max_devices', 1, 20)),
         ...colourFields(),
         actionFields(),
@@ -214,16 +219,20 @@ export class FluvyEnergySankeyCard extends Card<EnergySankeyCardConfig> {
     const own = (this.config?.devices ?? [])
       .map((d) => (typeof d === 'string' ? { entity: d } : d))
       .filter((d) => typeof d.entity === 'string' && d.entity !== '');
+    const idName = (name: string | undefined, id: string): boolean =>
+      idNamed(this.hass, this.entity(id), name);
     if (own.length)
       return own.map((d) => ({
         id: d.entity,
         name: d.name ?? deviceName(this.entity(d.entity)),
         parent: d.parent || undefined,
+        idName: idName(d.name, d.entity),
       }));
     return this.house().devices.map((d) => ({
       id: d.stat,
       name: d.name ?? (isEntity(d.stat) ? deviceName(this.entity(d.stat)) : d.stat),
       parent: d.parent,
+      idName: idName(d.name, d.stat),
     }));
   }
 
@@ -335,13 +344,19 @@ export class FluvyEnergySankeyCard extends Card<EnergySankeyCardConfig> {
           return s(this.hass, 'not_measured');
       }
     };
-    const words = new Map<string, { name: string; value: string; unit: string; entity?: string }>();
+    const words = new Map<
+      string,
+      { name: string; value: string; unit: string; entity?: string; idName?: boolean }
+    >();
     for (const n of [...model.sources, ...model.targets, ...model.kids]) {
       const entity = n.key.startsWith('device:')
         ? devices[Number(n.key.slice(7))]?.id
         : entityOf[n.key];
       words.set(n.key, {
         name: nameOf(n.key),
+        ...(n.key.startsWith('device:') && devices[Number(n.key.slice(7))]?.idName
+          ? { idName: true }
+          : {}),
         value: scaled(this.hass, n.value * 1000, scale),
         unit: scale.unit,
         ...(isEntity(entity) ? { entity } : {}),
@@ -350,12 +365,16 @@ export class FluvyEnergySankeyCard extends Card<EnergySankeyCardConfig> {
     return { model, scale, words };
   }
 
-  /** The words' box: its name or its figure, whichever is wider, measured in the classes that draw them. */
+  /**
+   * The words' box: its name or its figure, whichever is wider, measured in the classes that draw them. A name that is
+   * only an id's (a device no longer in the house) takes no more than its figure's room and ends in an ellipsis there:
+   * the labels keep the places they had while the device is away (the owner's rule, 1.9).
+   */
   private labelWidth(scene: Scene, key: string): number {
     const w = scene.words.get(key);
     if (!w) return 0;
     return Math.max(
-      this.head.ruler.width('en-sk-name', w.name),
+      w.idName ? 0 : this.head.ruler.width('en-sk-name', w.name),
       this.head.ruler.width('en-sk-value', w.value, 'en-unit', w.unit),
     );
   }
@@ -387,11 +406,12 @@ export class FluvyEnergySankeyCard extends Card<EnergySankeyCardConfig> {
       scene && !empty
         ? `${scaled(this.hass, scene.model.total * 1000, scene.scale)} ${scene.scale.unit}`
         : '';
-    const sub =
-      this.config?.subtitle ??
-      this.outage() ??
-      [flow(this.hass, `period_${period}`), total].filter(Boolean).join(' · ');
-    const fitted = this.head.fit({ width: w, title, sub, badge: null });
+    const own = this.config?.subtitle ?? this.outage();
+    const line = (words: string): string => [words, total].filter(Boolean).join(' · ');
+    const sub = own ?? line(flow(this.hass, `period_${period}`));
+    // "Since midnight" is "Today" where a column cannot hold it (es "Desde medianoche" in half a column)
+    const shorter = own === undefined && period === 'day' ? [line(this.t('common.today'))] : [];
+    const fitted = this.head.fit({ width: w, title, sub, badge: null, shorter });
     let body: TemplateResult;
     if (!configured)
       body = this.head.empty(
@@ -417,8 +437,8 @@ export class FluvyEnergySankeyCard extends Card<EnergySankeyCardConfig> {
         title,
         sub: fitted.sub,
         name: Boolean(this.config?.title),
-        onIconTap: () => this.tap(),
-        onHold: () => this.hold(),
+        cut: fitted.cut,
+        ...this.headActions(),
       })}
       ${
         configured && this.config?.show_period !== false

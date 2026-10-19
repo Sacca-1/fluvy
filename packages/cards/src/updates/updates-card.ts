@@ -1,19 +1,21 @@
 import {
   formatNumber,
   formatTime,
+  plural,
   stateText,
   strings,
   type EntityView,
   type FluvyCardConfig,
   type LovelaceConfigForm,
   type LovelaceGridOptions,
+  type HomeAssistant,
 } from '@fluvy/core';
 
-import { badge, head, icon, listRow, sheetStyles, type IconRef, type Tone } from '@fluvy/ui';
+import { head, icon, listRow, sheetStyles, type IconRef, type Tone } from '@fluvy/ui';
 
 import { css, html, nothing, type CSSResultGroup, type TemplateResult } from 'lit';
 
-import { actionsKeepIcon, rowButton } from '../helpers/rows.js';
+import { rowButton, rowsKeepIcon, rowStacks, type RowEnd } from '../helpers/rows.js';
 
 import { rowStyles } from '../helpers/styles.js';
 
@@ -26,23 +28,25 @@ import {
   boolField,
   colourFields,
   editorLabels,
+  emptyFields,
   entitiesField,
   entityField,
   fieldRow,
   iconField,
+  showIconField,
   textField,
   titleFields,
 } from '../shared/form.js';
 import { configKeys } from '../shared/config.js';
 import { toneOf } from '../shared/colour.js';
-import { TextRuler } from '../shared/fit.js';
-import { FontsSettled } from '../shared/fonts.js';
-import { listLength, ROW } from '../shared/heights.js';
+import { HeadFit } from '../energy/head.js';
+import { attrOf, HEAD, ROW } from '../shared/heights.js';
+import { EMPTY_KEYS, hideEmpty, idsOf, listOf, type EmptyList } from '../shared/lists.js';
 import type { EditorDefaults } from '../shared/rows-editor.js';
 
 const s = strings('updates');
 
-export interface UpdatesCardConfig extends FluvyCardConfig {
+export interface UpdatesCardConfig extends FluvyCardConfig, EmptyList {
   title?: string;
   subtitle?: string;
   /** Keep the entities that are already current in the list instead of hiding them. */
@@ -67,8 +71,24 @@ const NARROW = 300;
  */
 export class FluvyUpdatesCard extends Card<UpdatesCardConfig> {
   /** The card's height at a 360 column, for the automatic dashboard's columns. */
-  static override layoutHeight(config: UpdatesCardConfig): number {
-    return 84 + ROW * listLength(config, ['entities']) + (config.toggle ? 48 : 0);
+  static override layoutHeight(config: UpdatesCardConfig, hass?: HomeAssistant): number {
+    const ids = idsOf(config.entities);
+    // the rows 16 under the head: one per update waiting (or that cannot be read; every one with `show_up_to_date`),
+    // 76 for one installing; nothing waiting (or nothing listed) is the one quiet row ("Everything is up to date");
+    // the switch under the list is a row of its own group (16 + 60). Without the house, every update listed waits.
+    const shown = ids.filter((id) => {
+      const state = hass?.states?.[id];
+      return (
+        !hass ||
+        config.show_up_to_date === true ||
+        !state ||
+        state.state === 'on' ||
+        state.state === 'unavailable' ||
+        state.state === 'unknown'
+      );
+    });
+    const busy = shown.filter((id) => attrOf(hass, id, 'in_progress') === true).length;
+    return HEAD + ROW * Math.max(1, shown.length) + 16 * busy + (config.toggle ? 16 + ROW : 0);
   }
 
   static override styles: CSSResultGroup = [
@@ -113,6 +133,7 @@ export class FluvyUpdatesCard extends Card<UpdatesCardConfig> {
     'color',
     'card_color',
     'hold_action',
+    'show_icon',
   ];
   static override keys = configKeys<UpdatesCardConfig>()([
     'title',
@@ -120,6 +141,7 @@ export class FluvyUpdatesCard extends Card<UpdatesCardConfig> {
     'show_up_to_date',
     'toggle',
     'toggle_secondary',
+    ...EMPTY_KEYS,
   ]);
   /** What the editor shows where the config says nothing: what the card does then. */
   static override defaults: EditorDefaults = () => ({ show_up_to_date: false });
@@ -127,7 +149,7 @@ export class FluvyUpdatesCard extends Card<UpdatesCardConfig> {
     return {
       schema: [
         titleFields(),
-        iconField(),
+        fieldRow(iconField(), showIconField()),
         ...colourFields(),
         boolField('show_up_to_date'),
         entitiesField('entities', ['update'], true),
@@ -135,6 +157,7 @@ export class FluvyUpdatesCard extends Card<UpdatesCardConfig> {
           entityField(['input_boolean', 'switch', 'automation'], 'toggle', false),
           textField('toggle_secondary'),
         ),
+        emptyFields(),
         actionField('hold_action'),
       ],
       // this card's own options are worded by its own strings
@@ -158,32 +181,24 @@ export class FluvyUpdatesCard extends Card<UpdatesCardConfig> {
   }
 
   protected override prepare(config: UpdatesCardConfig): UpdatesCardConfig {
-    if (!config.entities?.length) throw new Error('fluvy-updates-card: add at least one entity');
+    listOf(config, 'entities');
     return config;
   }
 
   protected override watched(): readonly string[] {
-    return [...(this.config?.entities ?? []), ...(this.config?.toggle ? [this.config.toggle] : [])];
+    return [...idsOf(this.config?.entities), ...(this.config?.toggle ? [this.config.toggle] : [])];
   }
 
   override getCardSize(): number {
-    return 1 + (this.config?.entities?.length ?? 0) + (this.config?.toggle ? 1 : 0);
+    return 1 + Math.max(1, idsOf(this.config?.entities).length) + (this.config?.toggle ? 1 : 0);
   }
 
   override getGridOptions(): LovelaceGridOptions {
     return { columns: 12, rows: 'auto', min_columns: 6 };
   }
 
-  /** Widths laid out by the browser in the card's own classes: whether an Install leaves the names their room. */
-  private readonly ruler = new TextRuler(() => this.renderRoot as ParentNode | undefined);
-
-  constructor() {
-    super();
-    new FontsSettled(this, () => {
-      this.ruler.clear();
-      this.requestUpdate();
-    });
-  }
+  /** The head's fitting; its ruler lays widths out in the card's own classes (whether the rows' ends leave names room). */
+  private readonly head = new HeadFit(this);
 
   /* ---------- rows ---------- */
 
@@ -214,7 +229,31 @@ export class FluvyUpdatesCard extends Card<UpdatesCardConfig> {
     return !this.installing(view) && view.state === 'on' && view.supports(INSTALL);
   }
 
-  /** `bare`: the rows have given their circles to their names (an Install, never cut, squeezed one of them). */
+  /** What ends a row that waits for nothing from here: "Up to date", or a dash while it cannot be read. */
+  private value(view: EntityView): string {
+    return view.status === 'ok' ? s(this.hass, 'up_to_date') : '—';
+  }
+
+  /**
+   * What ends each row, for the rows' rule: Install's words, a chevron's 44, a state's words; a row installing has
+   * its bar and nothing at its end.
+   */
+  private ends(shown: readonly EntityView[]): RowEnd[] {
+    const install = s(this.hass, 'install');
+    return shown
+      .filter((view) => !this.installing(view))
+      .map((view) =>
+        this.installable(view)
+          ? { name: view.name, button: install }
+          : {
+              name: view.name,
+              end:
+                view.state === 'on' ? 44 : this.head.ruler.width('fv-row__value', this.value(view)),
+            },
+      );
+  }
+
+  /** `bare`: the rows have given their circles to their names (what ends one, never cut, squeezed it). */
   private row(view: EntityView, narrow: boolean, bare: boolean): TemplateResult {
     const unusable = view.status === 'unavailable' || view.status === 'missing';
     const ref: IconRef | string = view.attr<string>('icon') ?? glyphFor(view);
@@ -236,7 +275,7 @@ export class FluvyUpdatesCard extends Card<UpdatesCardConfig> {
       return html`<div class="fv-row in-row--progress ${bare ? 'fv-row--bare' : ''}">
         ${circle('accent')}
         <span class="fv-row__text">
-          <span class="fv-row__title">${view.name}</span>
+          <span class="fv-row__title" data-name>${view.name}</span>
           <span class="fv-row__sub">${sub}</span>
           <span
             class="in-progress ${percent === null ? 'in-progress--busy' : ''}"
@@ -256,19 +295,23 @@ export class FluvyUpdatesCard extends Card<UpdatesCardConfig> {
     }
 
     if (this.installable(view)) {
+      const word = s(this.hass, 'install');
       const install = rowButton(
         'link',
-        s(this.hass, 'install'),
+        word,
         s(this.hass, 'install_named', { name: view.name }),
         () => {
           this.expect(view.id, STARTING); // the row turns into its progress bar under the finger
           this.call('update', 'install', {}, view.id);
         },
       );
-      return html`<div class="fv-row ${bare ? 'fv-row--bare' : ''}">
+      // where even without its circle Install would leave the name under its room, it goes under the name
+      const stack =
+        bare && rowStacks(this.head.ruler, this.contentWidth, { name: view.name, button: word });
+      return html`<div class="fv-row ${bare ? 'fv-row--bare' : ''} ${stack ? 'fv-row--stack' : ''}">
         ${circle('neutral')}
         <span class="fv-row__text"
-          ><span class="fv-row__title">${view.name}</span
+          ><span class="fv-row__title" data-name>${view.name}</span
           ><span class="fv-row__sub">${this.versions(view)}</span></span
         >
         ${install}
@@ -276,14 +319,14 @@ export class FluvyUpdatesCard extends Card<UpdatesCardConfig> {
     }
 
     // nothing to install from here: the trailing slot says why, or the chevron leads to Home Assistant's own dialog
-    const pending = view.state === 'on';
     return listRow({
       icon: bare ? null : ref,
       tone: unusable ? 'off' : 'neutral',
       title: view.name,
+      name: true,
       sub: this.versions(view),
-      trailing: pending ? 'chevron' : 'value',
-      value: view.status === 'ok' ? s(this.hass, 'up_to_date') : '—',
+      trailing: view.state === 'on' ? 'chevron' : 'value',
+      value: this.value(view),
       unavailable: unusable,
       onTap:
         view.status === 'missing' ? undefined : () => this.tap(view.id, { action: 'more-info' }),
@@ -318,18 +361,18 @@ export class FluvyUpdatesCard extends Card<UpdatesCardConfig> {
   }
 
   protected renderCard(): TemplateResult {
-    const views = (this.config?.entities ?? []).map((id) => this.entity(id));
+    const views = idsOf(this.config?.entities).map((id) => this.entity(id));
     const waiting = views.filter((view) => view.state === 'on' || this.installing(view));
-    const shown = this.config?.show_up_to_date ? views : waiting;
+    // an update that cannot be read — unavailable, unknown, gone — keeps its row, in its order: whether it waits is
+    // not known, and the list keeps its size (1.9)
+    const away = views.filter((view) => view.status !== 'ok');
+    const shown = this.config?.show_up_to_date
+      ? views
+      : views.filter((view) => waiting.includes(view) || away.includes(view));
+    // nothing to show is nothing waiting (or nothing listed): the card says so in its quiet row, or hides when asked
+    hideEmpty(this, !shown.length);
     const narrow = this.contentWidth < NARROW;
-    const install = s(this.hass, 'install');
-    const bare = !actionsKeepIcon(
-      this.ruler,
-      this.contentWidth,
-      shown
-        .filter((view) => this.installable(view))
-        .map((view) => ({ name: view.name, action: install })),
-    );
+    const bare = !rowsKeepIcon(this.head.ruler, this.contentWidth, this.ends(shown));
 
     const stamps = views
       .map((view) => (view.stateObj ? new Date(view.stateObj.last_updated).getTime() : Number.NaN))
@@ -337,27 +380,40 @@ export class FluvyUpdatesCard extends Card<UpdatesCardConfig> {
     const checked = stamps.length
       ? s(this.hass, 'checked', { time: formatTime(this.hass, new Date(Math.max(...stamps))) })
       : '';
+    // nothing waits that can be read: "Up to date" only where every update can be
     const count =
       waiting.length === 0
-        ? s(this.hass, 'up_to_date')
+        ? away.length
+          ? plural(this.hass, 'room.unavailable', away.length, { count: away.length })
+          : s(this.hass, 'up_to_date')
         : waiting.length === 1
           ? s(this.hass, 'one_available')
           : s(this.hass, 'available', { count: waiting.length });
 
+    // the head fitted to its column: the badge, then the line's trailing segments, then the circle — never the title
+    // cut ("Actualizaciones" at 211)
+    const title = this.config?.title ?? s(this.hass, 'title');
+    const fitted = this.head.fit({
+      width: this.contentWidth,
+      title,
+      sub: narrow ? count : (this.config?.subtitle ?? checked),
+      badge: narrow ? null : { text: count, tone: waiting.length ? 'accent' : 'neutral' },
+    });
     return html`<article class="fv-card" data-card>
       ${head({
-        icon: this.config?.icon ?? 'update',
+        icon: fitted.icon ? (this.config?.icon ?? 'update') : null,
         tone: toneOf(this.config, 'accent'),
-        title: this.config?.title ?? s(this.hass, 'title'),
-        sub: narrow ? count : (this.config?.subtitle ?? checked),
-        trailing: narrow ? nothing : badge(count, waiting.length ? 'accent' : 'neutral'),
-        onHold: () => this.hold(),
+        title,
+        sub: fitted.sub,
+        trailing: fitted.badge,
+        cut: fitted.cut,
+        ...this.headActions(),
       })}
       ${
         shown.length
           ? html`<div class="in-rows">${shown.map((view) => this.row(view, narrow, bare))}</div>`
           : html`<div class="in-rows in-rows--quiet">
-              ${listRow({ icon: 'check', tone: 'neutral', title: s(this.hass, 'all_up_to_date'), trailing: 'none' })}
+              ${listRow({ icon: 'check', tone: 'neutral', title: this.config?.empty_text ?? s(this.hass, 'all_up_to_date'), trailing: 'none' })}
             </div>`
       }
       ${this.toggleRow(bare)}

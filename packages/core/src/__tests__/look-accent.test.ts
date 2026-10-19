@@ -1,7 +1,17 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { derivePalette, seedOf } from '@fluvy/tokens/runtime';
-import { accentCss, accentHex, AccentSheet } from '../look/accent.js';
+import { TONE_VARS, TONES } from '@fluvy/ui';
+import {
+  accentCss,
+  accentHex,
+  AccentSheet,
+  litCss,
+  PALETTE_ACCENT,
+  paletteAccentCss,
+  surfaceCss,
+  TONE_STATES,
+} from '../look/accent.js';
 
 const linen = derivePalette(seedOf('linen'));
 
@@ -62,5 +72,98 @@ describe('a card’s colour on its palette', () => {
     accents.host(undefined);
     accents.commit();
     expect(sheet.cssRules).toHaveLength(0);
+  });
+
+  it('reads the inks a YAML may name and what the picker lets you type, on the palette worn (#40)', () => {
+    expect(accentHex('linen', 'light', 'primary-text')).toBe(linen.light.text.primary);
+    expect(accentHex('linen', 'dark', 'secondary-text')).toBe(linen.dark.text.secondary);
+    expect(accentHex('linen', 'light', 'disabled')).toBe(linen.light.unavailable.ink);
+    expect(accentHex('linen', 'light', '#AABBCC80')).toBe('#aabbcc');
+    expect(accentHex('linen', 'light', 'rgb(255 74 26)')).toBe('#ff4a1a');
+    // no canvas here: another CSS colour is nothing, never an error
+    expect(accentHex('linen', 'light', 'hsl(0 100% 50%)')).toBeUndefined();
+  });
+
+  it('gives an item that names the accent the palette’s own, under a card’s colour too', () => {
+    const host = document.createElement('div');
+    const root = host.attachShadow({ mode: 'open' });
+    const accents = new AccentSheet();
+    accents.adopt(root);
+    accents.wears('mist', 'light');
+    accents.host('red');
+    accents.begin();
+    expect(accents.item('primary')).toBe(PALETTE_ACCENT);
+    expect(accents.item(' Accent ')).toBe(PALETTE_ACCENT);
+    accents.commit();
+    const own = [...root.adoptedStyleSheets[0]!.cssRules]
+      .map((rule) => rule.cssText)
+      .find((text) => text.startsWith(`[data-accent="${PALETTE_ACCENT}"]`));
+    const mist = derivePalette(seedOf('mist')).light;
+    expect(own).toContain(`--fluvy-accent: ${mist.accent.ink}`);
+    expect(own).toContain(`--fluvy-accent-fill: ${mist.accent.fill}`);
+    expect(paletteAccentCss('mist', 'light')).toBe(paletteAccentCss('mist', 'light'));
+  });
+
+  it('steps a card’s own surface’s inner fills a shade deeper (`--fluvy-inset`), never the page’s colour in it', () => {
+    const css = surfaceCss('linen', 'light', '#2196f3');
+    expect(css).toMatch(
+      /--fluvy-card:#[0-9a-f]{6};--fluvy-border:#[0-9a-f]{6};--fluvy-inset:#[0-9a-f]{6};/,
+    );
+    expect(css).not.toContain(`--fluvy-inset:${linen.light.surface.page};`);
+  });
+});
+
+describe('a lit light card’s surface (1.9, #41)', () => {
+  const sheetOf = (accents: AccentSheet): string[] => {
+    const host = document.createElement('div');
+    const root = host.attachShadow({ mode: 'open' });
+    accents.adopt(root);
+    accents.commit();
+    return [...root.adoptedStyleSheets[0]!.cssRules].map((rule) => rule.cssText);
+  };
+
+  it('writes each lit surface on its data-surface, after the card’s own colour and surface', () => {
+    const accents = new AccentSheet();
+    accents.wears('linen', 'light');
+    accents.host('teal');
+    accents.surface('blue');
+    accents.begin();
+    expect(accents.lit('#ff9800', 0.73)).toBe('#ff9800-75');
+    expect(accents.lit('light', 0)).toBe('light-0');
+    // the same surface twice is one rule
+    expect(accents.lit('#ff9800', 0.75)).toBe('#ff9800-75');
+    const rules = sheetOf(accents);
+    expect(rules).toHaveLength(3);
+    expect(rules[0]).toMatch(/^:host > \* \{/);
+    expect(rules[1]).toMatch(/^\[data-surface="#ff9800-75"\] \{/);
+    expect(rules[1]).toContain('--fluvy-card:');
+    expect(rules[1]).toContain('--fluvy-border:');
+    expect(rules[1]).toContain('--fluvy-inset:');
+    expect(rules[2]).toMatch(/^\[data-surface="light-0"\] \{/);
+    // a render that asks for none forgets them
+    accents.begin();
+    expect(sheetOf(accents)).toHaveLength(1);
+  });
+
+  it('is lit in the palette’s own lit light where it glows no colour — not a colour that shares its name', () => {
+    const noir = derivePalette(seedOf('noir')).light;
+    const light = litCss('noir', 'light', 'light', 1);
+    expect(light).toContain(`--fluvy-border:${noir.state['light-active'].fillBorder};`);
+    // amber on Noir is a near black: the lit light is the palette's role, never the name
+    expect(light).not.toBe(litCss('noir', 'light', accentHex('noir', 'light', 'amber')!, 1));
+    expect(litCss('noir', 'light', 'accent', 1)).toContain(
+      `--fluvy-border:${noir.accent.fillBorder};`,
+    );
+    expect(litCss('noir', 'light', 'heat', 1)).toContain(
+      `--fluvy-border:${noir.state['climate-heat'].fillBorder};`,
+    );
+    expect(litCss('noir', 'light', 'light', 1)).toBe(light);
+  });
+
+  it('knows each tone’s state as the tones’ own table does', () => {
+    for (const tone of TONES) {
+      const ink = TONE_VARS[tone].ink;
+      expect(TONE_STATES[tone], tone).toBe(ink.startsWith('state-') ? ink.slice(6) : undefined);
+    }
   });
 });

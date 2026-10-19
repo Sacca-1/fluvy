@@ -90,6 +90,25 @@ export function fitLine(
   return line;
 }
 
+/**
+ * How many lines `text` takes broken between its words in `width`, as a line that wraps at words lays it out;
+ * `Infinity` where one word alone is wider than the line, which only a break inside it would hold.
+ */
+export function lineCount(text: string, width: number, measure: (text: string) => number): number {
+  let lines = 0;
+  let line = '';
+  for (const word of text.split(' ')) {
+    const longer = line ? `${line} ${word}` : word;
+    if (line && measure(longer) <= width) line = longer;
+    else if (measure(word) > width) return Infinity;
+    else {
+      lines += 1;
+      line = word;
+    }
+  }
+  return lines;
+}
+
 /** The first candidate that fits, else the last (the shortest) one. */
 export function firstFit<T>(
   candidates: readonly T[],

@@ -10,7 +10,11 @@
  * row; Delete arms on the first tap and DELETEs on the second; a plain automation's details Run `automation.trigger`
  * with `skip_condition` and Traces navigates to its trace; a still press opens more-info; a guest sees no `+`,
  * reads no config and gets more-info on tap; Escape closes the sheet and the focus returns to the row; the cards
- * leave no interval behind.
+ * leave no interval behind. A card for one lamp (`targets`) lists its schedule and the plain automation Home Assistant
+ * relates to it, says when it next turns on, opens its `+` straight onto the lamp (Save at once, nothing asked of the
+ * search the moment it lands), keeps Escape and a touch from the popup it sits in; a few targets are chips that press
+ * where they stand; an end takes its quick spans; German long words wrap in the empty panel and the mode chips go
+ * two and one.
  */
 import {
   apiCalls,
@@ -398,6 +402,194 @@ const SCHEDULE_ID = /^config\/automation\/config\/(fluvy_[0-9a-f]{12})$/;
     return window.__intervals();
   });
   check('the cards leave no interval behind', left <= PAGE_INTERVALS, `${left} live`);
+  await page.close();
+}
+
+/* ---------- one lamp (`targets`), a popup's card ---------- */
+{
+  const page = await open();
+  const lamp = frame(page, 'One lamp').locator('fluvy-automations-card');
+  const names = async (card) =>
+    (await card.locator('.fv-row .fv-row__title').allTextContents()).map((t) => t.trim());
+  const related = () =>
+    page.evaluate(
+      () => window.fluvyMock.wsCalls.filter((call) => call.type === 'search/related').length,
+    );
+  check(
+    'one lamp: its schedule and the plain automation Home Assistant relates to it, nothing else',
+    (await names(lamp)).join(' · ') === 'Good morning · Vacation lights',
+    (await names(lamp)).join(' · '),
+  );
+  const sub = (await lamp.locator('.fv-card__head .fv-card__sub').textContent()).trim();
+  check(
+    'one lamp: the head says when the lamp next turns on',
+    /^Turns on in \d+ h · 1 of 2 on$/.test(sub),
+    sub,
+  );
+
+  // nothing yet; a guest (before the save below adds a schedule the guest's card lists too)
+  check(
+    'empty: the lamp says nothing is scheduled for it',
+    (
+      await frame(page, 'One lamp · empty').locator('.fv-empty-state__text').textContent()
+    ).trim() === 'Nothing scheduled for Fountain yet',
+  );
+  const guest = frame(page, 'One lamp · guest').locator('fluvy-automations-card');
+  const reads = await page.evaluate(() => window.__guestApi ?? []);
+  check(
+    'guest: the lamp’s rows, no +, no config read',
+    (await names(guest)).join(' · ') === 'Good morning · Vacation lights' &&
+      (await guest.locator('.fv-card__head .fv-round').count()) === 0 &&
+      reads.length === 0,
+    JSON.stringify(reads),
+  );
+
+  // the +: straight onto the lamp
+  await reset(page);
+  const dialog = lamp.locator('fluvy-schedule-sheet dialog');
+  const save = dialog.locator('.ss-footer .fv-btn--accent');
+  await lamp.locator('.fv-card__head .fv-round').click();
+  await settle(page, 500);
+  check(
+    '+: no search, the lamp a fixed row, Turn on chosen, Save ready',
+    (await dialog.count()) === 1 &&
+      (await dialog.locator('.ss-search').count()) === 0 &&
+      (await dialog.locator('.ss-fixed .fv-row__title').textContent()).trim() === 'Kitchen lamp' &&
+      (await dialog.locator('.ss-do .fv-option.is-active').textContent()).includes('Turn on') &&
+      !(await save.isDisabled()),
+  );
+  const fixed = await dialog
+    .locator('.ss-fixed .fv-row__title')
+    .evaluate((el) => el.scrollWidth <= el.clientWidth);
+  check('+: the fixed row’s name is whole', fixed);
+  // Escape stays in the sheet: a popup listening on the window never hears it
+  await page.evaluate(() => {
+    window.__escapes = 0;
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') window.__escapes += 1;
+    });
+  });
+  const before = await related();
+  await page.waitForTimeout(400); // past the opening guard
+  await save.click();
+  await settle(page, 60);
+  const posts = (await apiCalls(page)).filter((c) => c.method === 'POST');
+  check(
+    'Save posts once, under a fresh fluvy id, turning the lamp alone on',
+    posts.length === 1 &&
+      SCHEDULE_ID.test(posts[0].path) &&
+      JSON.stringify(posts[0].body.actions[0].target) ===
+        JSON.stringify({ entity_id: ['light.kitchen'] }),
+    JSON.stringify(posts.map((x) => [x.path, x.body?.actions])),
+  );
+  check(
+    '…and asks Home Assistant nothing the moment it lands (it reloads after answering)',
+    (await related()) === before,
+    `${(await related()) - before} asked`,
+  );
+  await settle(page, 600);
+  check(
+    '…the new schedule lists on the lamp’s card and on the card of the house',
+    (await names(lamp)).filter((n) => n.startsWith('Kitchen lamp · Every day')).length === 1 &&
+      (await frame(page, 'Filters')
+        .locator('.fv-row', { hasText: 'Kitchen lamp · Every day' })
+        .count()) === 1,
+    (await names(lamp)).join(' · '),
+  );
+  await lamp.locator('.fv-row', { hasText: 'Good morning' }).locator('.fv-row__title').click();
+  await settle(page, 500);
+  await page.keyboard.press('Escape');
+  await settle(page, 400);
+  check(
+    'Escape closes the sheet alone: a window listener never hears it',
+    (await dialog.count()) === 0 && (await page.evaluate(() => window.__escapes)) === 0,
+    `${await page.evaluate(() => window.__escapes)} heard`,
+  );
+  await lamp.locator('.fv-row', { hasText: 'Good morning' }).locator('.fv-row__title').click();
+  await settle(page, 500);
+  const touched = await page.evaluate(() => {
+    const card = document.querySelector('[data-frame$="/One lamp"] fluvy-automations-card');
+    const holder = card.parentElement;
+    let heard = 0;
+    holder.addEventListener('touchstart', () => (heard += 1));
+    const inside = card.shadowRoot
+      .querySelector('fluvy-schedule-sheet')
+      .shadowRoot.querySelector('.ss-do .fv-option');
+    inside.dispatchEvent(new Event('touchstart', { bubbles: true, composed: true }));
+    return heard;
+  });
+  check('a touch in the sheet never reaches the popup around it', touched === 0, `${touched}`);
+  await page.keyboard.press('Escape');
+  await settle(page, 400);
+
+  // a few targets: chips that press where they stand
+  const few = frame(page, 'Sheet · a few');
+  const chips = few.locator('.ss-targets .fv-chip');
+  const boxes = async () =>
+    JSON.stringify(
+      await chips.evaluateAll((els) =>
+        els.map((el) => {
+          // against the row, which a click may scroll
+          const row = el.parentElement.getBoundingClientRect();
+          const box = el.getBoundingClientRect();
+          return [box.x - row.x, box.y - row.y, box.width, box.height].map(Math.round);
+        }),
+      ),
+    );
+  const at = await boxes();
+  await chips.nth(1).click();
+  await settle(page, 200);
+  check(
+    'a few: a chip presses where it stands, its neighbours still',
+    (await chips.nth(1).getAttribute('aria-pressed')) === 'true' && (await boxes()) === at,
+  );
+  const whole = await chips.evaluateAll((els) =>
+    els.every((el) => {
+      const name = el.querySelector('.fv-chip__name');
+      return !name || name.scrollWidth <= name.clientWidth;
+    }),
+  );
+  check('a few: every name whole', whole);
+
+  // an end's quick spans
+  const until = frame(page, 'Sheet · until');
+  check(
+    'until: the quick spans, the hour pressed for a window that starts on the hour',
+    (await until.locator('.ss-spans .fv-chip').allTextContents())
+      .map((t) => t.trim())
+      .join(' · ') === '15 min · 30 min · 1 h · 2 h' &&
+      (await until.locator('.ss-spans .fv-chip[aria-pressed="true"]').textContent()).trim() ===
+        '1 h',
+  );
+  await until.locator('.ss-spans .fv-chip', { hasText: '2 h' }).click();
+  await settle(page, 200);
+  check(
+    'until: two hours after the start',
+    (await until.locator('.ss-until .fv-row__sub').textContent()) === '22:00–00:00',
+    await until.locator('.ss-until .fv-row__sub').textContent(),
+  );
+  await page.close();
+}
+
+/* ---------- German: long words in narrow places ---------- */
+{
+  const page = await open({ lang: 'de' });
+  const text = frame(page, 'One lamp · long name').locator('.fv-empty-state__text');
+  const held = await text.evaluate((el) => {
+    const panel = el.closest('.fv-empty-state').getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    return box.left >= panel.left && box.right <= panel.right && el.scrollWidth <= el.clientWidth;
+  });
+  check('de: a long name breaks inside the empty panel at 211, never past it', held);
+  const modes = frame(page, 'Sheet · until').locator('.ss-start .fv-chip');
+  const rows = await modes.evaluateAll((els) =>
+    els.map((el) => Math.round(el.getBoundingClientRect().top)),
+  );
+  check(
+    'de: the start’s three mode chips go two and one where three would cut a word',
+    rows.length === 3 && rows[0] === rows[1] && rows[2] > rows[0],
+    JSON.stringify(rows),
+  );
   await page.close();
 }
 

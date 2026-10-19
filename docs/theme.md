@@ -23,6 +23,16 @@ solid). Every palette — preset or custom — goes through the same generator a
 4.5:1 at least, icons and large text at 3:1, cards separated from the page and from their borders. An accent that
 cannot carry text at 4.5:1 gets a darker ink for text and keeps its full colour for icons and charts.
 
+## Status colours
+
+The palette also decides the statuses — the warning's amber, the danger's red, the success's green and information's
+notice colour. The house may give any of them a colour of its own in the panel's *Appearance → Status colours*
+([how](settings-panel.md#status-colours)): the theme then writes that status's tokens in it — `--fluvy-warning` and
+its `-fill`, `-fill-border` and `-on-fill`, the same for `danger`, `success` and `notice`, and Home Assistant's
+`--warning-color`, `--error-color`, `--success-color` and their `--ha-color-*` scales — fitted to the same gates as
+the palette's own, on every palette and in both modes. `--fluvy-palette` then names them after the palette
+(`linen|warning=#dc630b`), so a card that works a colour out for itself does so in them too.
+
 ## Share a palette
 
 A custom palette travels as a file. In the panel's *Appearance* tab, with a custom accent chosen, the *Share* card
@@ -35,15 +45,25 @@ one of them is that palette, not "Custom". [How to contribute one](../CONTRIBUTI
 ## Shape and buttons
 
 Three shapes set the radii of cards, tiles and controls: **soft** (20 / 16 / 12 px, the default), **round**
-(28 / 22 / 16) and **crisp** (14 / 12 / 8). Circles and the rulers' 2 px lines never change. The buttons' style
-(pills or crisp) follows the same setting.
+(28 / 22 / 16) and **crisp** (14 / 12 / 8). Circles and the rulers' 2 px lines never change. The buttons — the
+pill-shaped things: chips, tabs, badges, the panel's notice — are chosen apart from the shape: a true **pill** (the
+default), or the corners of a **soft** (12) or a **crisp** (6) button; a switch stays a capsule.
 
 ## A colour per card, and per item
 
-A card's `color` (one of Home Assistant's colour names, or `#rrggbb`) is the accent inside that card. Lists of things
-you tell apart by colour also take a `color` on each item: tiles, scenes, tabs (the chips card), people (a ring round
-their picture), openings (their circle), rows, bars, stat tiles and lights. By default an item's colour shows while it
-is on.
+A card's `color` is the accent inside that card. Lists of things you tell apart by colour also take a `color` on each
+item: tiles, scenes, tabs (the chips card), people (a ring round their picture), openings (their circle), rows, bars,
+stat tiles and lights. By default an item's colour shows while it is on. A colour can be:
+
+- one of Home Assistant's colour names, from its picker (`teal`, `deep-orange`, `black` …), or the three its YAML
+  knows besides: `primary-text`, `secondary-text` and `disabled`, your palette's own inks;
+- a colour typed in: `#rrggbb`, `#rgb`, `rgb(…)`, or any CSS colour the browser reads. An opacity is dropped: the
+  colour is drawn solid, so its words keep their contrast;
+- `primary` (or `accent`): your palette's accent. On an item it is the palette's accent even inside a card with a
+  colour of its own.
+
+Cards work out their colours on the palette they wear, from the moment they are drawn: on a dashboard that wears the
+look, and on one that does not (it then wears the look your house chose), in its editor too.
 
 `tint: always` makes a coloured item show its colour at rest too, as a quiet wash of it with a hairline in the same
 colour; an item without a colour of its own keeps the card's surface. It works on the tile card, a tiles group, a
@@ -65,7 +85,9 @@ tiles:
 fill, its edge and dividers in the colour — so cards can be told apart at a glance: every light warm, every cover blue.
 It is independent of `color`, so a warm card can still hold a teal item. The wash is as strong as the words on it
 allow (they keep their full contrast), what is on inside keeps its own fill, and a card that is off or unavailable
-goes back to the neutral surface: a state is never covered.
+goes back to the neutral surface: a state is never covered. What sits inside it on the page's fill — a round, the − and
++, an option, a chip, a resting circle — takes the wash's own deeper step instead (1.9). On a tiles group the colour is
+each tile's surface, as the group has none of its own. In the editor it reads None until you choose one.
 
 ```yaml
 type: custom:fluvy-lights-card
@@ -75,9 +97,16 @@ card_color: amber
 
 A colour name is Home Assistant's tone for it on your palette — amber, for one, is the colour of a lit light, which a
 palette may move aside to keep its own accent clear — so the whole dashboard stays in harmony. A `#rrggbb` is exactly
-that colour. Because names follow the palette, two of them can land on one colour or close to it:
+that colour.
 
-- grey and blue grey are one grey everywhere;
+**Black, the greys and white** (1.9) are six steps of one ladder in your palette's own greys: black, dark grey, blue
+grey, grey, light grey, white, each a step lighter than the one before, and never a colour (blue grey keeps a hint of
+cool). In light mode black is a black icon on a grey plate, and white an outlined pale disc; in dark mode black is a
+plate deeper than the card and white a bright icon on the lightest plate. A grey you type in (`#000`, `#333333`,
+`#ffffff`) lands on the same ladder by how light it is.
+
+Because names follow the palette, two of them can land on one colour or close to it:
+
 - on the electric palettes amber takes the lit light's colour there: deep purple's on Volt and Iris, teal's on Mint,
   grey's on Noir in light; and on Volt indigo sits close to amber too;
 - on Mist, blue and amber are close in light;
@@ -123,7 +152,7 @@ type and radii. The cards, the shell and the pages need the integration; the the
 
 Every colour, radius and spacing Fluvy uses is a custom property, `--fluvy-*`, set on the page while the look is
 applied (and on Fluvy's dashboards when the scope is "only dashboards"). A card of your own that reads
-`var(--fluvy-accent)` or `var(--fluvy-card)` follows the palette; the full list is what `packages/tokens` emits
+`var(--fluvy-accent)`, `var(--fluvy-card)` or `var(--fluvy-warning)` follows the palette and the house's status colours; the full list is what `packages/tokens` emits
 (`pnpm build` writes it to `packages/tokens/dist/`). Home Assistant's own variables (`--primary-color`,
 `--card-background-color`, the `--ha-color-*` scales, the state colours, the chart colours) are all set by the theme
 file, so anything themed the Home Assistant way follows too.

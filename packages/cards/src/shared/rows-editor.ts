@@ -50,19 +50,61 @@ export interface RowsListSpec {
 
 type Labeler = FormLabeler;
 
+/**
+ * What is said under a card's own field, which may depend on what the editor shows (its config with the defaults)
+ * and on the house — a helper that reads the sensor picked (a counter's cycle).
+ */
+export type FormHelper = (
+  schema: HaFormSchemaItem,
+  localize: (key: string) => string,
+  data?: Readonly<Record<string, unknown>>,
+  hass?: HomeAssistant,
+) => string | undefined;
+
 /** What a card does for each key the config leaves out: the editor shows it, and never writes it unless the user changes it. */
 export type EditorDefaults = (
   config: LovelaceCardConfig,
   hass: HomeAssistant | undefined,
 ) => Readonly<Record<string, unknown>>;
 
+/** A choice of a select: its value and its words. */
+export interface SelectOption {
+  readonly value: string;
+  readonly label: string;
+}
+
+/**
+ * The options of a card's selects as the house has them, by field (a thermostat's modes, from its entity): they take
+ * the place of the form's own at render, so the form itself stays one static schema; a field left out keeps its own.
+ */
+export type EditorChoices = (
+  config: LovelaceCardConfig,
+  hass: HomeAssistant | undefined,
+) => Readonly<Record<string, readonly SelectOption[]>>;
+
+/** A schema with the options of the selects `choices` names swapped in, through its grids; the rest is untouched. */
+export function withChoices(
+  schema: readonly HaFormSchemaItem[],
+  choices: Readonly<Record<string, readonly SelectOption[]>>,
+): HaFormSchemaItem[] {
+  return schema.map((item) => {
+    if (item.schema) return { ...item, schema: withChoices(item.schema, choices) };
+    const select = item.selector?.['select'] as Record<string, unknown> | undefined;
+    const options = choices[item.name];
+    return select && options
+      ? { ...item, selector: { ...item.selector, select: { ...select, options: [...options] } } }
+      : item;
+  });
+}
+
 export interface RowsEditorSpec {
   /** The card's own fields (title, tone …) — everything but the lists. */
   readonly schema: readonly HaFormSchemaItem[];
   readonly lists: readonly RowsListSpec[];
   readonly computeLabel: Labeler;
-  readonly computeHelper?: Labeler;
+  readonly computeHelper?: FormHelper;
   readonly defaults?: EditorDefaults;
+  readonly choices?: EditorChoices;
   /** The older names the card still reads: shown as the newer ones, and written as them on the first change. */
   readonly aliases?: readonly AliasSpec[];
 }
@@ -298,6 +340,9 @@ export class FluvyRowsEditor extends LitElement {
   /** The words of each list's item forms, and the helpers under them: built once per list, for the same reason. */
   private readonly labelers = new WeakMap<RowsListSpec, Labeler>();
   private readonly helpers = new WeakMap<RowsListSpec, Labeler>();
+  /** The card's form with the house's options in it, kept while they say the same, for the same reason. */
+  private chosen:
+    { readonly key: string; readonly schema: readonly HaFormSchemaItem[] } | undefined;
 
   constructor() {
     super();
@@ -343,6 +388,15 @@ export class FluvyRowsEditor extends LitElement {
 
   private defaults(): Readonly<Record<string, unknown>> {
     return this.config && this.spec?.defaults ? this.spec.defaults(this.config, this.hass) : {};
+  }
+
+  /** The card's form, its selects offering what the house has (`choices`) where the card says so. */
+  private schema(spec: RowsEditorSpec): readonly HaFormSchemaItem[] {
+    const choices = this.config && spec.choices?.(this.config, this.hass);
+    if (!choices || !Object.keys(choices).length) return spec.schema;
+    const key = JSON.stringify(choices);
+    if (this.chosen?.key !== key) this.chosen = { key, schema: withChoices(spec.schema, choices) };
+    return this.chosen.schema;
   }
 
   /** The card's form edits everything but the lists: its value is the whole of that part (a cleared field is absent from it). */
@@ -518,13 +572,20 @@ export class FluvyRowsEditor extends LitElement {
         ),
       );
     const data = { ...withoutLists(this.defaults()), ...withoutLists(this.config) };
+    // the card's helpers are told what the form shows and the house (one that reads the sensor picked)
+    const own = spec.computeHelper;
     return html`
       <ha-form
         .hass=${this.hass}
         .data=${data}
-        .schema=${spec.schema}
+        .schema=${this.schema(spec)}
         .computeLabel=${spec.computeLabel}
-        .computeHelper=${spec.computeHelper}
+        .computeHelper=${
+          own
+            ? (schema: HaFormSchemaItem, localize: (key: string) => string) =>
+                own(schema, localize, data, this.hass)
+            : undefined
+        }
         @value-changed=${this.onCard}
       ></ha-form>
       ${spec.lists.map((list) => this.renderList(list))}
@@ -555,16 +616,39 @@ function withoutLists(
 }
 
 /**
+ * What an editor shows where a card's config says nothing: the card's own defaults, and what every card that offers
+ * them does — on a card with a head (`show_icon`), the circle that shows by itself (`auto`); on a card of a list
+ * (`hide_empty`), a list that stays in sight while it is empty.
+ */
+export function editorDefaults(
+  form: LovelaceConfigForm,
+  defaults?: EditorDefaults,
+): EditorDefaults | undefined {
+  const shows = (name: string, schema: readonly HaFormSchemaItem[] = form.schema): boolean =>
+    schema.some((item) => item.name === name || shows(name, item.schema ?? []));
+  const shared = {
+    ...(shows('show_icon') ? { show_icon: 'auto' } : {}),
+    ...(shows('hide_empty') ? { hide_empty: false } : {}),
+  };
+  return Object.keys(shared).length
+    ? (config, hass) => ({ ...shared, ...defaults?.(config, hass) })
+    : defaults;
+}
+
+/**
  * `static getConfigElement()` for a card that already has a form: the same fields and labels, plus its lists edited
- * item by item, its defaults shown, and its older names read as the newer ones.
+ * item by item, its defaults shown, its older names read as the newer ones, and its selects offering what the house
+ * has (`choices`).
  */
 export function listsEditor(
   form: LovelaceConfigForm,
   lists: readonly RowsListSpec[],
-  defaults?: EditorDefaults,
+  own?: EditorDefaults,
   aliases?: readonly AliasSpec[],
+  choices?: EditorChoices,
 ): HTMLElement {
   const keys = new Set(lists.flatMap((list) => [list.key, ...(list.alias ? [list.alias] : [])]));
+  const defaults = editorDefaults(form, own);
   return rowsEditor({
     schema: withoutLists(form.schema, keys),
     lists,
@@ -572,6 +656,7 @@ export function listsEditor(
     ...(form.computeHelper ? { computeHelper: form.computeHelper } : {}),
     ...(defaults ? { defaults } : {}),
     ...(aliases?.length ? { aliases } : {}),
+    ...(choices ? { choices } : {}),
   });
 }
 

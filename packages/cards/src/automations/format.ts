@@ -15,14 +15,16 @@ import {
   type Days,
   type Moment,
   type Schedule,
+  type Verb,
   type Weekday,
 } from './schedule.js';
 
 /**
  * A schedule in words, as the rows and the sheet say it: the days as people say them ("Every day", "Mon–Fri",
  * "Mon, Wed, Fri"), a moment on the clock in the house's own clock or by the sun with its offset ("Sunset −30 min"),
- * a window ("09:00–11:00", "Sunrise +15 min until 23:00"), the next run ("Next in 2 h", "Next Mon 09:00"), the
- * last one ("Ran 07:00", "3 days ago", "Never run") and the name a new schedule suggests for itself. Pure: words in,
+ * a window ("09:00–11:00", "Sunrise +15 min until 23:00"), the next run ("Next in 2 h", "Next Mon 09:00") and a
+ * target's next change ("Turns on in 9 h"), the last one ("Ran 07:00", "3 days ago", "Never run") and the name a new
+ * schedule suggests for itself. Pure: words in,
  * words out, the house's language and clock read from `hass`.
  */
 
@@ -147,14 +149,22 @@ export function nextText(hass: Hass | undefined, next: Date, now: Date): string 
   return s(hass, 'next', { when: `${weekdayShort(hass, weekdayOf(hass, next))} ${clock}` });
 }
 
-/** The next run in fewer words, after the window a row already says: "In 2 h", "Mon 09:00". */
-export function nextShort(hass: Hass | undefined, next: Date, now: Date): string {
-  const ms = next.getTime() - now.getTime();
-  const clock = formatTime(hass, next);
+/** When a moment comes, as a sentence goes on: "in 2 h" within the day, "Mon 09:00" beyond it, its time when it is now. */
+export function whenShort(hass: Hass | undefined, at: Date, now: Date): string {
+  const ms = at.getTime() - now.getTime();
+  const clock = formatTime(hass, at);
   if (ms < 60_000) return clock;
-  if (ms < DAY_MS) return sentence(relativeTime(hass, next, now));
-  return `${weekdayShort(hass, weekdayOf(hass, next))} ${clock}`;
+  if (ms < DAY_MS) return relativeTime(hass, at, now);
+  return `${weekdayShort(hass, weekdayOf(hass, at))} ${clock}`;
 }
+
+/** The next run in fewer words, after the window a row already says: "In 2 h", "Mon 09:00". */
+export const nextShort = (hass: Hass | undefined, next: Date, now: Date): string =>
+  sentence(whenShort(hass, next, now));
+
+/** What a target does next and when: "Turns on in 9 h", "Closes Mon 07:15", "Runs in 35 min". */
+export const changeText = (hass: Hass | undefined, verb: Verb, at: Date, now: Date): string =>
+  s(hass, `next_${verb}`, { when: whenShort(hass, at, now) });
 
 /**
  * A schedule's line in every length it may take, the fullest first, each whole — a segment gives way, never cut:
@@ -206,5 +216,7 @@ export function suggestAlias(
 ): string {
   const [first = '', ...rest] = names;
   const who = rest.length ? s(hass, 'and_more', { name: first, count: rest.length }) : first;
-  return sanitiseAlias(`${who} · ${daysText(hass, days)} ${spanText(hass, start, end)}`);
+  const when = `${daysText(hass, days)} ${spanText(hass, start, end)}`;
+  // nothing chosen yet: the days and the time alone, never a separator with nothing before it
+  return sanitiseAlias(who ? `${who} · ${when}` : when);
 }

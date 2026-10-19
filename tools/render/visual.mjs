@@ -13,12 +13,10 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const wanted = process.argv.slice(2);
+const keyOf = (name) => name.replace(/^interactions-?|\.mjs$/g, '') || 'base';
 const suites = (await readdir(here))
   .filter((name) => /^interactions(-[\w-]+)?\.mjs$/.test(name))
-  .filter(
-    (name) =>
-      !wanted.length || wanted.includes(name.replace(/^interactions-?|\.mjs$/g, '') || 'base'),
-  )
+  .filter((name) => !wanted.length || wanted.includes(keyOf(name)))
   .sort();
 if (!suites.length) {
   console.error(`no suite matches ${wanted.join(', ')}`);

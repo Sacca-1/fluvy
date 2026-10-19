@@ -18,6 +18,7 @@ import {
 import { Card, type BaseKey } from '../shared/base.js';
 import {
   actionField,
+  emptyFields,
   entityField,
   fieldRow,
   formLabels,
@@ -28,6 +29,8 @@ import {
 } from '../shared/form.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 import { configKeys, ITEM_ALIASES, type AliasSpec } from '../shared/config.js';
+import { EMPTY } from '../shared/heights.js';
+import { EMPTY_KEYS, emptyPanel, listOf, type EmptyList } from '../shared/lists.js';
 
 const s = strings('chips');
 
@@ -44,7 +47,7 @@ export interface ChipConfig {
   color?: string;
 }
 
-export interface ChipsCardConfig extends FluvyCardConfig {
+export interface ChipsCardConfig extends FluvyCardConfig, EmptyList {
   chips?: readonly ChipConfig[];
   /** `always`: a tab with a colour shows it at rest too — a wash and its hairline (`on`, the default: when open). */
   tint?: Tint;
@@ -55,6 +58,10 @@ function viewOf(path: string): string {
   const clean = path.split(/[?#]/)[0] ?? '';
   return clean.length > 1 && clean.endsWith('/') ? clean.slice(0, -1) : clean;
 }
+
+/** The tabs of a list: a section's title or a divider among them (as a filter may hand them over) is none. */
+const tabsOf = (list: unknown): ChipConfig[] =>
+  Array.isArray(list) ? list.filter((chip: { type?: unknown } | null) => !chip?.type) : [];
 
 const FADE = 24;
 /** The row's gap between tabs and its inset (4 px each side, room for the focus ring). */
@@ -70,8 +77,8 @@ const ROW_INSET = 4;
  */
 export class FluvyChipsCard extends Card<ChipsCardConfig> {
   /** The card's height at a 360 column, for the automatic dashboard's columns. */
-  static override layoutHeight(): number {
-    return 44;
+  static override layoutHeight(config: ChipsCardConfig): number {
+    return tabsOf(config.chips).length ? 44 : EMPTY;
   }
 
   static override still = true;
@@ -157,6 +164,7 @@ export class FluvyChipsCard extends Card<ChipsCardConfig> {
 
   override syncTheme(): void {
     super.syncTheme();
+    // read after the base has put the fallback's attributes on the host: right on the first frame too
     this.besideMark_ = getComputedStyle(this).getPropertyValue('--fluvy-mark').trim() !== '';
   }
 
@@ -171,7 +179,7 @@ export class FluvyChipsCard extends Card<ChipsCardConfig> {
 
   /** The row's accessible name is the base's `name`; the tabs are its own. */
   static override base: readonly BaseKey[] = ['name'];
-  static override keys = configKeys<ChipsCardConfig>()(['chips', 'tint']);
+  static override keys = configKeys<ChipsCardConfig>()(['chips', 'tint', ...EMPTY_KEYS]);
   static override lists: readonly RowsListSpec[] = [
     {
       key: 'chips',
@@ -199,6 +207,7 @@ export class FluvyChipsCard extends Card<ChipsCardConfig> {
         textField('name'),
         { name: 'chips', required: true, selector: { object: {} } },
         tintField(),
+        emptyFields(),
       ],
       ...formLabels({ chips: 'editor.tabs' }),
     };
@@ -215,9 +224,8 @@ export class FluvyChipsCard extends Card<ChipsCardConfig> {
   }
 
   protected override prepare(config: ChipsCardConfig): ChipsCardConfig {
-    if (!Array.isArray(config.chips) || config.chips.length === 0)
-      throw new Error('fluvy-chips-card: "chips" needs at least one entry');
-    if (config.chips.some((chip) => typeof chip?.name !== 'string' || chip.name.trim() === ''))
+    listOf(config, 'chips');
+    if (tabsOf(config.chips).some((chip) => typeof chip?.name !== 'string' || !chip.name.trim()))
       throw new Error('fluvy-chips-card: every chip needs a "name"');
     return config;
   }
@@ -260,7 +268,7 @@ export class FluvyChipsCard extends Card<ChipsCardConfig> {
   }
 
   private activeIndex(): number {
-    return (this.config?.chips ?? []).findIndex(
+    return tabsOf(this.config?.chips).findIndex(
       (chip) => chip.path !== undefined && viewOf(chip.path) === this.path_,
     );
   }
@@ -374,7 +382,10 @@ export class FluvyChipsCard extends Card<ChipsCardConfig> {
   }
 
   protected renderCard(): TemplateResult {
-    const chips = this.config?.chips ?? [];
+    const chips = tabsOf(this.config?.chips);
+    // no tabs: the panel where the row would be, on the page as the row is
+    const panel = emptyPanel(this, !chips.length, 'rooms', 'common.no_tabs', true);
+    if (panel) return panel;
     const active = this.activeIndex();
 
     return html`<nav

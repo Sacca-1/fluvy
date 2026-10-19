@@ -217,6 +217,104 @@
     ),
   };
 
+  /* the appliances' kinds: drawn by the appliances' chunk (packages/cards/src/appliance/glyphs.ts), the same bodies */
+  const GA = {
+    washer: svg(
+      '<rect x="4" y="3" width="16" height="18" rx="3"/><path d="M4 7.5h16"/><path d="M7.5 5.25h1.5"/><circle cx="12" cy="14.25" r="4.25"/><path d="M9.5 15c.85-.6 1.65-.6 2.5 0s1.65.6 2.5 0"/>',
+    ),
+    dryer: svg(
+      '<rect x="4" y="3" width="16" height="18" rx="3"/><path d="M4 7.5h16"/><path d="M7.5 5.25h1.5"/><circle cx="12" cy="14.25" r="4.25"/><path d="M12 12.25a2 2 0 1 1-2 2"/>',
+    ),
+    dishwasher: svg(
+      '<rect x="4" y="3" width="16" height="18" rx="3"/><path d="M4 8h16"/><path d="M7.5 5.5h.01"/><path d="M10.5 5.5h.01"/><path d="M9.5 11.5h5"/>',
+    ),
+    oven: svg(
+      '<rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M3.5 8h17"/><path d="M7 5.75h.01"/><path d="M10 5.75h.01"/><rect x="7" y="11" width="10" height="6" rx="1.25"/>',
+    ),
+    microwave: svg(
+      '<rect x="3" y="5" width="18" height="14" rx="3"/><rect x="6" y="8" width="9" height="8" rx="1.25"/><path d="M18 9h.01"/><path d="M18 12h.01"/><path d="M18 15h.01"/>',
+    ),
+    hob: svg(
+      '<rect x="3.5" y="3.5" width="17" height="17" rx="3"/><circle cx="8.5" cy="8.5" r="2"/><circle cx="15.5" cy="8.5" r="2"/><circle cx="8.5" cy="15.5" r="2"/><circle cx="15.5" cy="15.5" r="2"/>',
+    ),
+    fridge: svg(
+      '<rect x="5.5" y="3" width="13" height="18" rx="2.5"/><path d="M5.5 10h13"/><path d="M8.5 6v1.5"/><path d="M8.5 13v3"/>',
+    ),
+    coffee: svg(
+      '<path d="M5.5 9h11v4.5a4.5 4.5 0 0 1-4.5 4.5h-2a4.5 4.5 0 0 1-4.5-4.5Z"/><path d="M16.5 10.5h1a2.25 2.25 0 0 1 0 4.5h-1"/><path d="M4.5 21h13.5"/><path d="M9 3c-.8.9-.8 1.6 0 2.5"/><path d="M13 3c-.8.9-.8 1.6 0 2.5"/>',
+    ),
+    kettle: svg(
+      '<path d="M7.5 8h8l1.5 11a1.75 1.75 0 0 1-1.75 2h-7.5A1.75 1.75 0 0 1 6 19Z"/><path d="M9.5 5.5h4"/><path d="M11.5 3v2.5"/><path d="M17 10.5h1a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-.5"/><path d="M6.5 11 4 9"/>',
+    ),
+    fryer: svg(
+      '<rect x="4.5" y="3" width="15" height="18" rx="4"/><path d="M4.5 13.5h15"/><path d="M10 17h4"/><circle cx="12" cy="8" r="2"/>',
+    ),
+    toaster: svg(
+      '<rect x="3" y="9" width="18" height="11" rx="4"/><path d="M7.5 9V5.5A1.5 1.5 0 0 1 9 4h1a1.5 1.5 0 0 1 1.5 1.5V9"/><path d="M13 9V5.5A1.5 1.5 0 0 1 14.5 4h1A1.5 1.5 0 0 1 17 5.5V9"/><path d="M7 20v1M17 20v1"/>',
+    ),
+    blender: svg(
+      '<path d="M7 3h10l-1.5 11h-7Z"/><path d="M6.5 14h11l1 7h-13Z"/><path d="M16.75 5.5h1.5a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5h-2"/><path d="M12 17.5h.01"/>',
+    ),
+    sandwich: svg(
+      '<path d="M3.5 13c0-4.5 3.5-7 8.5-7s8.5 2.5 8.5 7Z"/><rect x="3.5" y="13" width="17" height="5" rx="2"/><path d="M10 15.5h4"/><path d="M6.5 18v2M17.5 18v2"/>',
+    ),
+    shirt: svg(
+      '<path d="M8.75 4 4.5 6.25 3 10.75l3.5 1.25v8.5h11V12l3.5-1.25-1.5-4.5L15.25 4a3.25 3.25 0 0 1-6.5 0Z"/>',
+    ),
+    steam: svg(
+      '<path d="M7 3.5c-1.6 1.8-1.6 3.7 0 5.5s1.6 3.7 0 5.5-1.6 3.7 0 5.5"/><path d="M12 3.5c-1.6 1.8-1.6 3.7 0 5.5s1.6 3.7 0 5.5-1.6 3.7 0 5.5"/><path d="M17 3.5c-1.6 1.8-1.6 3.7 0 5.5s1.6 3.7 0 5.5-1.6 3.7 0 5.5"/>',
+    ),
+    cup: svg(
+      '<path d="M4.5 5.5h12V11a5 5 0 0 1-5 5h-2a5 5 0 0 1-5-5Z"/><path d="M16.5 7h1a2.75 2.75 0 0 1 0 5.5h-1"/><path d="M3.5 19h15"/>',
+    ),
+    cappuccino: svg(
+      '<path d="M3.5 9h17a8.5 8.5 0 0 1-17 0Z"/><path d="M5.5 20.5h13"/><path d="M8 5c1.3-.8 2.7-.8 4 0s2.7.8 4 0"/>',
+    ),
+    bean: svg(
+      '<ellipse cx="12" cy="12" rx="6.25" ry="8.75" transform="rotate(35 12 12)"/><path d="M16 6.5c-3.5 2-4.5 8.5-8 11"/>',
+    ),
+    filter: svg('<path d="M3.5 4.5h17l-6.5 8v6.5l-4 2v-8.5Z"/>'),
+    fries: svg(
+      '<path d="M6 10h12l-1.5 10.5h-9Z"/><path d="M8.5 10 7.5 4"/><path d="M11 10V3.5"/><path d="M13.75 10l.75-5.5"/><path d="M16 10l1.5-4.5"/>',
+    ),
+  };
+
+  /* the appliances' pictures (packages/cards/src/appliance/art/art.ts): their materials, and a drawing a kind on a
+     64 grid; a picture is <svg viewBox="0 0 64 64"><defs>ART_DEFS</defs>drawing</svg> */
+  const ART_DEFS =
+    '<linearGradient id="faS" x2="1"><stop offset="0" stop-color="#aeb3bb"/><stop offset=".18" stop-color="#e6e9ec"/><stop offset=".46" stop-color="#c9cdd3"/><stop offset=".74" stop-color="#e2e5e8"/><stop offset="1" stop-color="#a2a8b0"/></linearGradient><linearGradient id="faV" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".42"/><stop offset=".35" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#1c2028" stop-opacity=".16"/></linearGradient><linearGradient id="faW" x2=".6" y2="1"><stop offset="0" stop-color="#fff"/><stop offset=".6" stop-color="#f1f2f4"/><stop offset="1" stop-color="#d9dce1"/></linearGradient><linearGradient id="faB" y2="1"><stop offset="0" stop-color="#454952"/><stop offset=".45" stop-color="#25282e"/><stop offset="1" stop-color="#121418"/></linearGradient><linearGradient id="faG" x2=".9" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".3"/><stop offset=".42" stop-color="#fff" stop-opacity=".06"/><stop offset=".43" stop-color="#fff" stop-opacity="0"/></linearGradient><linearGradient id="faC" y2="1"><stop offset="0" stop-color="#fbfcfd"/><stop offset=".5" stop-color="#9ea4ac"/><stop offset=".62" stop-color="#c2c7cd"/><stop offset="1" stop-color="#eef0f2"/></linearGradient><radialGradient id="faD" cx=".4" cy=".36" r=".72"><stop offset="0" stop-color="#7b8390"/><stop offset=".55" stop-color="#2f343c"/><stop offset="1" stop-color="#14161a"/></radialGradient><radialGradient id="faL" cx=".4" cy=".36" r=".72"><stop offset="0" stop-color="#b7bcc4"/><stop offset=".6" stop-color="#727983"/><stop offset="1" stop-color="#3d424a"/></radialGradient><radialGradient id="faH"><stop offset="0" style="stop-color:var(--ap-shade,#1b1e26);stop-opacity:var(--ap-shade-o,.34)"/><stop offset="1" style="stop-color:var(--ap-shade,#1b1e26);stop-opacity:0"/></radialGradient>';
+  const GART = {
+    washer:
+      '<ellipse cx="32" cy="60.6" rx="21" ry="2.6" fill="url(#faH)"/><rect x="11" y="5" width="42" height="55" rx="4" fill="url(#faS)"/><rect x="11" y="5" width="42" height="55" rx="4" fill="url(#faV)"/><path d="M11 16h42" stroke="#8d939b" stroke-width=".7"/><rect x="14.5" y="8" width="11" height="5" rx="1.2" fill="#d5d9de" stroke="#9aa0a8" stroke-width=".5"/><rect x="34" y="8.6" width="9" height="3.8" rx=".9" fill="#1a1d22"/><rect x="35.2" y="9.8" width="3.6" height="1.4" rx=".4" fill="#7fd0ff" opacity=".85"/><circle cx="48" cy="10.5" r="2.7" fill="url(#faC)" stroke="#878d96" stroke-width=".5"/><circle cx="32" cy="37.5" r="15.6" fill="#7f858e"/><circle cx="32" cy="37.5" r="15" fill="url(#faC)"/><circle cx="32" cy="37.5" r="12.4" fill="#2c3037"/><circle cx="32" cy="37.5" r="11.5" fill="url(#faD)"/><path d="M24.5 33.3a9.3 9.3 0 0 1 8.7-5.3999999999999995" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width="1.3" stroke-linecap="round"/><rect x="14" y="56.5" width="36" height="1.6" rx=".8" fill="#1c2028" opacity=".12"/><path class="r" d="M11.5 56V9a3.5 3.5 0 0 1 3.5-3.5H49"/>',
+    dryer:
+      '<ellipse cx="32" cy="60.6" rx="21" ry="2.6" fill="url(#faH)"/><rect x="11" y="5" width="42" height="55" rx="4" fill="url(#faS)"/><rect x="11" y="5" width="42" height="55" rx="4" fill="url(#faV)"/><path d="M11 16h42" stroke="#8d939b" stroke-width=".7"/><rect x="14.5" y="8.6" width="9" height="3.8" rx=".9" fill="#1a1d22"/><rect x="15.7" y="9.8" width="3.6" height="1.4" rx=".4" fill="#ffb26b" opacity=".9"/><circle cx="36" cy="10.5" r="3.2" fill="url(#faC)" stroke="#878d96" stroke-width=".5"/><circle cx="45" cy="10.5" r="1" fill="#6f757e"/><circle cx="49" cy="10.5" r="1" fill="#6f757e"/><circle cx="32" cy="36" r="15.1" fill="#7f858e"/><circle cx="32" cy="36" r="14.5" fill="url(#faC)"/><circle cx="32" cy="36" r="11.9" fill="#2c3037"/><circle cx="32" cy="36" r="11" fill="url(#faL)"/><path d="M24.75 31.939999999999998a8.99 8.99 0 0 1 8.41-5.22" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width="1.3" stroke-linecap="round"/><rect x="15" y="53.5" width="34" height="3.6" rx="1" fill="#b4b9c0" stroke="#8f959d" stroke-width=".5"/><path class="r" d="M11.5 56V9a3.5 3.5 0 0 1 3.5-3.5H49"/>',
+    dishwasher:
+      '<ellipse cx="32" cy="60.6" rx="23" ry="2.6" fill="url(#faH)"/><rect x="9" y="6" width="46" height="54" rx="3" fill="url(#faS)"/><rect x="9" y="6" width="46" height="54" rx="3" fill="url(#faV)"/><path d="M12 6h40a3 3 0 0 1 3 3v6H9V9a3 3 0 0 1 3-3Z" fill="#3a3e45"/><rect x="38" y="9" width="9" height="3.4" rx=".8" fill="#14161a"/><rect x="39.2" y="10" width="3.8" height="1.4" rx=".4" fill="#7fd0ff" opacity=".85"/><circle cx="14" cy="10.7" r="1" fill="#9aa0a8"/><circle cx="18" cy="10.7" r="1" fill="#9aa0a8"/><rect x="15" y="18" width="34" height="2.4" rx="1.2" fill="url(#faC)" stroke="#878d96" stroke-width=".4"/><path d="M12 23.5h40M12 55h40" stroke="#9aa0a8" stroke-width=".5" opacity=".7"/><rect x="11" y="56" width="42" height="3.4" rx=".8" fill="#7d838c"/><path class="r" d="M9.5 57V9a2.5 2.5 0 0 1 2.5-2.5H52"/>',
+    oven: '<ellipse cx="32" cy="60.6" rx="27" ry="2.6" fill="url(#faH)"/><rect x="5" y="9" width="54" height="50" rx="3" fill="url(#faS)"/><rect x="5" y="9" width="54" height="50" rx="3" fill="url(#faV)"/><rect x="27" y="11.6" width="10" height="4.6" rx="1" fill="#121418"/><path d="M28.6 14h1.6M31.2 14h1.6M33.8 14h1.6" stroke="#ff7a45" stroke-width="1.1"/><circle cx="12" cy="13.9" r="2.4" fill="url(#faC)" stroke="#7f858e" stroke-width=".5"/><circle cx="52" cy="13.9" r="2.4" fill="url(#faC)" stroke="#7f858e" stroke-width=".5"/><rect x="8" y="20" width="48" height="36" rx="2" fill="url(#faB)"/><rect x="8" y="20" width="48" height="36" rx="2" fill="url(#faG)"/><rect x="13" y="28" width="38" height="23" rx="1.6" fill="#0b0c0f" stroke="#3b4048" stroke-width=".6"/><path d="M15 30h34" stroke="#ff8a4a" stroke-opacity=".28" stroke-width=".8"/><rect x="10" y="22" width="44" height="2.2" rx="1.1" fill="url(#faC)" stroke="#6f757e" stroke-width=".4"/><path class="r" d="M5.5 56V12a2.5 2.5 0 0 1 2.5-2.5H56"/>',
+    microwave:
+      '<ellipse cx="32" cy="60.6" rx="28" ry="2.6" fill="url(#faH)"/><rect x="4" y="16" width="56" height="36" rx="3" fill="url(#faS)"/><rect x="4" y="16" width="56" height="36" rx="3" fill="url(#faV)"/><rect x="7" y="19" width="37" height="30" rx="2" fill="url(#faB)"/><rect x="7" y="19" width="37" height="30" rx="2" fill="url(#faG)"/><rect x="11" y="23" width="29" height="22" rx="1.4" fill="#0b0c0f" stroke="#3b4048" stroke-width=".5"/><rect x="42.6" y="19" width="1.6" height="30" rx=".8" fill="url(#faC)"/><rect x="47" y="20" width="10" height="5" rx="1" fill="#121418"/><path d="M48.6 22.5h1.4M51 22.5h1.4M53.4 22.5h1.4" stroke="#7fd0ff" stroke-width="1"/><g fill="#8b9199"><circle cx="49" cy="30" r="1"/><circle cx="52" cy="30" r="1"/><circle cx="55" cy="30" r="1"/><circle cx="49" cy="34" r="1"/><circle cx="52" cy="34" r="1"/><circle cx="55" cy="34" r="1"/></g><circle cx="52" cy="42.5" r="3" fill="url(#faC)" stroke="#7f858e" stroke-width=".5"/><path class="r" d="M4.5 49V19a2.5 2.5 0 0 1 2.5-2.5H57"/>',
+    hob: '<ellipse cx="32" cy="60.6" rx="25" ry="2.6" fill="url(#faH)"/><rect x="7" y="7" width="50" height="51" rx="4" fill="url(#faB)"/><rect x="7" y="7" width="50" height="51" rx="4" fill="url(#faG)"/><g fill="none" stroke="#8a9099" stroke-width=".9" stroke-opacity=".75"><circle cx="21" cy="20.5" r="8.5"/><circle cx="43" cy="20.5" r="8.5"/><circle cx="21" cy="42" r="8.5"/><circle cx="43" cy="42" r="8.5"/></g><g fill="none" stroke="#8a9099" stroke-width=".6" stroke-opacity=".35"><circle cx="21" cy="20.5" r="5"/><circle cx="43" cy="20.5" r="5"/><circle cx="21" cy="42" r="5"/><circle cx="43" cy="42" r="5"/></g><g fill="#8a9099" opacity=".7"><circle cx="26" cy="54" r=".7"/><circle cx="30" cy="54" r=".7"/><circle cx="34" cy="54" r=".7"/><circle cx="38" cy="54" r=".7"/></g><path class="r" d="M7.5 54V11a3.5 3.5 0 0 1 3.5-3.5H53"/>',
+    hood: '<ellipse cx="32" cy="60.6" rx="22" ry="2.6" fill="url(#faH)"/><rect x="26" y="4" width="12" height="30" rx="1" fill="url(#faS)"/><rect x="26" y="4" width="12" height="30" rx="1" fill="url(#faV)"/><path d="M12 34h40l5 11H7Z" fill="url(#faS)"/><path d="M12 34h40l5 11H7Z" fill="url(#faV)"/><rect x="7" y="45" width="50" height="3.4" rx=".8" fill="#454952"/><circle cx="22" cy="46.7" r="1" fill="#ffe2a6"/><circle cx="42" cy="46.7" r="1" fill="#ffe2a6"/><rect x="28" y="40" width="8" height="2" rx="1" fill="#8b9199"/><path class="r" d="M26.5 34V5H37M12.3 34.5h39.4"/>',
+    fridge:
+      '<ellipse cx="32" cy="60.6" rx="15" ry="2.6" fill="url(#faH)"/><rect x="17" y="2" width="30" height="58" rx="3" fill="url(#faS)"/><rect x="17" y="2" width="30" height="58" rx="3" fill="url(#faV)"/><rect x="17" y="21" width="30" height=".9" fill="#7f858e"/><rect x="20" y="9" width="1.7" height="9" rx=".85" fill="url(#faC)" stroke="#7f858e" stroke-width=".35"/><rect x="20" y="24.5" width="1.7" height="15" rx=".85" fill="url(#faC)" stroke="#7f858e" stroke-width=".35"/><rect x="18.5" y="58" width="27" height="1.4" rx=".7" fill="#1c2028" opacity=".2"/><path class="r" d="M17.5 57V5a2.5 2.5 0 0 1 2.5-2.5H44"/>',
+    freezer:
+      '<ellipse cx="32" cy="60.6" rx="15" ry="2.6" fill="url(#faH)"/><rect x="17" y="2" width="30" height="58" rx="3" fill="url(#faW)"/><rect x="17" y="2" width="30" height="58" rx="3" fill="url(#faV)"/><rect x="17" y="2" width="30" height="58" rx="3" fill="none" stroke="#c4c9d0" stroke-width=".6"/><rect x="21" y="8" width="7" height="3.4" rx=".8" fill="#1a1d22"/><rect x="22" y="9" width="3" height="1.4" rx=".4" fill="#7fd0ff"/><rect x="42.5" y="14" width="1.8" height="26" rx=".9" fill="url(#faC)" stroke="#8f959d" stroke-width=".35"/><path d="M20 55h24" stroke="#c4c9d0" stroke-width=".6"/><path class="r" d="M17.5 57V5a2.5 2.5 0 0 1 2.5-2.5H44"/>',
+    wine: '<ellipse cx="32" cy="60.6" rx="16" ry="2.6" fill="url(#faH)"/><rect x="16" y="4" width="32" height="56" rx="3" fill="#24272d"/><rect x="19" y="7" width="26" height="50" rx="1.6" fill="#101216"/><g fill="#6e5136"><rect x="19" y="16" width="26" height=".9"/><rect x="19" y="26" width="26" height=".9"/><rect x="19" y="36" width="26" height=".9"/><rect x="19" y="46" width="26" height=".9"/></g><g fill="#6d1f2b"><circle cx="23.5" cy="13.4" r="2.1"/><circle cx="32" cy="13.4" r="2.1"/><circle cx="23.5" cy="33.4" r="2.1"/><circle cx="40.5" cy="33.4" r="2.1"/><circle cx="32" cy="43.4" r="2.1"/></g><g fill="#2e4a35"><circle cx="40.5" cy="13.4" r="2.1"/><circle cx="23.5" cy="23.4" r="2.1"/><circle cx="32" cy="23.4" r="2.1"/><circle cx="40.5" cy="23.4" r="2.1"/><circle cx="32" cy="33.4" r="2.1"/><circle cx="23.5" cy="43.4" r="2.1"/><circle cx="40.5" cy="43.4" r="2.1"/></g><rect x="19" y="7" width="26" height="50" rx="1.6" fill="url(#faG)"/><rect x="42" y="12" width="1.6" height="22" rx=".8" fill="url(#faC)"/><path class="r" d="M16.5 57V7a2.5 2.5 0 0 1 2.5-2.5H45"/>',
+    coffee:
+      '<ellipse cx="32" cy="60.6" rx="20" ry="2.6" fill="url(#faH)"/><rect x="14" y="5" width="36" height="52" rx="4" fill="url(#faB)"/><rect x="14" y="5" width="36" height="52" rx="4" fill="url(#faG)"/><rect x="14" y="5" width="36" height="3.6" rx="1.8" fill="url(#faC)"/><circle cx="32" cy="13.6" r="2.7" fill="url(#faC)" stroke="#5c626b" stroke-width=".5"/><circle cx="22" cy="13.6" r="1" fill="#8b9199"/><circle cx="42" cy="13.6" r="1" fill="#8b9199"/><rect x="18.5" y="19" width="27" height="30" rx="2" fill="#0d0e11"/><rect x="24.5" y="19" width="15" height="5.4" rx="1.6" fill="url(#faC)"/><path d="M30 24.4v2.6M34 24.4v2.6" stroke="#9ea4ac" stroke-width="1.2"/><path d="M26.6 35.4h10.8l-.9 9.4a1.8 1.8 0 0 1-1.8 1.6h-5.4a1.8 1.8 0 0 1-1.8-1.6Z" fill="#fff" fill-opacity=".22" stroke="#d9dde2" stroke-width=".5"/><path d="M27.4 39.2h9.2l-.6 5.5a1.2 1.2 0 0 1-1.2 1h-5.6a1.2 1.2 0 0 1-1.2-1Z" fill="#5a3420"/><rect x="27.4" y="38.6" width="9.2" height="1.3" rx=".6" fill="#c08a55"/><path d="M28 36.4l.5 7" stroke="#fff" stroke-opacity=".55" stroke-width=".7"/><rect x="17" y="47" width="30" height="3" rx="1" fill="url(#faC)"/><rect x="12" y="51" width="40" height="7.4" rx="2.4" fill="#1d2025"/><rect x="12" y="51" width="40" height="7.4" rx="2.4" fill="url(#faG)"/><path class="r" d="M14.5 53V9a3.5 3.5 0 0 1 3.5-3.5H46"/>',
+    kettle:
+      '<ellipse cx="32" cy="60.6" rx="16" ry="2.6" fill="url(#faH)"/><rect x="17" y="54" width="30" height="5" rx="2" fill="#1d2025"/><path d="M21.5 19h21l3 35h-27Z" fill="url(#faS)"/><path d="M21.5 19h21l3 35h-27Z" fill="url(#faV)"/><path d="M21.6 23 13 17.8l.9-1.7 8 3.4Z" fill="#a2a8b0"/><rect x="21" y="14" width="22" height="6" rx="3" fill="url(#faS)"/><rect x="29" y="10.6" width="6" height="4" rx="1.6" fill="#1d2025"/><path d="M42.5 16c7.5 0 9.5 4 9.5 9.5v15c0 4-1.8 6.5-6.6 7.4l-.8-3.1c2.6-.6 3.6-2 3.6-4.6v-14.4c0-3.6-1-6.3-5.8-6.3Z" fill="#1d2025"/><rect x="38" y="25" width="2.2" height="22" rx="1.1" fill="#2c4152" opacity=".75"/><path d="M24.6 22.5 23 51" stroke="#fff" stroke-opacity=".55" stroke-width="1.2" stroke-linecap="round"/><path class="r" d="M18.6 53.5 21.6 19.6H42"/>',
+    fryer:
+      '<ellipse cx="32" cy="60.6" rx="20" ry="2.6" fill="url(#faH)"/><rect x="13" y="5" width="38" height="53" rx="9" fill="url(#faB)"/><rect x="13" y="5" width="38" height="53" rx="9" fill="url(#faG)"/><rect x="19.5" y="10" width="25" height="11" rx="3.4" fill="#0c0d10" stroke="#3b4048" stroke-width=".5"/><path d="M27.4 15.5h2M31 15.5h2M34.6 15.5h2" stroke="#ff8a4a" stroke-width="1.2"/><path d="M13 28.2h38" stroke="#07080a" stroke-width="1"/><rect x="29.4" y="32" width="5.2" height="18" rx="2.6" fill="url(#faC)" stroke="#5c626b" stroke-width=".4"/><path d="M16.5 12c0-2.4 1.4-4 4-4.6" stroke="#fff" stroke-opacity=".4" stroke-width="1.2" stroke-linecap="round" fill="none"/><path class="r" d="M13.5 49V14a8.5 8.5 0 0 1 8.5-8.5H42"/>',
+    toaster:
+      '<ellipse cx="32" cy="60.6" rx="24" ry="2.6" fill="url(#faH)"/><rect x="17" y="11" width="13" height="16" rx="4" fill="#e9c58c" stroke="#b7864d" stroke-width=".8"/><rect x="33.5" y="10" width="13" height="17" rx="4" fill="#e9c58c" stroke="#b7864d" stroke-width=".8"/><rect x="7" y="22" width="50" height="34" rx="10" fill="url(#faS)"/><rect x="7" y="22" width="50" height="34" rx="10" fill="url(#faV)"/><rect x="15" y="23" width="16" height="2.6" rx="1.3" fill="#2a2d33"/><rect x="32.5" y="23" width="16" height="2.6" rx="1.3" fill="#2a2d33"/><rect x="54.6" y="30" width="4.2" height="8.6" rx="1.8" fill="#1d2025"/><circle cx="48" cy="47" r="2.9" fill="url(#faC)" stroke="#7f858e" stroke-width=".5"/><path d="M11.5 32c0-4 2-6.5 5-7.5" stroke="#fff" stroke-opacity=".6" stroke-width="1.2" stroke-linecap="round" fill="none"/><rect x="11" y="56" width="7" height="2.4" rx="1" fill="#1d2025"/><rect x="46" y="56" width="7" height="2.4" rx="1" fill="#1d2025"/><path class="r" d="M7.5 46V32a9.5 9.5 0 0 1 9.5-9.5H47"/>',
+    blender:
+      '<ellipse cx="32" cy="60.6" rx="15" ry="2.6" fill="url(#faH)"/><path d="M20 44h24l2.4 15H17.6Z" fill="url(#faS)"/><path d="M20 44h24l2.4 15H17.6Z" fill="url(#faV)"/><circle cx="32" cy="52" r="3.2" fill="#1d2025"/><circle cx="32" cy="52" r="1.8" fill="url(#faC)"/><path d="M42 16h3.4a2.4 2.4 0 0 1 2.4 2.4v14.2a2.4 2.4 0 0 1-2.4 2.4H41" fill="none" stroke="#9fb3c6" stroke-width="2.2"/><path d="M21.5 12h21l-2.8 32H24.3Z" fill="#dce9f4" fill-opacity=".62" stroke="#9fb3c6" stroke-width=".7"/><path d="M28 40.5h8M32 38.5v4" stroke="#7f858e" stroke-width="1.2" stroke-linecap="round"/><path d="M24.6 15.5 26.4 40" stroke="#fff" stroke-opacity=".85" stroke-width="1.2" stroke-linecap="round"/><rect x="20.5" y="6.5" width="23" height="6" rx="2" fill="#1d2025"/><rect x="29" y="4" width="6" height="3" rx="1.2" fill="#2c3037"/><path class="r" d="M21 43.5 22 13M21 6.5h22"/>',
+    sandwich_maker:
+      '<ellipse cx="32" cy="60.6" rx="25" ry="2.6" fill="url(#faH)"/><rect x="8" y="39" width="48" height="16" rx="5" fill="#1d2025"/><path d="M9 41c0-10 6-15.5 23-15.5S55 31 55 41Z" fill="url(#faB)"/><path d="M9 41c0-10 6-15.5 23-15.5S55 31 55 41Z" fill="url(#faG)"/><ellipse cx="32" cy="32" rx="11" ry="2.6" fill="url(#faS)" opacity=".8"/><rect x="25" y="40" width="14" height="5" rx="2.2" fill="#3a3e45"/><path d="M8.5 47h47" stroke="#07080a" stroke-width=".8"/><circle cx="46" cy="50" r=".9" fill="#5fd38a"/><circle cx="49.4" cy="50" r=".9" fill="#ff6a4d"/><rect x="12" y="55" width="6" height="2.4" rx="1" fill="#101216"/><rect x="46" y="55" width="6" height="2.4" rx="1" fill="#101216"/><path class="r" d="M9.5 41c0-9.6 6-15 22.5-15"/>',
+    plug: '<ellipse cx="32" cy="60.6" rx="15" ry="2.6" fill="url(#faH)"/><rect x="17" y="12" width="30" height="44" rx="8" fill="url(#faW)"/><rect x="17" y="12" width="30" height="44" rx="8" fill="url(#faV)"/><rect x="17" y="12" width="30" height="44" rx="8" fill="none" stroke="#c4c9d0" stroke-width=".6"/><circle cx="32" cy="31" r="10" fill="#f4f5f7" stroke="#cdd1d7" stroke-width=".7"/><circle cx="28" cy="31" r="1.5" fill="#3a3e45"/><circle cx="36" cy="31" r="1.5" fill="#3a3e45"/><circle cx="32" cy="48" r="1.4" fill="#5fd38a"/><path class="r" d="M17.5 48V20a7.5 7.5 0 0 1 7.5-7.5H39"/>',
+  };
+
   /* ---------- text metrics (Inter is loaded before the sheets render) ---------- */
   let probe = null;
   const textWidth = (text, font = '600 13px Inter') => {
@@ -641,6 +739,9 @@
     barRow,
     stack,
     G,
+    APPLIANCE_GLYPHS: GA,
+    APPLIANCE_ART: GART,
+    APPLIANCE_ART_DEFS: ART_DEFS,
     ico,
     knob,
     ruler,

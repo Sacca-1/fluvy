@@ -129,10 +129,10 @@
 }
 
 /* 72 keys 24 apart; a sheet too narrow for that (a 232 column) closes the gaps to 8 on the 4 grid, and narrower
-   still (a 211 column) the keys themselves give way, never under 56 */
+   still (a 211 column: 179 of content) the keys themselves give way, on the 4 grid, never under a finger's 44 */
 .dv-keys {
   display: grid;
-  grid-template-columns: repeat(3, minmax(56px, 72px));
+  grid-template-columns: repeat(3, min(72px, max(44px, round(down, calc((100% - 16px) / 3), 4px))));
   justify-content: center;
   gap: 16px max(8px, min(24px, round(down, calc((100% - 216px) / 2), 4px)));
   margin-top: 24px;
@@ -143,7 +143,7 @@
   align-items: center;
   justify-content: center;
   width: auto;
-  min-width: 56px;
+  min-width: 44px;
   height: 56px;
   border-radius: var(--fluvy-radius-control);
   background: var(--fluvy-page);

@@ -1,4 +1,5 @@
 import type { FluvyCardConfig } from '@fluvy/core';
+import type { HeadConfig } from '../shared/base.js';
 import type { FirstWeekday } from '../shared/dates.js';
 import { type Tone } from '@fluvy/ui';
 
@@ -39,7 +40,7 @@ export interface CalendarItem {
   color?: string;
 }
 
-export interface CalendarCardConfig extends FluvyCardConfig {
+export interface CalendarCardConfig extends FluvyCardConfig, HeadConfig {
   /** One or more `calendar.*` entities, as ids or with a name, a tone or a colour each. */
   calendars?: ReadonlyArray<string | CalendarItem>;
   variant?: CalendarView;

@@ -3,12 +3,12 @@ import {
   formatNumber,
   isUsable,
   numberAttr,
-  stateText,
   strings,
   type EntityView,
   type FluvyCardConfig,
   type LovelaceConfigForm,
   type LovelaceGridOptions,
+  type HomeAssistant,
 } from '@fluvy/core';
 
 import {
@@ -29,7 +29,7 @@ import {
 
 import { css, html, nothing, type CSSResultGroup, type TemplateResult } from 'lit';
 
-import { Card } from '../shared/base.js';
+import { Card, HEAD_BASE } from '../shared/base.js';
 
 import { glyphFor } from '../shared/domain.js';
 
@@ -43,6 +43,7 @@ import {
   nameIconFields,
   numberField,
   selectField,
+  showIconField,
   textField,
 } from '../shared/form.js';
 import {
@@ -60,7 +61,15 @@ import { configKeys, ITEM_ALIASES, type AliasSpec, type RowStyle } from '../shar
 import { chipRow } from '../shared/chips.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 import { HeadFit } from '../energy/head.js';
-import { COMPACT, listLength } from '../shared/heights.js';
+import { COMPACT, drawnAs, featuresOf, known, listLength } from '../shared/heights.js';
+import {
+  fitValueRow,
+  STEPPER,
+  STEPPER_HALVES,
+  valueRowClass,
+  type Reading,
+  type RowLayout,
+} from '../shared/value-row.js';
 
 const coverStrings = strings('cover');
 
@@ -94,6 +103,8 @@ const STOP = 8;
 const OPEN_TILT = 16;
 const CLOSE_TILT = 32;
 const SET_TILT_POSITION = 128;
+/** What a cover draws where the house is not there to say (`layoutHeight`; one never read): position, commands. */
+const USUAL = OPEN | CLOSE | SET_POSITION | STOP;
 
 /** Device classes that read better with their own glyph than with the blinds. */
 const CLASS_GLYPH: Record<string, GlyphName> = {
@@ -103,8 +114,15 @@ const CLASS_GLYPH: Record<string, GlyphName> = {
   damper: 'fan',
 };
 
-/** The ruler column (56 labels + 8 + 44 band) and the 24 gap: what the side column does not get. */
-const RULER_COLUMN = 132;
+/** The ruler's band, and its words (56) with the 8 before the band: what the side column beside them does not get. */
+const RULER_BAND = 44;
+const RULER_WORDS = 64;
+/** The side column's room, best first: 24 from the ruler and its words, 16 from them, 16 from the band alone. */
+const SIDE_ROOM = [
+  { gap: 24, words: true },
+  { gap: 16, words: true },
+  { gap: 16, words: false },
+] as const;
 
 type Percent = number | null;
 
@@ -126,10 +144,16 @@ const percentAttr = (view: EntityView, key: string): Percent => {
  */
 export class FluvyCoverCard extends Card<CoverCardConfig> {
   /** The card's height at a 360 column, for the automatic dashboard's columns. */
-  static override layoutHeight(config: CoverCardConfig): number {
+  static override layoutHeight(config: CoverCardConfig, hass?: HomeAssistant): number {
     if (config.variant === 'compact') return COMPACT;
+    // the ruler with its side column where the cover takes a position (the whole card where the house is not there
+    // to say); else the tilt's readout and stepper over the commands; else the head and the commands
+    const features = known(hass, config.entity) ? featuresOf(hass, config.entity) : USUAL;
+    const tilt =
+      config.show_tilt !== false && (features & (SET_TILT_POSITION | OPEN_TILT | CLOSE_TILT)) !== 0;
+    const positioned = (features & SET_POSITION) !== 0;
     const favorites = config.show_favorites !== false && listLength(config, ['favorites']) ? 88 : 0;
-    return 328 + favorites;
+    return positioned ? 328 + favorites : tilt ? 224 : COMPACT;
   }
 
   static override styles: CSSResultGroup = [
@@ -142,7 +166,8 @@ export class FluvyCoverCard extends Card<CoverCardConfig> {
         margin-top: 24px;
         margin-bottom: 8px;
       }
-      /* narrow column: the tilt stepper drops under its readout instead of crowding the value */
+      /* a side column too narrow for the tilt's stepper beside its readout: the stepper under it (its halves at 44
+         under 96), the 24 from the ruler closed to 16, then the ruler's words given way (sideFit) */
       .dv-cover--tight .dv-cover__side {
         gap: 8px;
       }
@@ -155,6 +180,9 @@ export class FluvyCoverCard extends Card<CoverCardConfig> {
       }
       .dv-cover--narrow {
         gap: 16px;
+      }
+      .dv-cover--bare .dv-vlabels {
+        display: none;
       }
     `,
   ];
@@ -182,6 +210,7 @@ export class FluvyCoverCard extends Card<CoverCardConfig> {
     this.fine = null;
   }
 
+  static override base = HEAD_BASE;
   static override keys = configKeys<CoverCardConfig>()([
     'subtitle',
     'variant',
@@ -216,6 +245,7 @@ export class FluvyCoverCard extends Card<CoverCardConfig> {
       schema: [
         entityField(['cover', 'valve']),
         nameIconFields(),
+        showIconField(),
         fieldRow(textField('subtitle'), numberField('tilt_angle', 0, 360)),
         fieldRow(
           selectField('variant', ['full', 'compact']),
@@ -252,7 +282,7 @@ export class FluvyCoverCard extends Card<CoverCardConfig> {
 
   override getCardSize(): number {
     if (this.compact) return 3;
-    const view = this.entity();
+    const view = drawnAs(this.entity(), USUAL);
     return 3 + (view.supports(SET_POSITION) ? 4 : 0) + (this.favoritesFor(view).length ? 2 : 0);
   }
 
@@ -373,12 +403,58 @@ export class FluvyCoverCard extends Card<CoverCardConfig> {
     return favorite.name ? `${favorite.name} · ${value.toLowerCase()}` : value;
   }
 
-  protected renderCard(): TemplateResult {
-    const view = this.entity();
-    const name = this.config?.name ?? view.name;
-    if (view.status === 'missing')
-      return this.renderEmpty(`${name} · ${stateText(this.hass, view)}`);
+  /**
+   * The side column beside the ruler, measured, never a width threshold: its readouts at m (the position, fully open;
+   * the tilt, fully tilted) and the tilt's stepper beside its readout, else under it (its halves at 44 under 96).
+   * Where the column cannot hold them with the ruler's words and 24 between, the 24 closes to 16, then the ruler's
+   * words give way: its knob and the position say where the cover is, the commands under them which way it opens.
+   */
+  private sideFit(
+    tilt: { readonly label: string; readonly figure: Reading; readonly canTilt: boolean } | null,
+  ): { readonly gap: number; readonly words: boolean; readonly tilt: RowLayout } {
+    const ruler = this.head.ruler;
+    const width = (label: string, figure: Reading): number =>
+      Math.max(
+        ruler.width('fv-readout > fv-readout__label', label),
+        ruler.width(
+          'fv-readout fv-readout--m > fv-readout__value',
+          figure.value,
+          'fv-unit',
+          figure.unit ?? '',
+        ),
+      );
+    // the column holds the readouts and, under the tilt's readout at the least, its whole stepper
+    const need = Math.max(
+      width(this.t('cover.position'), {
+        value: formatNumber(this.hass, 100, { digits: 0 }),
+        unit: '%',
+      }),
+      tilt ? width(tilt.label, tilt.figure) : 0,
+      tilt?.canTilt ? STEPPER : 0,
+    );
+    const column = (room: (typeof SIDE_ROOM)[number]): number =>
+      this.contentWidth - RULER_BAND - room.gap - (room.words ? RULER_WORDS : 0);
+    const room = SIDE_ROOM.find((room) => column(room) >= need) ?? SIDE_ROOM[2];
+    return {
+      ...room,
+      tilt: tilt
+        ? fitValueRow(ruler, {
+            width: column(room),
+            control: tilt.canTilt ? STEPPER : 0,
+            narrow: STEPPER_HALVES,
+            labels: [tilt.label],
+            figures: [tilt.figure],
+            sizes: ['m'],
+          }).layout
+        : 'alone',
+    };
+  }
 
+  protected renderCard(): TemplateResult {
+    // out of reach (unavailable, missing; never read: its usual parts) it keeps its anatomy and its size, its controls
+    // disabled: only the colours change (1.9)
+    const view = drawnAs(this.entity(), USUAL);
+    const name = this.config?.name ?? view.name;
     const valve = view.domain === 'valve';
     const unusable = !isUsable(view);
     const compact = this.compact;
@@ -407,9 +483,6 @@ export class FluvyCoverCard extends Card<CoverCardConfig> {
       (view.supports(SET_TILT_POSITION) || view.supports(OPEN_TILT) || view.supports(CLOSE_TILT));
     const showTilt =
       !valve && !compact && this.config?.show_tilt !== false && (canTilt || tilt !== null);
-    const tight = canPosition && showTilt && this.contentWidth - RULER_COLUMN < 180; // the stepper drops under its readout
-    // the 24 gap between the ruler column and the readouts closes to 16 where the 96 stepper would not fit beside it
-    const narrow = canPosition && showTilt && this.contentWidth < RULER_COLUMN + 96;
 
     // a cover whose state is only assumed (one-way radio) keeps both directions live, as Home Assistant does
     const assumed = view.attr<boolean>('assumed_state') === true;
@@ -455,21 +528,44 @@ export class FluvyCoverCard extends Card<CoverCardConfig> {
 
     const fine = this.fine;
     const angle = this.tiltAngle;
-    const tiltReadout = (size: 'm' | 'l'): TemplateResult =>
-      readout({
-        label: this.t('cover.tilt'),
-        size,
-        value:
-          tilt === null
-            ? '—'
-            : formatNumber(this.hass, angle ? (tilt * angle) / 100 : tilt, { digits: 0 }),
-        unit: tilt === null ? '' : angle ? '°' : '%',
-      });
     const tiltLabel = this.t('cover.tilt');
+    const tiltUnit = angle ? '°' : '%';
+    const tiltValue =
+      tilt === null
+        ? '—'
+        : formatNumber(this.hass, angle ? (tilt * angle) / 100 : tilt, { digits: 0 });
+    // the tilt's row laid out for its widest figure (fully tilted), never for the one it shows now: beside the
+    // ruler in the side column, or across the card where the cover has no position
+    const tiltFigure = {
+      value: formatNumber(this.hass, angle || 100, { digits: 0 }),
+      unit: tiltUnit,
+    };
+    const side =
+      canPosition && !compact
+        ? this.sideFit(showTilt ? { label: tiltLabel, figure: tiltFigure, canTilt } : null)
+        : null;
+    const tiltFit =
+      !canPosition && showTilt
+        ? fitValueRow(this.head.ruler, {
+            width: this.contentWidth,
+            control: canTilt ? STEPPER : 0,
+            narrow: STEPPER_HALVES,
+            labels: [tiltLabel],
+            figures: [tiltFigure],
+          })
+        : null;
+    const tiltLayout = side?.tilt ?? tiltFit?.layout ?? 'alone';
+    const tiltReadout = readout({
+      label: tiltLabel,
+      size: tiltFit?.size ?? 'm',
+      value: tiltValue,
+      unit: tilt === null ? '' : tiltUnit,
+    });
     const tiltStepper =
-      canTilt && !unusable
-        ? this.tiltStepper.get(tiltLabel, () =>
+      canTilt && tiltLayout !== 'alone'
+        ? this.tiltStepper.get(`${tiltLabel}|${unusable}`, () =>
             stepper((direction) => this.stepTilt(direction), {
+              disabled: unusable,
               decrease: `${tiltLabel} · ${this.t('common.decrease')}`,
               increase: `${tiltLabel} · ${this.t('common.increase')}`,
             }),
@@ -490,9 +586,11 @@ export class FluvyCoverCard extends Card<CoverCardConfig> {
       sub: headSub(sub, this.contentWidth),
       badge: { text: shownStateText(this.hass, view, shown), tone },
     });
+    // the commands in equal cells, two rows where one would leave a cell under a finger's 44
+    const cells = actionGap(this.contentWidth, row.length);
     return html`<article
       class="fv-card dv-card ${unusable ? 'is-unavailable is-off' : ''}"
-      style="--dv-action-gap:${actionGap(this.contentWidth, row.length)}px"
+      style="--dv-action-gap:${cells.gap}px"
       data-card
     >
       ${head({
@@ -504,14 +602,13 @@ export class FluvyCoverCard extends Card<CoverCardConfig> {
         name: true,
         sub: fitted.sub,
         trailing: fitted.badge,
-        onIconTap: () => this.tap(view.id),
-        onHold: () => this.hold(view.id),
-        iconLabel: name,
+        cut: fitted.cut,
+        ...this.headActions(view.id),
       })}
       ${
-        canPosition && !compact
+        side
           ? html` <div
-              class="dv-cover ${tight ? 'dv-cover--tight' : ''} ${narrow ? 'dv-cover--narrow' : ''}"
+              class="dv-cover ${tiltLayout === 'stack' || tiltLayout === 'halves' ? 'dv-cover--tight' : ''} ${side.gap === 16 ? 'dv-cover--narrow' : ''} ${side.words ? '' : 'dv-cover--bare'}"
             >
               <div class="dv-cover__ruler">
                 <div class="dv-vlabels" style="height:160px">
@@ -545,14 +642,16 @@ export class FluvyCoverCard extends Card<CoverCardConfig> {
               </div>
               <div class="dv-cover__side">
                 ${readout({ label: this.t('cover.position'), value: position === null ? '—' : formatNumber(this.hass, position, { digits: 0 }), unit: position === null ? '' : '%' })}
-                ${showTilt ? html`<div class="dv-cover__tilt">${tiltReadout('m')}${tiltStepper}</div>` : nothing}
+                ${showTilt ? html`<div class="dv-cover__tilt ${tiltLayout === 'halves' ? 'fv-value-row--halves' : ''}">${tiltReadout}${tiltStepper}</div>` : nothing}
               </div>
             </div>`
-          : showTilt
-            ? html`<div class="dv-value fv-value-row">${tiltReadout('l')}${tiltStepper}</div>`
+          : tiltFit
+            ? html`<div class="dv-value ${valueRowClass(tiltFit.layout)}">
+                ${tiltReadout}${tiltStepper}${canTilt && tiltFit.layout === 'alone' ? this.readoutTap(view.id, `${name} · ${tiltLabel} ${tiltValue} ${tilt === null ? '' : tiltUnit}`) : nothing}
+              </div>`
             : nothing
       }
-      ${row.length ? actions(row, (key) => this.command(view, key)) : nothing}
+      ${row.length ? actions(row, (key) => this.command(view, key), cells.columns) : nothing}
       ${
         chipItems.length
           ? html`${label(coverStrings(this.hass, 'favourites'))}${chipRow(

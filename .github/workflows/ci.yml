@@ -67,14 +67,48 @@ jobs:
           FLUVY_NO_HMR=1 pnpm --filter @fluvy/playground dev > playground.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:5183/ > /dev/null && break; sleep 1; done
       - run: pnpm visual
-      # advisory: every card's declared height against what it measures at 360
+      # every card's declared height is what it draws at 360 (`layoutHeight`, read with the house as the automatic
+      # dashboard reads it): nothing but the known drifts (tools/render/known-heights.json), and every known one still there
       - run: node tools/render/heights.mjs
-      # every sheet and every panel tab at 360, 412 and 1400: 0 violations each
-      - run: pnpm measure --out out/measure
+      # the measurer's self-test: each rule still breaks on its fixture, and nothing breaks on the clean one
+      - run: node tools/render/measure-fixtures.mjs --out out/measure
+      # every sheet and panel tab at the page widths 360, 412 and 1400 and the card widths 152, 172, 211 and 266:
+      # nothing but the known violations (tools/render/known-violations.json), and every known one still there
+      - run: pnpm measure --out out/measure --jobs 4
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: visual-reports
+          path: |
+            out
+            playground.log
+
+  narrow:
+    name: Narrow columns in every language
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm --filter @fluvy/render exec playwright install --with-deps chromium
+      - name: Start the playground
+        run: |
+          FLUVY_NO_HMR=1 pnpm --filter @fluvy/playground dev > playground.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:5183/ > /dev/null && break; sleep 1; done
+      # every sheet in every language the catalogue speaks, at the card widths: half-section cards at 152 and 172, full
+      # cards at the 211 floor and at 266, where a long word is cut, broken or laid over its neighbour first. A job of
+      # its own, beside the one above, so the two take the time of one
+      - run: pnpm measure:narrow --out out/measure-narrow --jobs 4
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: narrow-reports
           path: |
             out
             playground.log

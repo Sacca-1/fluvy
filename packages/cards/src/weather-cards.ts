@@ -6,10 +6,10 @@ import { FluvyWeatherCard } from './weather/weather-card.js';
  * The weather card's element: this module is its own chunk, fetched at start (`index.ts`) and defined as it lands.
  * Its name, description and height live in `weather-family.ts`, which every page carries.
  */
-export const WEATHER_CATALOGUE = WEATHER_FAMILY.map(
+export const CARDS = WEATHER_FAMILY.map(
   ([tag, name, description]) =>
     [tag, FluvyWeatherCard as CustomElementConstructor, name, description] as const,
 );
 
-for (const [tag, element, name, description] of WEATHER_CATALOGUE)
+for (const [tag, element, name, description] of CARDS)
   registerCard({ tag, name, description }, element);

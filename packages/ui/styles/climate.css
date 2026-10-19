@@ -49,17 +49,29 @@
   color: var(--fluvy-text-secondary);
 }
 
-/* compact and ruler variants: the target as a large readout with its stepper on the figure's 44 line box (the light card's row) */
+/* compact and ruler variants: the target as a large readout with its stepper on the figure's 44 line box (the light
+   card's row), fitted by the card (`fitValueRow`): beside it, or the stepper centred under it */
 
-/* the readout's label keeps its one line (the card drops the "· now" part that would not fit) */
-.cl-value .fv-readout {
-  min-width: 0;
+/* a range's ends: each a button that gives the stepper to its end, a finger's 44 round its figure at every size; the
+   end it drives in the accent's ink */
+.cl-end {
+  position: relative;
+  display: inline-block;
+  letter-spacing: inherit;
 }
 
-.cl-value .fv-readout__label {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.cl-end::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: 44px;
+  translate: -50% -50%;
+}
+
+.cl-end.is-on {
+  color: var(--fluvy-accent);
 }
 
 .cl-bubble-row {

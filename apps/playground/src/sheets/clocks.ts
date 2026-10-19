@@ -236,8 +236,10 @@ export const sheet: SheetSpec = {
         { ...DAY, variant: 'digital', weather: 'weather.home', forecast: false },
       ],
     },
+    // it ticks: a second hand and a seconds figure are never where the last look left them (for the eye only)
     {
       title: 'Live (the real clock)',
+      measure: false,
       cards: [
         { type: 'custom:fluvy-clock-card', variant: 'analog', layout: 'side', seconds: true },
         { type: 'custom:fluvy-clock-card', variant: 'digital', seconds: true, week: true },

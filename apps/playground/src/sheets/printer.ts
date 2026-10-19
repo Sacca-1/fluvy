@@ -1287,5 +1287,14 @@ export const sheet: SheetSpec = {
         },
       ],
     },
+    // the row at its own size: half of a section of its own (the suites draw this sheet at a half column's width)
+    {
+      title: 'Rows · half a section',
+      width: 360,
+      cards: [
+        { type: 'custom:fluvy-printer-card', device: 'd-p1s', variant: 'row', _now: NOW, cols: 6 },
+        { type: 'custom:fluvy-printer-card', device: 'd-mk4', variant: 'row', _now: NOW, cols: 6 },
+      ],
+    },
   ],
 };

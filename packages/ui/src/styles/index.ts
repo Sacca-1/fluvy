@@ -18,7 +18,7 @@ import { tokensCss } from './generated/tokens.js';
 
 /**
  * One CSSResult per stylesheet, created once: Lit turns each into a single constructable
- * stylesheet that every card adopts, so forty cards share one parsed copy of the language.
+ * stylesheet that every card adopts, so fifty-five cards share one parsed copy of the language.
  */
 const sheet = (css: string): CSSResult => unsafeCSS(css);
 

@@ -238,6 +238,8 @@ const HOLD_SLOP = 8; // px of travel that turns a press into a scroll
 let pressTarget: PressTarget | null = null;
 let pressTimer = 0;
 let pressHeld = false;
+/** A mouse or pen press that travelled: a drag (a selection, a scroll by hand), whose click is no tap. */
+let pressMoved = false;
 let pressX = 0;
 let pressY = 0;
 
@@ -247,7 +249,10 @@ function cancelHold(): void {
 }
 
 function movePress(event: PointerEvent): void {
-  if (Math.hypot(event.clientX - pressX, event.clientY - pressY) > HOLD_SLOP) cancelHold();
+  if (Math.hypot(event.clientX - pressX, event.clientY - pressY) <= HOLD_SLOP) return;
+  cancelHold();
+  // a finger's pan is the browser's to tell from a tap, and it cancels the click itself; a mouse's drag it does not
+  if (event.pointerType !== 'touch') pressMoved = true;
 }
 
 function endPress(): void {
@@ -257,9 +262,10 @@ function endPress(): void {
 
 /**
  * Tap-or-hold for a whole tile. The hold fires after 500 ms without travel and calls the element's
- * CURRENT `fvHold`; the click that follows is then swallowed, so a hold never also taps. One press
- * for the whole page, like the stepper repeat; a new press always starts clean, so a hold whose
- * click never came (touch long-press) cannot swallow the next tap.
+ * CURRENT `fvHold`; the click that follows is then swallowed, so a hold never also taps — nor does a
+ * mouse or pen press that travelled more than 8 px (a drag). One press for the whole page, like the
+ * stepper repeat; a new press always starts clean, so a hold whose click never came (touch long-press)
+ * cannot swallow the next tap.
  */
 export function startPress(event: PointerEvent): void {
   if (event.pointerType === 'mouse' && event.button !== 0) return;
@@ -267,6 +273,7 @@ export function startPress(event: PointerEvent): void {
   endPress();
   pressTarget = target;
   pressHeld = false;
+  pressMoved = false;
   pressX = event.clientX;
   pressY = event.clientY;
   if (target.fvHold) {
@@ -283,13 +290,18 @@ export function startPress(event: PointerEvent): void {
   window.addEventListener('blur', endPress, { once: true });
 }
 
-/** The click of a pressable surface: the tap, unless this press was held (its hold already ran). Keyboard clicks tap. */
+/**
+ * The click of a pressable surface: the tap, unless this press was held (its hold already ran) or dragged. A
+ * keyboard's click (Enter, Space: `detail` 0) always taps — a held touch press whose click never came cannot
+ * swallow it.
+ */
 export function clickPress(event: MouseEvent): void {
   const target = event.currentTarget as PressTarget;
-  const held = pressHeld && pressTarget === target;
+  const spent = event.detail !== 0 && pressTarget === target && (pressHeld || pressMoved);
   pressHeld = false;
+  pressMoved = false;
   pressTarget = null;
-  if (held) {
+  if (spent) {
     event.preventDefault();
     event.stopPropagation();
     return;
@@ -301,6 +313,19 @@ export function clickPress(event: MouseEvent): void {
 export function preventMenu(event: Event): void {
   event.preventDefault();
 }
+
+/**
+ * The keyboard's hold on a surface that holds: the menu key, or Shift+F10 (a still press of 500 ms is a pointer's).
+ * The browser's own menu does not open over it.
+ */
+export const holdKey =
+  (hold: (() => void) | undefined) =>
+  (event: KeyboardEvent): void => {
+    if (hold && (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey))) {
+      event.preventDefault();
+      hold();
+    }
+  };
 
 /**
  * Where the pointer is along the element that received the event, 0..1 — a mouse scrubs by hovering,

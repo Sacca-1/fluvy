@@ -30,6 +30,14 @@ const hass = {
     'light.hall': entity('light.hall', 'off', { friendly_name: 'Hall light' }),
     'cover.living': entity('cover.living', 'open', { friendly_name: 'Blinds' }),
     'climate.living': entity('climate.living', 'heat', { friendly_name: 'Thermostat' }),
+    'scene.movie': entity('scene.movie', '2026-09-16T20:30:00+00:00', { friendly_name: 'Movie' }),
+    'switch.fountain': entity('switch.fountain', 'unavailable', { friendly_name: 'Fountain' }),
+    ...Object.fromEntries(
+      ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => [
+        `light.desk_${n}`,
+        entity(`light.desk_${n}`, 'off', { friendly_name: `Desk ${n.toUpperCase()}` }),
+      ]),
+    ),
     'automation.good_morning': entity('automation.good_morning', 'on', {
       friendly_name: 'Good morning',
       last_triggered: '2026-09-17T06:45:00+02:00',
@@ -175,11 +183,9 @@ describe('the schedule sheet', () => {
     expect(tile(sheet, 'ss-do', 'Turn on')?.querySelector('.fv-option__value')?.textContent).toBe(
       '5 %',
     );
-    // a cover has no brightness, and no "on": the verbs are its own
-    candidate(sheet, 'Blinds')?.click();
-    await sheet.updateComplete;
-    expect(fieldRow(sheet, 'Brightness')).toBeUndefined();
-    expect(save(sheet).disabled).toBe(true); // the verb no longer fits both targets
+    // a cover shares no verb with a light: it is no longer offered, so the Do tiles are never none
+    expect(candidate(sheet, 'Blinds')).toBeUndefined();
+    expect(candidate(sheet, 'Hall light')).toBeDefined();
   });
 
   it('tells the Workdays tile by the house: the sensor, or Monday to Friday', async () => {
@@ -225,6 +231,8 @@ describe('the schedule sheet', () => {
     until.querySelector<HTMLElement>('.fv-hit')?.click();
     await sheet.updateComplete;
     expect(root(sheet).querySelector('.ss-end')).not.toBeNull();
+    // the Until row is the end's label: no second "Until" over its quick ends
+    expect(root(sheet).querySelector('.ss-end > .fv-label')).toBeNull();
     expect(root(sheet).querySelector('.ss-after')).not.toBeNull();
     save(sheet).click();
     await sheet.updateComplete;
@@ -327,6 +335,255 @@ describe('the schedule sheet', () => {
     await sheet.updateComplete;
     expect(root(sheet).querySelector('dialog')).toBeNull();
     expect(document.activeElement).toBe(opener);
+  });
+
+  it('reads the card’s clock: a new schedule starts at its next whole hour, the details say its "ago"', async () => {
+    const at = new Date(2026, 8, 17, 21, 47);
+    const fresh = await open(request({ now: () => at }));
+    expect(fresh.shadowRoot!.querySelector('input[data-field="alias"]')).not.toBeNull();
+    expect((fresh as unknown as { draft_: { start: unknown } }).draft_.start).toEqual({
+      kind: 'time',
+      at: '22:00',
+    });
+    // nothing chosen yet: the name suggested is the days and the time, no separator before them
+    expect(root(fresh).querySelector<HTMLInputElement>('input[data-field="alias"]')?.value).toBe(
+      'Every day 22:00',
+    );
+    const details = await open({
+      entity: 'automation.good_morning',
+      alias: 'Good morning',
+      now: () => at,
+      run: vi.fn(),
+      toggle: vi.fn(),
+    });
+    expect(root(details).querySelector('.fv-card__sub')?.textContent).toMatch(
+      /^Ran \d\d:\d\d · On$/,
+    );
+  });
+
+  it('lets the end follow the start until it is set by hand, and remembers the clock across the sun', async () => {
+    const sheet = await open(request({ now: () => new Date(2026, 8, 17, 6, 10) }));
+    const draft = (): { start: unknown; end: unknown } =>
+      (sheet as unknown as { draft_: { start: unknown; end: unknown } }).draft_;
+    const chip = (block: string, label: string): HTMLElement | undefined =>
+      [...root(sheet).querySelectorAll<HTMLElement>(`.ss-${block} .fv-chip`)].find((el) =>
+        el.textContent?.includes(label),
+      );
+    expect(draft().end).toEqual({ kind: 'time', at: '08:00' });
+    // the start's time field moved: the end an hour after it
+    root(sheet)
+      .querySelector('.ss-start fluvy-time-field')
+      ?.dispatchEvent(new CustomEvent('fluvy-time', { detail: { value: 9 * 60 + 30 } }));
+    await sheet.updateComplete;
+    expect(draft().end).toEqual({ kind: 'time', at: '10:30' });
+    // the start by the sun: the end the sun's other event, never "Sunset–10:30"
+    chip('start', 'Sunset')?.click();
+    await sheet.updateComplete;
+    expect(draft().start).toEqual({ kind: 'sun', event: 'sunset', offset: 0 });
+    expect(draft().end).toEqual({ kind: 'sun', event: 'sunrise', offset: 0 });
+    // back on the clock: the time it had, not 08:00
+    chip('start', 'At a time')?.click();
+    await sheet.updateComplete;
+    expect(draft().start).toEqual({ kind: 'time', at: '09:30' });
+    expect(draft().end).toEqual({ kind: 'time', at: '10:30' });
+    // the end set by hand stays where it is put
+    fieldRow(sheet, 'Until')?.querySelector<HTMLElement>('.fv-hit')?.click();
+    await sheet.updateComplete;
+    root(sheet)
+      .querySelector('.ss-end fluvy-time-field')
+      ?.dispatchEvent(new CustomEvent('fluvy-time', { detail: { value: 23 * 60 } }));
+    await sheet.updateComplete;
+    root(sheet)
+      .querySelector('.ss-start fluvy-time-field')
+      ?.dispatchEvent(new CustomEvent('fluvy-time', { detail: { value: 7 * 60 } }));
+    await sheet.updateComplete;
+    expect(draft().end).toEqual({ kind: 'time', at: '23:00' });
+  });
+
+  it('ends a window 15 min, 30 min, 1 h or 2 h after its start, and keeps the span while the start moves', async () => {
+    const sheet = await open(request({ now: () => new Date(2026, 8, 17, 20, 10) }));
+    fieldRow(sheet, 'Until')?.querySelector<HTMLElement>('.fv-hit')?.click();
+    await sheet.updateComplete;
+    const spans = (): HTMLButtonElement[] => [
+      ...root(sheet).querySelectorAll<HTMLButtonElement>('.ss-spans .fv-chip'),
+    ];
+    expect(spans().map((chip) => chip.textContent?.trim())).toEqual([
+      '15 min',
+      '30 min',
+      '1 h',
+      '2 h',
+    ]);
+    expect(spans().map((chip) => chip.getAttribute('aria-pressed'))).toEqual([
+      'false',
+      'false',
+      'true',
+      'false',
+    ]);
+    spans()[3]?.click();
+    await sheet.updateComplete;
+    expect(fieldRow(sheet, 'Until')?.querySelector('.fv-row__sub')?.textContent).toBe(
+      '21:00–23:00',
+    );
+    // the start moved to 23:00, two hours on: past midnight, the window runs into the next day
+    root(sheet)
+      .querySelector('.ss-start fluvy-time-field')
+      ?.dispatchEvent(new CustomEvent('fluvy-time', { detail: { value: 23 * 60 } }));
+    await sheet.updateComplete;
+    expect(fieldRow(sheet, 'Until')?.querySelector('.fv-row__sub')?.textContent).toBe(
+      '23:00–01:00',
+    );
+    // a sun start whose offset would pass three hours cannot take the span
+    [...root(sheet).querySelectorAll<HTMLElement>('.ss-start .fv-chip')]
+      .find((el) => el.textContent?.includes('Sunset'))
+      ?.click();
+    await sheet.updateComplete;
+    for (let i = 0; i < 25; i++)
+      root(sheet)
+        .querySelectorAll<HTMLButtonElement>('.ss-start .fv-stepper__half')[1]
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+    await sheet.updateComplete;
+    expect(spans().map((chip) => chip.disabled)).toEqual([false, false, true, true]);
+  });
+
+  it('sets the Workdays and Custom values in a word’s style, never a figure’s', async () => {
+    const sheet = await open(request({ workday: 'binary_sensor.workday_sensor' }));
+    expect(
+      tile(sheet, 'ss-when', 'Workdays')
+        ?.querySelector('.fv-option__value')
+        ?.classList.contains('fv-option__value--word'),
+    ).toBe(true);
+  });
+
+  it('keeps Escape and a touch to itself: a popup that listens on the window or on itself hears neither', async () => {
+    // Bubble Card closes its popup on a window's Escape and slides it closed from a touch on itself
+    const popup = document.createElement('div');
+    const sheet = document.createElement('fluvy-schedule-sheet') as Sheet;
+    sheet.hass = hass;
+    popup.append(sheet);
+    document.body.append(popup);
+    const heard = vi.fn();
+    window.addEventListener('keydown', heard);
+    popup.addEventListener('touchstart', heard);
+    sheet.open(request({ schedule: EXISTING }));
+    await sheet.updateComplete;
+    const inside = root(sheet).querySelector<HTMLElement>('.ss-do .fv-option')!;
+    inside.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }),
+    );
+    inside.dispatchEvent(new Event('touchstart', { bubbles: true, composed: true }));
+    expect(heard).not.toHaveBeenCalled();
+    window.removeEventListener('keydown', heard);
+  });
+
+  describe('for a card about a few entities (`only`)', () => {
+    it('fixes one target as a row, its first verb chosen, so Save works at once', async () => {
+      const req = request({ only: [{ id: 'light.kitchen', name: 'Lamp', level: 40 }] });
+      const sheet = await open(req);
+      expect(root(sheet).querySelector('.ss-search')).toBeNull();
+      const row = root(sheet).querySelector<HTMLElement>('.ss-fixed .fv-row')!;
+      expect(row.querySelector('.fv-row__title')?.textContent).toBe('Lamp');
+      expect(row.querySelector('.fv-row__sub')?.textContent).toBe('Kitchen · On');
+      expect(row.getAttribute('role')).toBeNull();
+      expect(row.getAttribute('tabindex')).toBeNull();
+      expect(tile(sheet, 'ss-do', 'Turn on')?.getAttribute('aria-pressed')).toBe('true');
+      expect(fieldRow(sheet, 'Brightness')?.querySelector('.fv-row__sub')?.textContent).toBe(
+        '40 %',
+      );
+      expect(save(sheet).disabled).toBe(false);
+      save(sheet).click();
+      await sheet.updateComplete;
+      const handed = (req.save as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as Schedule;
+      expect(handed.targets).toEqual(['light.kitchen']);
+      expect(handed.then).toEqual({ verb: 'on', level: 40 });
+      expect(handed.alias).toMatch(/^Lamp · Every day \d\d:00$/);
+    });
+
+    it('starts on the target’s own verb, else its domain’s first', async () => {
+      const off = await open(request({ only: [{ id: 'light.kitchen', verb: 'off', level: 40 }] }));
+      expect(tile(off, 'ss-do', 'Turn off')?.getAttribute('aria-pressed')).toBe('true');
+      expect(fieldRow(off, 'Brightness')).toBeUndefined();
+      const scene = await open(request({ only: [{ id: 'scene.movie' }] }));
+      expect(tile(scene, 'ss-do', 'Run')?.getAttribute('aria-pressed')).toBe('true');
+      expect(save(scene).disabled).toBe(false);
+    });
+
+    it('focuses the verb chosen when it opens as a dialog', async () => {
+      const sheet = await open(request({ only: [{ id: 'light.kitchen' }] }), false);
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+      expect(root(sheet).activeElement?.textContent).toContain('Turn on');
+    });
+
+    it('shows two to six as chips that press where they stand, one sharing no verb disabled', async () => {
+      const sheet = await open(
+        request({
+          only: [
+            { id: 'light.kitchen' },
+            { id: 'cover.living' },
+            { id: 'light.hall', name: 'Hall' },
+          ],
+        }),
+      );
+      const chips = (): HTMLButtonElement[] => [
+        ...root(sheet).querySelectorAll<HTMLButtonElement>('.ss-targets .fv-chip'),
+      ];
+      expect(root(sheet).querySelector('.ss-search')).toBeNull();
+      expect(chips().map((chip) => chip.textContent?.trim())).toEqual([
+        'Kitchen lamp',
+        'Blinds',
+        'Hall',
+      ]);
+      expect(save(sheet).disabled).toBe(true);
+      chips()[2]?.click();
+      await sheet.updateComplete;
+      chips()[0]?.click();
+      await sheet.updateComplete;
+      expect(chips().map((chip) => chip.getAttribute('aria-pressed'))).toEqual([
+        'true',
+        'false',
+        'true',
+      ]);
+      expect(chips()[1]?.disabled).toBe(true); // the cover shares no verb with the lights
+      expect(tile(sheet, 'ss-do', 'Turn on')).toBeDefined();
+      tile(sheet, 'ss-do', 'Turn off')?.click();
+      await sheet.updateComplete;
+      expect(
+        root(sheet).querySelector<HTMLInputElement>('input[data-field="alias"]')?.value,
+      ).toMatch(/^Kitchen lamp \+1 · /);
+      chips()[0]?.click();
+      chips()[2]?.click();
+      await sheet.updateComplete;
+      expect(chips().every((chip) => !chip.disabled)).toBe(true);
+    });
+
+    it('searches more than six among themselves alone', async () => {
+      const only = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => ({ id: `light.desk_${n}` }));
+      const sheet = await open(request({ only: [...only, { id: 'light.kitchen' }] }));
+      const input = root(sheet).querySelector<HTMLInputElement>('.ss-search input')!;
+      input.value = 'light';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await sheet.updateComplete;
+      const names = [...root(sheet).querySelectorAll('.ss-candidates .fv-row__title')].map((el) =>
+        el.textContent?.trim(),
+      );
+      expect(names).not.toContain('Hall light');
+      expect(root(sheet).querySelector('.ss-more')?.textContent).toBe('1 more · keep typing');
+    });
+
+    it('keeps a target from elsewhere as a chip that removes it, and saves it as it was', async () => {
+      const req = request({
+        schedule: { ...EXISTING, targets: ['light.kitchen', 'light.hall'] },
+        only: [{ id: 'light.kitchen' }],
+      });
+      const sheet = await open(req);
+      expect(root(sheet).querySelector('.ss-fixed')).toBeNull();
+      expect(
+        [...root(sheet).querySelectorAll('.ss-chosen .fv-chip__name')].map((el) => el.textContent),
+      ).toEqual(['Hall light']);
+      save(sheet).click();
+      await sheet.updateComplete;
+      const handed = (req.save as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as Schedule;
+      expect(handed.targets).toEqual(['light.kitchen', 'light.hall']);
+    });
   });
 
   it('shows an automation’s details: its switch, its links, and Run that reads Done for a beat', async () => {

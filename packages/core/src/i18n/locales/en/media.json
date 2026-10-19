@@ -1,0 +1,29 @@
+{
+  "media": {
+    "volume": "Volume",
+    "mute": "Mute",
+    "source": "Source",
+    "play": "Play",
+    "pause": "Pause",
+    "previous": "Previous",
+    "next": "Next",
+    "shuffle": "Shuffle",
+    "repeat": "Repeat",
+    "nothing": "Nothing playing",
+    "unmute": "Unmute",
+    "power": "Power",
+    "power_on": "Turn on",
+    "power_off": "Turn off",
+    "position": "Position",
+    "last_played": "last played {time}",
+    "since": "since {time}",
+    "repeat_off": "Repeat off",
+    "repeat_all": "Repeat all",
+    "repeat_one": "Repeat one",
+    "artwork": "Album art"
+  },
+  "now-playing": {
+    "progress": "{position} of {duration}",
+    "muted": "muted"
+  }
+}

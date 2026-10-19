@@ -27,6 +27,7 @@ import { FontsSettled } from '../shared/fonts.js';
 import {
   accentField,
   actionField,
+  emptyFields,
   entitiesField,
   entityField,
   fieldRow,
@@ -44,7 +45,8 @@ import {
   type AliasSpec,
   type Columns,
 } from '../shared/config.js';
-import { listLength, rowsOf } from '../shared/heights.js';
+import { EMPTY, entryCount, rowsOf } from '../shared/heights.js';
+import { EMPTY_KEYS, emptyPanel, itemsOf, listOf, type EmptyList } from '../shared/lists.js';
 
 const s = strings('scenes');
 
@@ -62,7 +64,7 @@ export interface SceneItemConfig {
   color?: string;
 }
 
-export interface ScenesCardConfig extends FluvyCardConfig {
+export interface ScenesCardConfig extends FluvyCardConfig, EmptyList {
   /** A section title above the tiles (the heading card's face). */
   title?: string;
   /** The object form, for a per-scene `name`, `icon`, `subtitle` and `tap_action`. Wins over `entities`. */
@@ -102,9 +104,10 @@ const TILE_CHROME = 88;
 export class FluvyScenesCard extends Card<ScenesCardConfig> {
   /** The card's height at a 360 column, for the automatic dashboard's columns. */
   static override layoutHeight(config: ScenesCardConfig): number {
-    const n = listLength(config, ['scenes', 'entities']);
+    const n = entryCount(config, ['scenes', 'entities']);
     const perRow = columnsOf(config.columns, 'auto') === 1 ? 1 : 2;
-    return (config.title ? 40 : 0) + Math.max(1, rowsOf(n, perRow)) * 84 - 8; // no scenes yet: the empty state's row
+    // no scenes: the empty panel where the tiles would be
+    return (config.title ? 40 : 0) + (n ? rowsOf(n, perRow) * 84 - 8 : EMPTY);
   }
 
   static override styles: CSSResultGroup = [
@@ -137,16 +140,18 @@ export class FluvyScenesCard extends Card<ScenesCardConfig> {
       .am-scene .fv-row__text {
         min-width: 0;
       }
-      button.fv-tile--off {
-        width: 100%;
-        text-align: left;
-      }
     `,
   ];
 
   /** A grid of scenes has no entity of its own: its colour is the lit tile's, a hold on a tile is the base's. */
   static override base: readonly BaseKey[] = ['entities', 'color', 'card_color', 'hold_action'];
-  static override keys = configKeys<ScenesCardConfig>()(['title', 'scenes', 'columns', 'tint']);
+  static override keys = configKeys<ScenesCardConfig>()([
+    'title',
+    'scenes',
+    'columns',
+    'tint',
+    ...EMPTY_KEYS,
+  ]);
   static override lists: readonly RowsListSpec[] = [
     {
       key: 'scenes',
@@ -177,6 +182,7 @@ export class FluvyScenesCard extends Card<ScenesCardConfig> {
           actionField('hold_action'),
         ),
         tintField(),
+        emptyFields(),
       ],
       ...formLabels({}),
     };
@@ -215,15 +221,11 @@ export class FluvyScenesCard extends Card<ScenesCardConfig> {
   }
 
   private items(): SceneItemConfig[] {
-    const source = this.config?.scenes ?? this.config?.entities ?? [];
-    return source
-      .map((item) => (typeof item === 'string' ? { entity: item } : item))
-      .filter((item) => Boolean(item.entity));
+    return itemsOf(this.config?.scenes ?? this.config?.entities);
   }
 
   protected override prepare(config: ScenesCardConfig): ScenesCardConfig {
-    if (!config.scenes?.length && !config.entities?.length)
-      throw new Error('fluvy-scenes-card: add at least one scene');
+    listOf(config, 'scenes', ['entities']);
     return config;
   }
 
@@ -232,7 +234,7 @@ export class FluvyScenesCard extends Card<ScenesCardConfig> {
   }
 
   override getCardSize(): number {
-    return Math.ceil(this.items().length / 2) * 2;
+    return Math.max(1, Math.ceil(this.items().length / 2)) * 2;
   }
   override getGridOptions(): LovelaceGridOptions {
     return { columns: 12, rows: 'auto', min_columns: 6 };
@@ -257,11 +259,12 @@ export class FluvyScenesCard extends Card<ScenesCardConfig> {
 
   protected renderCard(): TemplateResult {
     const items = this.items();
-    if (items.length === 0) return this.renderEmpty();
+    // no scenes: the panel where their tiles would be, across the grid and on the page as they are
+    const panel = emptyPanel(this, !items.length, 'moon', 'common.no_scenes', true);
     const views = items.map((item) => this.entity(item.entity));
-    const columns = this.columns(
-      items.map((item, index) => item.name ?? (views[index] as EntityView).name),
-    );
+    const columns = panel
+      ? 1
+      : this.columns(items.map((item, index) => item.name ?? (views[index] as EntityView).name));
     const frozen = this.config?._now ? new Date(this.config._now) : null;
     const now = frozen && !Number.isNaN(frozen.getTime()) ? frozen : new Date();
 
@@ -284,13 +287,15 @@ export class FluvyScenesCard extends Card<ScenesCardConfig> {
           : nothing
       }
       <div class="fv-grid2" style="--am-cols:${columns}">
+        ${panel}
         ${items.map((item, index) => {
           const view = views[index] as EntityView;
           const name = item.name ?? view.name;
           if (view.status === 'missing' || view.status === 'unavailable') {
             const state = fitted(stateText(this.hass, view));
+            // out of reach, the scene's own tile in the off skin: its name keeps its two lines
             return html`<button
-              class="fv-tile fv-tile--off fv-tile--tap"
+              class="fv-tile am-scene fv-tile--off fv-tile--tap"
               data-card
               data-target
               @click=${() => this.tap(view.id, { action: 'more-info' })}

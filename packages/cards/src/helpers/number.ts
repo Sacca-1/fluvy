@@ -4,6 +4,7 @@ import { html, nothing, type TemplateResult } from 'lit';
 import {
   contextOf,
   field,
+  fieldContext,
   iconOf,
   isUnusable,
   nameOf,
@@ -114,21 +115,25 @@ export function numberBlocks(
   const blocks = [
     field(
       name,
-      contextOf(host, view, row),
+      fieldContext(host, view, row),
       valueAndStepper(host, view, m, name, 'in-field__value'),
       m.unusable,
     ),
   ];
-  if (m.boxed || m.unusable || m.min === null || m.max === null) return blocks;
+  // the ruler keeps its place while the helper cannot be read, at rest
+  if (m.boxed || m.min === null || m.max === null) return blocks;
   const { min, max } = m;
   blocks.push(
     html`<fluvy-ruler
+      class=${m.unusable ? 'is-unavailable' : ''}
       .value=${m.value ?? min}
       .min=${min}
       .max=${max}
       .step=${m.step}
       .length=${host.contentWidth}
       tone="accent"
+      ?inactive=${m.value === null}
+      ?disabled=${m.unusable}
       .unit=${view.unit}
       .label=${`${name} · ${s(host.hass, 'value')}`}
       .format=${(value: number) => text(host, m, value)}

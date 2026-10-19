@@ -4,7 +4,11 @@
  *   PLAYGROUND=http://127.0.0.1:5183/ node interactions-rooms.mjs
  * What it proves: a room's photo cross-fades in once decoded; its rows and its hero go to the room's path; a
  * compact tile inside it toggles before the mock answers; a room without a path shows no chevron; a missing
- * area says so; the map's zones hold the right faces, a person nobody can place stands in Unknown, the rows say
+ * area says so; #39's rooms read what they hold — the sensors an area names even diagnostic, a thermostat alone,
+ * the working sensor past a dead one, a sensor that comes late — and an empty one keeps its photo, its way in and,
+ * for an administrator only, why it is empty; a room counts what is on once (its readout and its rows alike); at 211
+ * a tile head gives its circle to a name that would be cut and the hint runs three lines at most, in every language;
+ * the map's zones hold the right faces, a person nobody can place stands in Unknown, the rows say
  * the distance only for someone away with a fix, and Home Assistant's map, which the playground cannot make,
  * gives way to the zones silently.
  */
@@ -89,7 +93,149 @@ const navigations = (page) => page.evaluate(() => window.__navigations.splice(0)
       'Nothing in this room yet' &&
       (await empty.nth(1).locator('.fv-empty').textContent()).trim() === 'Area not found',
   );
+
+  /* #39: a room finds what is in it */
+  const values = (card) =>
+    card
+      .locator('.am-area__stats .fv-readout__value')
+      .allTextContents()
+      .then((all) => all.map((text) => text.replace(/\s+/g, '')));
+  const reported = frame(page, 'Room · four areas, two sensors each (#39)').locator(
+    'fluvy-room-card',
+  );
+  const [garten, gaste, kuche] = await Promise.all([0, 1, 2].map((n) => values(reported.nth(n))));
+  check(
+    'the plain rooms read their two sensors, and the kitchen the diagnostic ones its area names',
+    garten.join() === '16.4°C,92%' &&
+      gaste.join() === '22.1°C,53%' &&
+      kuche.join() === '21.3°C,48%',
+    `${garten} | ${gaste} | ${kuche}`,
+  );
+  const living = reported.nth(3);
+  check(
+    'a room whose sensors are hidden keeps its photo and says it is empty',
+    (await living.locator('.rm-hero').count()) === 1 &&
+      (await living.locator('.fv-empty-state__text').textContent()).trim() ===
+        'Nothing in this room yet',
+  );
+  const why = frame(page, 'Room · hidden sensors, why it is empty').locator('fluvy-room-card');
+  const hint = (await why.nth(0).locator('.fv-empty-state__hint').textContent()).trim();
+  check(
+    'an administrator reads why, and where to choose its sensors',
+    hint === '2 hidden or diagnostic entities · choose its sensors in the area’s settings',
+    hint,
+  );
+  await why.nth(0).locator('.rm-hero').click();
+  await settle(page, 200);
+  went = await navigations(page);
+  check(
+    'the empty room still opens: its photo',
+    went.length === 1 && went[0] === '/fluvy-auto/room-rm_wohnzimmer',
+    went.join(' '),
+  );
+  await why.nth(1).locator('.fv-head__open').click();
+  await settle(page, 200);
+  went = await navigations(page);
+  check(
+    'and its chevron',
+    went.length === 1 && went[0] === '/fluvy-auto/room-rm_wohnzimmer',
+    went.join(' '),
+  );
+  const guest = frame(page, 'Room · hidden sensors, not an administrator').locator(
+    'fluvy-room-card',
+  );
+  check(
+    'someone who is not an administrator sees the panel without the hint',
+    (await guest.locator('.fv-empty-state').count()) === 1 &&
+      (await guest.locator('.fv-empty-state__hint').count()) === 0,
+  );
+  const store = frame(page, 'Room · registry without state').locator('fluvy-room-card');
+  check(
+    'entries without a state are neither shown nor counted',
+    (await store.locator('.fv-empty-state').count()) === 1 &&
+      (await store.locator('.fv-empty-state__hint').count()) === 0,
+  );
+  const alone = frame(page, 'Room · thermostat only').locator('fluvy-room-card');
+  check(
+    'a thermostat alone gives the room its readings, and is the one device on in its readout as in its rows',
+    (await values(alone)).join() === '20.5°C,44%,1of1' &&
+      (
+        await alone.locator('.am-rows .fv-row').last().locator('.fv-row__sub').textContent()
+      ).trim() === '1 of 1 on',
+    (await values(alone)).join(),
+  );
+  check(
+    'the working sensor is read when the first one is dead',
+    (await values(frame(page, 'Room · unavailable first').locator('fluvy-room-card'))).join() ===
+      '19.8°C',
+  );
+  const late = frame(page, 'Room · a sensor that arrives late').locator('fluvy-room-card');
+  const before = await late.locator('.fv-empty-state').count();
+  await page.evaluate(() =>
+    window.fluvyMock.add([
+      'sensor.rm_late_temperature',
+      '19.6',
+      { device_class: 'temperature', unit_of_measurement: '°C' },
+    ]),
+  );
+  await settle(page, 300);
+  check(
+    'a sensor that comes late fills its room, with the same registries',
+    before === 1 &&
+      (await late.locator('.fv-empty-state').count()) === 0 &&
+      (await values(late)).join() === '19.6°C',
+    (await values(late)).join(),
+  );
   await page.close();
+}
+
+/* ---------- the room at 211, every language: its tile head and its hint ---------- */
+{
+  const heads = [];
+  const hints = [];
+  for (const lang of ['en', 'de', 'es', 'fr', 'it', 'nl', 'pt-BR', 'tr']) {
+    const page = await suite.sheet('rooms', { width: 211, lang });
+    const found = await page.evaluate(() =>
+      [...document.querySelectorAll('fluvy-room-card')].map((card) => {
+        const root = card.shadowRoot;
+        const name = root.querySelector('.fv-card__head .fv-card__title');
+        const hint = root.querySelector('.fv-empty-state__hint');
+        return {
+          frame: card.closest('[data-frame]').dataset.frame.split('/')[1],
+          name: name?.textContent.trim(),
+          cut: name ? name.scrollWidth > name.clientWidth + 0.5 : false,
+          circle: Boolean(root.querySelector('.fv-card__head .fv-ico')),
+          hint: hint?.textContent.trim(),
+          lines: hint
+            ? Math.round(
+                hint.getBoundingClientRect().height / parseFloat(getComputedStyle(hint).lineHeight),
+              )
+            : 0,
+        };
+      }),
+    );
+    for (const card of found) {
+      // a name cut beside its circle: the circle had to give way first
+      if (card.cut && card.circle) heads.push(`${lang} "${card.name}" cut beside its circle`);
+      if (card.hint !== undefined && (card.lines > 3 || !/^2 /.test(card.hint)))
+        hints.push(`${lang} ${card.lines} lines: "${card.hint}"`);
+    }
+    if (lang === 'en' || lang === 'de')
+      for (const name of ['Living room', 'Wohnzimmer', 'Storeroom'])
+        if (!found.some((card) => card.name === name && !card.cut && !card.circle))
+          heads.push(`${lang} "${name}" not whole without its circle`);
+    await page.close();
+  }
+  check(
+    'at 211 a tile head gives its circle to a name that would be cut: "Living room", "Wohnzimmer", "Storeroom" whole',
+    heads.length === 0,
+    heads.slice(0, 6).join(' · '),
+  );
+  check(
+    'at 211 an administrator’s hint keeps its why in three lines at most, in eight languages',
+    hints.length === 0,
+    hints.slice(0, 6).join(' · '),
+  );
 }
 
 /* ---------- the map ---------- */

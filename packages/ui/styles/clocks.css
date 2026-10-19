@@ -119,6 +119,11 @@
   line-height: 36px;
 }
 
+/* a column where not even the time alone holds at 64 (a 211 column): one step down, in the same 72 box */
+.ck-big--s {
+  font-size: 48px;
+}
+
 .ck-big {
   display: flex;
   align-items: baseline;
@@ -191,6 +196,11 @@
   line-height: 44px;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
+}
+
+/* a tile too narrow for the time alone at 40 (124 on a phone's 264 section): one step down, in the same 44 box */
+.ck-tile__time--s {
+  font-size: 32px;
 }
 
 .ck-tile--analog {

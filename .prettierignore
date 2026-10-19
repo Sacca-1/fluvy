@@ -12,6 +12,7 @@ packages/core/src/icons/generated.ts
 packages/core/src/icons/mdi.ts
 packages/ui/src/styles/generated/
 packages/cards/src/strategy/words.generated.ts
+packages/cards/src/appliance/words.generated.ts
 **/__snapshots__/
 # prose and the approved design sheets keep their hand layout
 *.md

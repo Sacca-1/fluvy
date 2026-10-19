@@ -1,16 +1,17 @@
 /**
  * One-off: the string tables as they were written (core's `en.ts` / `es.ts`, every card's `strings.ts`, the
- * pages' shared words, the weather words) become the catalogues `packages/core/src/i18n/locales/{en,es}.json`,
- * one namespace per table — read with the TypeScript compiler, never transcribed by hand.
+ * pages' shared words, the weather words) become the catalogues in `packages/core/src/i18n/locales/` (English's
+ * parts, `es.json`), one namespace per table — read with the TypeScript compiler, never transcribed by hand.
  *
  *   pnpm --filter @fluvy/i18n migrate
  *
  * A key two sources give different words for is reported and stops the run (they are merged when the words agree).
  */
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { writeCatalogue } from './lib.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const CORE = join(ROOT, 'packages', 'core', 'src', 'i18n');
@@ -222,13 +223,12 @@ if (conflicts.length) {
   process.exit(1);
 }
 
-const OUT = join(CORE, 'locales');
-await mkdir(OUT, { recursive: true });
 for (const language of LANGUAGES) {
-  const file = join(OUT, `${language}.json`);
-  await writeFile(file, `${JSON.stringify(catalogues[language], null, 2)}\n`);
+  const files = await writeCatalogue(language, catalogues[language]);
   const keys = Object.values(catalogues[language]).reduce((n, t) => n + Object.keys(t).length, 0);
-  console.log(`${file}: ${Object.keys(catalogues[language]).length} namespaces, ${keys} keys`);
+  console.log(
+    `${files.join(', ')}: ${Object.keys(catalogues[language]).length} namespaces, ${keys} keys`,
+  );
 }
 console.log(
   `card namespaces (with what they spread):\n  ${Object.entries(namespacesOfCards)

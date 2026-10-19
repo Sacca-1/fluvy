@@ -21,6 +21,11 @@ export const WORDS_GAP = 8;
 export const LEAVE_GAP = 12;
 /** The stem the house's ribbons leave from: 4 tall, its bottom where they start. */
 export const STEM = 4;
+/**
+ * Under this column (half a section) a tier holds its words at the column's start and at its end only: bars this
+ * narrow would put every word at a start of its own, five columns of words where the eye reads two.
+ */
+export const NARROW = 200;
 
 export interface LaidNode extends FlowNode {
   readonly x: number;
@@ -83,7 +88,8 @@ function lay(row: readonly FlowNode[], scale: number, x0 = 0): LaidNode[] {
  * Packs a row's words: each tries tier 0 at its bar's start (on the 4 grid), then at its bar's end (its box starts
  * on the grid, its right edge is the bar's end), then against the column's end (a column too narrow for either),
  * then the next tier; boxes of a tier stay 16 apart and inside `[0, width]`. A box wider than the column is the
- * column (its name ends in an ellipsis).
+ * column (its name ends in an ellipsis). Half a column (`NARROW`) keeps two places only, the column's start and its
+ * end — the end first for a bar in the right half — so its words stand in two columns, in their bars' order.
  */
 export function packLabels(
   row: readonly LaidNode[],
@@ -93,20 +99,27 @@ export function packLabels(
   const tiers: [number, number][][] = [];
   const fits = (t: number, a: number, b: number): boolean =>
     a >= 0 && b <= width && (tiers[t] ?? []).every(([s, e]) => b + APART <= s || a >= e + APART);
+  const narrow = width < NARROW;
   return row.map((n) => {
     const lw = Math.min(width, Math.ceil(measure(n.key)));
     const right = n.x + n.w;
     const edge = Math.max(0, Math.floor((width - lw) / 4) * 4);
-    const places = [
-      { x: Math.floor(n.x / 4) * 4, w: lw, end: false },
-      {
-        x: Math.floor((right - lw) / 4) * 4,
-        w: Math.round(right) - Math.floor((right - lw) / 4) * 4,
-        end: true,
-      },
-      // against the column's end, right-aligned there; a box as wide as the column reads from its start
-      { x: edge, w: width - edge, end: edge > 0 },
-    ];
+    // against the column's end, right-aligned there; a box as wide as the column reads from its start
+    const atEnd = { x: edge, w: width - edge, end: edge > 0 };
+    const atStart = { x: 0, w: lw, end: false };
+    const places = narrow
+      ? n.x + n.w / 2 > width / 2
+        ? [atEnd, atStart]
+        : [atStart, atEnd]
+      : [
+          { x: Math.floor(n.x / 4) * 4, w: lw, end: false },
+          {
+            x: Math.floor((right - lw) / 4) * 4,
+            w: Math.round(right) - Math.floor((right - lw) / 4) * 4,
+            end: true,
+          },
+          atEnd,
+        ];
     // a tier of its own always holds the last place: the loop ends there at the latest
     for (let t = 0; ; t++)
       for (const p of places)

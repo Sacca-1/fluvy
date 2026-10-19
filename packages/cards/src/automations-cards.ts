@@ -1,3 +1,5 @@
+// the family's words first: they are here before anything in its chunk says them
+import './automations/english.js';
 import { registerCard } from '@fluvy/core';
 import { AUTOMATIONS_FAMILY } from './automations-family.js';
 import { FluvyAutomationsCard } from './automations/automations-card.js';
@@ -11,10 +13,10 @@ const ELEMENTS: Readonly<Record<string, CustomElementConstructor>> = {
   'fluvy-automations-card': FluvyAutomationsCard,
 };
 
-export const AUTOMATIONS_CATALOGUE = AUTOMATIONS_FAMILY.map(
+export const CARDS = AUTOMATIONS_FAMILY.map(
   ([tag, name, description]) =>
     [tag, ELEMENTS[tag] as CustomElementConstructor, name, description] as const,
 );
 
-for (const [tag, element, name, description] of AUTOMATIONS_CATALOGUE)
+for (const [tag, element, name, description] of CARDS)
   registerCard({ tag, name, description }, element);

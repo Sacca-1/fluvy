@@ -13,6 +13,7 @@ import {
   type PropertyValues,
   type TemplateResult,
 } from 'lit';
+import { HeadFit } from '../energy/head.js';
 import { Card, type BaseKey } from '../shared/base.js';
 import {
   actionField,
@@ -25,6 +26,7 @@ import {
 } from '../shared/form.js';
 import { configKeys, type AliasSpec } from '../shared/config.js';
 import { counted } from '../shared/counted.js';
+import { idsOf, type EntityEntry } from '../shared/lists.js';
 import type { EditorDefaults } from '../shared/rows-editor.js';
 
 export interface HeadingCardConfig extends FluvyCardConfig {
@@ -32,27 +34,39 @@ export interface HeadingCardConfig extends FluvyCardConfig {
   /** Static text at the right ("Edit"). Wins over `entities`. */
   subtitle?: string;
   /** Counted instead: "2 of 4 on" while something is on, "4 devices" when nothing is. */
-  entities?: readonly string[];
+  entities?: readonly EntityEntry[];
   /** Dashboard path the meta navigates to; it brings the chevron. `tap_action` does the same for any other action. */
   path?: string;
   /** `bar` (default): the title with its meta at the right. `plain`: the title alone. */
   variant?: 'bar' | 'plain';
+  /** `subtitle` (default): the 20/600 title of a group. `title`: a page's section title, 27/600 (Home Assistant's own heading styles). */
+  heading_style?: 'title' | 'subtitle';
 }
+
+/** The section title's link, measured in its own face (16/500). */
+const LINK = 'hm-section hm-section--title > hm-section__text';
 
 /**
  * A section heading on the page: the 20/600 title and a quiet meta at the right. Not a card
  * surface. With somewhere to go the meta becomes a button and gains the chevron, whose ink sits on
  * the column edge (the sheet's −5 optical margin: the chevron's ink ends 5 px inside its 16 box).
  *
+ * `heading_style: title` is a page's section title (#47's bands): 27/600, 16 from a 32 glyph, on a 32 row; its link
+ * 16/500 with a 24 chevron. Where the row is short what gives way has an order: the link's words, the title's size
+ * (27 → the subtitle's 20), its glyph, the chevron; a title that would not hold even alone keeps them and ends in its
+ * ellipsis, as a name may.
+ *
  * Below other cards of its section the heading opens a new group: it sits 24 under them (the grid's
  * 16 + 8) and 16 above its own cards, as the sheet's section titles do. As the first card of a section
  * it keeps the column's top line, so the columns still start level.
  */
 export class FluvyHeadingCard extends Card<HeadingCardConfig> {
-  /** The card's height at a 360 column, for the automatic dashboard's columns. */
-  static override layoutHeight(): number {
-    return 24;
+  /** The card's height at a 360 column, for the automatic dashboard's columns: the section title's row is 32. */
+  static override layoutHeight(config?: HeadingCardConfig): number {
+    return config?.heading_style === 'title' ? 32 : 24;
   }
+
+  private readonly head = new HeadFit(this);
 
   static override styles: CSSResultGroup = [
     ...(Card.styles as CSSResultGroup[]),
@@ -74,7 +88,7 @@ export class FluvyHeadingCard extends Card<HeadingCardConfig> {
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      /* the meta keeps its words; a title gives way first, and only a meta longer than half the row ellipsizes */
+      /* the meta keeps its words; a title gives way first, and a meta longer than 60 % of the row gives its words up */
       .hm-section__meta {
         position: relative;
         flex: 0 0 auto;
@@ -96,11 +110,13 @@ export class FluvyHeadingCard extends Card<HeadingCardConfig> {
           color var(--fv-base) var(--fv-ease),
           opacity var(--fv-fast) var(--fv-ease);
       }
-      /* the row is 24 tall; the finger gets 44 × (text + 24) around it */
+      /* the row is 24 tall; the finger gets 44 × (text + 24) around it, a chevron alone 44 wide */
       button.hm-section__meta::before {
         content: '';
         position: absolute;
         inset: -10px -12px;
+        left: auto;
+        width: max(44px, 100% + 24px);
       }
       button.hm-section__meta:active {
         opacity: 0.6;
@@ -117,22 +133,62 @@ export class FluvyHeadingCard extends Card<HeadingCardConfig> {
           transform: translateX(2px);
         }
       }
+      /* the section title: a 32 row, its link 16 with a 24 chevron (the chevron's ink 8 inside its box) */
+      .hm-section--title,
+      .hm-section--title .hm-section__meta {
+        max-width: none;
+        height: 32px;
+        line-height: 32px;
+      }
+      .hm-section--title .hm-section__text {
+        font-size: 16px;
+        font-weight: 500;
+      }
+      .hm-section--title .hm-section__meta svg {
+        width: 24px;
+        height: 24px;
+        margin-right: -8px;
+      }
+      /* at its size: 27/600, 16 from its 32 glyph (where it steps down, the subtitle's 20 and its 24 box) */
+      .hm-section--big .hm-section__lead {
+        gap: 16px;
+      }
+      .hm-section--big .hm-section__title {
+        font-size: 27px;
+        line-height: 32px;
+      }
+      .hm-section--big .hm-section__icon,
+      .hm-section--big .hm-section__icon > * {
+        --mdc-icon-size: 32px;
+        flex-basis: 32px;
+        width: 32px;
+        height: 32px;
+      }
     `,
   ];
 
   /** A heading has no entity: its icon, the entities it counts and the tap its meta answers are the base fields it honours. */
   static override base: readonly BaseKey[] = ['icon', 'entities', 'tap_action'];
-  static override keys = configKeys<HeadingCardConfig>()(['title', 'subtitle', 'path', 'variant']);
+  static override keys = configKeys<HeadingCardConfig>()([
+    'title',
+    'subtitle',
+    'path',
+    'variant',
+    'heading_style',
+  ]);
   static override aliases: AliasSpec = { keys: [{ from: 'meta', to: 'subtitle' }] };
   /** What the editor shows where the config says nothing: what the card does then. */
-  static override defaults: EditorDefaults = () => ({ variant: 'bar' });
+  static override defaults: EditorDefaults = () => ({ variant: 'bar', heading_style: 'subtitle' });
   static override getConfigForm(): LovelaceConfigForm {
     return {
       schema: [
         fieldRow(textField('title'), iconField()),
-        fieldRow(textField('subtitle'), selectField('variant', ['bar', 'plain'])),
+        fieldRow(
+          selectField('heading_style', ['title', 'subtitle']),
+          selectField('variant', ['bar', 'plain']),
+        ),
+        fieldRow(textField('subtitle'), textField('path')),
         entitiesField('entities'),
-        textField('path'),
         actionField(),
       ],
       ...formLabels({}),
@@ -188,15 +244,47 @@ export class FluvyHeadingCard extends Card<HeadingCardConfig> {
     const text = plain
       ? ''
       : (this.config?.subtitle ??
-        counted(this.hass, this.config?.entities ?? [], (id) => this.entity(id)));
+        counted(this.hass, idsOf(this.config?.entities), (id) => this.entity(id)));
     const action: ActionConfig | undefined = this.config?.path
       ? { action: 'navigate', navigation_path: this.config.path }
       : this.config?.tap_action;
-    const goes = !plain && action !== undefined && action.action !== 'none';
-    const words = text ? html`<span class="hm-section__text">${text}</span>` : nothing;
+    let goes = !plain && action !== undefined && action.action !== 'none';
+    let lead = this.config?.icon;
+    // the section title: the first of its ways that holds — whole, without the link's words, at the subtitle's size,
+    // without its glyph, without the chevron; where none does, the title steps down and ends in its ellipsis beside
+    // its glyph and chevron (giving them up would not make it whole)
+    const titled = this.config?.heading_style === 'title';
+    let big = false;
+    let shown = text;
+    const ruler = this.head.ruler;
+    if (titled) {
+      type Way = [big: boolean, words: string, chevron: boolean, glyph: string | undefined];
+      const ways: Way[] = [
+        [true, text, goes, lead],
+        [true, '', goes, lead],
+        [false, '', goes, lead],
+        [false, '', goes, undefined],
+        [false, '', false, undefined],
+      ];
+      const holds = ([large, said, mark, drawn]: Way): boolean =>
+        (drawn ? (large ? 48 : 32) : 0) +
+          ruler.width(`hm-section${large ? ' hm-section--big' : ''} > hm-section__title`, title) +
+          (said || mark
+            ? 16 + (said ? ruler.width(LINK, said) + (mark ? 2 : 0) : 0) + (mark ? 16 : 0)
+            : 0) <=
+        this.width;
+      [big, shown, goes, lead] = ways.find(holds) ?? (ways[2] as Way);
+    } else if (
+      text &&
+      ruler.width('hm-section__meta > hm-section__text', text) + (goes ? 13 : 0) > 0.6 * this.width
+    )
+      // a group's meta longer than its 60 % of the row is never cut: its words give way to the chevron
+      shown = '';
+    const words = shown ? html`<span class="hm-section__text">${shown}</span>` : nothing;
 
-    const lead = this.config?.icon;
-    return html`<div class="hm-section">
+    return html`<div
+      class="hm-section ${titled ? 'hm-section--title' : ''} ${big ? 'hm-section--big' : ''}"
+    >
       <div class="hm-section__lead">
         ${lead ? html`<span class="hm-section__icon">${icon(lead)}</span>` : nothing}
         <h2 class="hm-section__title" data-name>${title}</h2>
@@ -210,7 +298,7 @@ export class FluvyHeadingCard extends Card<HeadingCardConfig> {
             >
               ${words}${glyph('chevron')}
             </button>`
-          : text
+          : shown
             ? html`<span class="hm-section__meta">${words}</span>`
             : nothing
       }

@@ -10,9 +10,9 @@
  * ruler's knob stays under the finger and a drag lands where the finger lets go (and a tap where it taps), the
  * lock's grip rides under the finger and still only unlocks past the commit point, a dial follows the pointer to
  * the middle of its sweep, a chart reads the same moment under the pointer as at 100 %, a tab row centres the tab
- * chosen, the keypad and the schedule sheet open whole on a phone at 150 %; and no frame gains an ellipsis or a
- * clipped line at 125 or
- * 150 % that it does not have at 100 %.
+ * chosen, the keypad and the schedule sheet open whole on a phone at 150 %; a thermostat in half a section on a
+ * phone at 125 and 150 % puts no word under its stepper (#46: under the stepper's halves the readout stands alone, the
+ * card's tap); and no frame gains an ellipsis or a clipped line at 125 or 150 % that it does not have at 100 %.
  */
 import { dialTo, dragTo, mousePointer, rulerGeometry } from './lib/gestures.mjs';
 import { BASE, calls, ENGINE, frame, reset, settle, startSuite } from './lib/suite.mjs';
@@ -364,6 +364,104 @@ async function tap(page, locator) {
   );
   await page.keyboard.press('Escape');
   await page.close();
+}
+
+/* ---------- the schedule sheet on one lamp: whole on a phone at 150 %, Save on screen ---------- */
+{
+  const page = await open('automations', 150, { viewport: PHONE });
+  const card = frame(page, 'One lamp').locator('fluvy-automations-card');
+  await card.scrollIntoViewIfNeeded();
+  await tap(page, card.locator('.fv-card__head .fv-round'));
+  await settle(page, 700);
+  const dialog = card.locator('fluvy-schedule-sheet dialog');
+  const sheet = dialog.locator('.fv-sheet');
+  const within = (b) =>
+    b.x >= -0.5 && b.y >= -0.5 && b.x + b.width <= 390.5 && b.y + b.height <= 700.5;
+  const s = await sheet.boundingBox();
+  const row = await dialog
+    .locator('.ss-fixed .fv-row__title')
+    .evaluate((el) => el.scrollWidth <= el.clientWidth);
+  check(
+    'one lamp’s sheet: inside the phone, its lamp’s name whole',
+    s && within(s) && row,
+    `sheet ${JSON.stringify(s)} · name whole ${row}`,
+  );
+  await sheet.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  await settle(page, 200);
+  const save = await dialog.locator('.ss-footer .fv-btn--accent').boundingBox();
+  const ready = await dialog.locator('.ss-footer .fv-btn--accent').isEnabled();
+  check(
+    'one lamp’s sheet: scrolled to its end, Save is on the screen and ready',
+    save && within(save) && ready,
+    JSON.stringify(save),
+  );
+  await page.keyboard.press('Escape');
+  await page.close();
+}
+
+/* ---------- #46 in half a section on a phone at 150 %: the value row's ladder to its foot ---------- */
+// 390 at 150 % is a 260 page: half a section has about 66 of content, under the stepper's halves — the readout stands
+// alone and is the card's tap; at 125 % the halves or the stack; never a word under a control, never a control cut
+{
+  for (const zoom of [125, 150]) {
+    const page = await open('climate', zoom, { viewport: PHONE });
+    const cards = frame(page, 'Compact · half a section (#46)').locator('fluvy-thermostat-card');
+    await cards.first().scrollIntoViewIfNeeded();
+    const rows = await cards.evaluateAll((all) =>
+      all.map((el) => {
+        const root = el.shadowRoot;
+        const row = root.querySelector('.cl-value');
+        const article = root.querySelector('article');
+        const style = getComputedStyle(article);
+        // the element's own pixels: the zoom scales every box alike
+        const inner = article.clientWidth - parseFloat(style.paddingLeft) * 2;
+        const stepper = row.querySelector('.fv-stepper');
+        const words = [...row.querySelectorAll('.fv-readout__label, .fv-readout__value > span')];
+        const s = stepper?.getBoundingClientRect();
+        const under =
+          s !== undefined &&
+          words.some((w) => {
+            const r = w.getBoundingClientRect();
+            return (
+              r.right > s.x + 0.5 &&
+              r.x < s.right - 0.5 &&
+              r.bottom > s.y + 0.5 &&
+              r.y < s.bottom - 0.5
+            );
+          });
+        const cut = words.some((w) => w.scrollWidth > w.clientWidth + 0.5);
+        const tap = row.querySelector('.fv-tile__tap') !== null;
+        return {
+          inner: Math.round(inner),
+          layout: row.classList.contains('fv-value-row--halves')
+            ? 'halves'
+            : row.classList.contains('fv-value-row--stack')
+              ? 'stack'
+              : tap
+                ? 'alone'
+                : 'beside',
+          halves: [...row.querySelectorAll('.fv-stepper__half')].map((half) => half.offsetWidth),
+          tap,
+          wider: stepper ? stepper.offsetWidth > inner + 0.5 : false,
+          under,
+          cut,
+        };
+      }),
+    );
+    check(
+      `#46 on a phone at ${zoom} %: no word under the stepper, none cut, the stepper inside (its halves ≥ 44), else the readout is the tap`,
+      rows.length === 2 &&
+        rows.every(
+          (r) =>
+            !r.under &&
+            !r.cut &&
+            !r.wider &&
+            (r.halves.length ? r.halves.every((w) => w >= 44) : r.tap),
+        ),
+      JSON.stringify(rows),
+    );
+    await page.close();
+  }
 }
 
 /* ---------- nothing new is cut: the same frames at 100, 125 and 150 % ---------- */

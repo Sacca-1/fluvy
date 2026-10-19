@@ -1,3 +1,5 @@
+// the page's words first: they are here before anything in its chunk says them
+import './english.js';
 import { html, LitElement, nothing, type PropertyValues, type TemplateResult } from 'lit';
 import { keyed } from 'lit/directives/keyed.js';
 import {

@@ -15,6 +15,38 @@ exports[`custom:fluvy-home strategy > generates the same dashboard for the demo 
               "weather": "weather.home",
             },
             {
+              "alerts": [
+                {
+                  "preset": "hazards",
+                },
+                {
+                  "preset": "open",
+                },
+                {
+                  "preset": "unlocked",
+                },
+                {
+                  "preset": "errors",
+                },
+                {
+                  "preset": "low_battery",
+                },
+                {
+                  "admin_only": true,
+                  "preset": "updates",
+                },
+                {
+                  "preset": "repairs",
+                },
+              ],
+              "grid_options": {
+                "columns": 12,
+              },
+              "max_alerts": 3,
+              "title": "Needs attention",
+              "type": "custom:fluvy-alerts-card",
+            },
+            {
               "entities": [
                 "light.living_room_lamp",
                 "switch.kitchen_light",
@@ -69,32 +101,17 @@ exports[`custom:fluvy-home strategy > generates the same dashboard for the demo 
               "type": "custom:fluvy-tile-card",
             },
             {
-              "entity": "media_player.tv",
-              "grid_options": {
-                "columns": 12,
-              },
-              "type": "custom:fluvy-media-card",
-              "variant": "mini",
-            },
-            {
-              "entity": "todo.groceries",
-              "grid_options": {
-                "columns": 12,
-              },
-              "type": "custom:fluvy-todo-card",
-            },
-          ],
-          "type": "grid",
-        },
-        {
-          "cards": [
-            {
               "entity": "climate.heat_pump",
               "grid_options": {
                 "columns": 12,
               },
               "type": "custom:fluvy-thermostat-card",
             },
+          ],
+          "type": "grid",
+        },
+        {
+          "cards": [
             {
               "rows": [
                 {
@@ -110,6 +127,21 @@ exports[`custom:fluvy-home strategy > generates the same dashboard for the demo 
                 "columns": 12,
               },
               "type": "custom:fluvy-weather-card",
+            },
+            {
+              "entity": "media_player.tv",
+              "grid_options": {
+                "columns": 12,
+              },
+              "type": "custom:fluvy-media-card",
+              "variant": "mini",
+            },
+            {
+              "entity": "todo.groceries",
+              "grid_options": {
+                "columns": 12,
+              },
+              "type": "custom:fluvy-todo-card",
             },
           ],
           "type": "grid",
@@ -780,4 +812,391 @@ exports[`custom:fluvy-home strategy > generates the same dashboard for the demo 
     },
   ],
 }
+`;
+
+exports[`custom:fluvy-home strategy — the appliances, as the reporter of #47 drew them > opens every appliance on a subview of its own, back to Home, never a tab 1`] = `
+[
+  {
+    "icon": "fluvy:home",
+    "max_columns": 3,
+    "path": "home",
+    "sections": [
+      {
+        "cards": [
+          {
+            "type": "custom:fluvy-hello-card",
+            "weather": "weather.home",
+          },
+          {
+            "alerts": [
+              {
+                "preset": "hazards",
+              },
+              {
+                "preset": "open",
+              },
+              {
+                "preset": "unlocked",
+              },
+              {
+                "preset": "errors",
+              },
+              {
+                "preset": "low_battery",
+              },
+              {
+                "admin_only": true,
+                "preset": "updates",
+              },
+              {
+                "preset": "repairs",
+              },
+            ],
+            "grid_options": {
+              "columns": 12,
+            },
+            "max_alerts": 3,
+            "title": "Needs attention",
+            "type": "custom:fluvy-alerts-card",
+          },
+          {
+            "entities": [
+              "light.backofen_innenbeleuchtung",
+              "light.living_room_lamp",
+              "switch.kitchen_light",
+              "switch.patio_light",
+            ],
+            "icon": "fluvy:bulb",
+            "path": "/fluvy-home/lights",
+            "title": "Lights",
+            "type": "custom:fluvy-heading-card",
+          },
+          {
+            "entity": "light.backofen_innenbeleuchtung",
+            "grid_options": {
+              "columns": 6,
+            },
+            "type": "custom:fluvy-tile-card",
+          },
+          {
+            "entity": "light.living_room_lamp",
+            "grid_options": {
+              "columns": 6,
+            },
+            "name": "Living room lamp",
+            "type": "custom:fluvy-tile-card",
+          },
+          {
+            "entity": "switch.kitchen_light",
+            "grid_options": {
+              "columns": 6,
+            },
+            "type": "custom:fluvy-tile-card",
+          },
+          {
+            "entity": "switch.patio_light",
+            "grid_options": {
+              "columns": 6,
+            },
+            "type": "custom:fluvy-tile-card",
+          },
+          {
+            "entities": [
+              "switch.washing_machine",
+            ],
+            "icon": "fluvy:plug",
+            "title": "Appliances",
+            "type": "custom:fluvy-heading-card",
+          },
+          {
+            "entity": "switch.washing_machine",
+            "grid_options": {
+              "columns": 12,
+            },
+            "readouts": [
+              "sensor.washing_machine_power",
+              "sensor.washing_machine_energy_today",
+            ],
+            "size": "compact",
+            "type": "custom:fluvy-tile-card",
+          },
+          {
+            "entity": "climate.heat_pump",
+            "grid_options": {
+              "columns": 12,
+            },
+            "type": "custom:fluvy-thermostat-card",
+          },
+        ],
+        "type": "grid",
+      },
+      {
+        "cards": [
+          {
+            "rows": [
+              {
+                "entity": "sensor.garden_temperature",
+                "name": "Garden",
+              },
+            ],
+            "type": "custom:fluvy-readouts-card",
+          },
+          {
+            "entity": "weather.home",
+            "grid_options": {
+              "columns": 12,
+            },
+            "type": "custom:fluvy-weather-card",
+          },
+          {
+            "entity": "media_player.tv",
+            "grid_options": {
+              "columns": 12,
+            },
+            "type": "custom:fluvy-media-card",
+            "variant": "mini",
+          },
+          {
+            "entity": "todo.groceries",
+            "grid_options": {
+              "columns": 12,
+            },
+            "type": "custom:fluvy-todo-card",
+          },
+        ],
+        "type": "grid",
+      },
+      {
+        "cards": [
+          {
+            "grid_options": {
+              "columns": 12,
+            },
+            "type": "custom:fluvy-clock-card",
+            "variant": "digital",
+            "weather": "weather.home",
+          },
+          {
+            "grid_options": {
+              "columns": 12,
+            },
+            "sources": [
+              {
+                "power": "sensor.solar_inverter_power",
+                "type": "solar",
+              },
+              {
+                "power": "sensor.grid_meter_power",
+                "type": "grid",
+              },
+            ],
+            "type": "custom:fluvy-energy-flow-card",
+          },
+          {
+            "entity": "sensor.solar_inverter_power",
+            "grid_options": {
+              "columns": 12,
+            },
+            "title": "Solar",
+            "type": "custom:fluvy-energy-card",
+          },
+          {
+            "grid_options": {
+              "columns": 12,
+            },
+            "rows": [
+              {
+                "entity": "binary_sensor.kitchen_leak",
+              },
+              {
+                "entity": "binary_sensor.kuhlschrank_tur",
+              },
+            ],
+            "title": "Security",
+            "type": "custom:fluvy-entities-card",
+          },
+        ],
+        "type": "grid",
+      },
+      {
+        "cards": [
+          {
+            "heading_style": "title",
+            "icon": "fluvy:dishwasher",
+            "path": "/fluvy-home/appliances",
+            "subtitle": "All appliances",
+            "title": "Large appliances",
+            "type": "custom:fluvy-heading-card",
+          },
+          {
+            "appliances": [
+              {
+                "device": "lg-fridge",
+                "kind": "fridge",
+              },
+              {
+                "device": "hc-dish",
+                "kind": "dishwasher",
+              },
+              {
+                "device": "lg-washer",
+                "kind": "washer",
+              },
+              {
+                "device": "plug-washer",
+                "kind": "washer",
+              },
+              {
+                "device": "lg-dryer",
+                "kind": "dryer",
+              },
+              {
+                "device": "hc-oven",
+                "kind": "oven",
+              },
+              {
+                "device": "miele-hob",
+                "kind": "hob",
+              },
+              {
+                "device": "hc-coffee",
+                "kind": "coffee",
+              },
+            ],
+            "grid_options": {
+              "columns": "full",
+            },
+            "type": "custom:fluvy-appliances-card",
+            "variant": "cards",
+          },
+          {
+            "heading_style": "title",
+            "icon": "fluvy:plug",
+            "path": "/fluvy-home/appliances",
+            "subtitle": "Show all",
+            "title": "Small appliances",
+            "type": "custom:fluvy-heading-card",
+          },
+          {
+            "appliances": [
+              {
+                "device": "tuya-kettle",
+                "kind": "kettle",
+              },
+            ],
+            "grid_options": {
+              "columns": "full",
+            },
+            "type": "custom:fluvy-appliances-card",
+            "variant": "cards",
+          },
+        ],
+        "column_span": 3,
+        "type": "grid",
+      },
+    ],
+    "title": "Home",
+    "type": "sections",
+  },
+  {
+    "back_path": "/fluvy-home/home",
+    "icon": "fluvy:washer",
+    "max_columns": 3,
+    "path": "appliances",
+    "sections": [
+      {
+        "cards": [
+          {
+            "type": "custom:fluvy-hello-card",
+            "weather": "weather.home",
+          },
+        ],
+        "type": "grid",
+      },
+      {
+        "cards": [],
+        "type": "grid",
+      },
+      {
+        "cards": [],
+        "type": "grid",
+      },
+      {
+        "cards": [
+          {
+            "heading_style": "title",
+            "icon": "fluvy:dishwasher",
+            "title": "Large appliances",
+            "type": "custom:fluvy-heading-card",
+          },
+          {
+            "appliances": [
+              {
+                "device": "lg-fridge",
+                "kind": "fridge",
+              },
+              {
+                "device": "hc-dish",
+                "kind": "dishwasher",
+              },
+              {
+                "device": "lg-washer",
+                "kind": "washer",
+              },
+              {
+                "device": "plug-washer",
+                "kind": "washer",
+              },
+              {
+                "device": "lg-dryer",
+                "kind": "dryer",
+              },
+              {
+                "device": "hc-oven",
+                "kind": "oven",
+              },
+              {
+                "device": "miele-hob",
+                "kind": "hob",
+              },
+              {
+                "device": "hc-coffee",
+                "kind": "coffee",
+              },
+            ],
+            "grid_options": {
+              "columns": "full",
+            },
+            "type": "custom:fluvy-appliances-card",
+            "variant": "cards",
+          },
+          {
+            "heading_style": "title",
+            "icon": "fluvy:plug",
+            "title": "Small appliances",
+            "type": "custom:fluvy-heading-card",
+          },
+          {
+            "appliances": [
+              {
+                "device": "tuya-kettle",
+                "kind": "kettle",
+              },
+            ],
+            "grid_options": {
+              "columns": "full",
+            },
+            "type": "custom:fluvy-appliances-card",
+            "variant": "cards",
+          },
+        ],
+        "column_span": 3,
+        "type": "grid",
+      },
+    ],
+    "subview": true,
+    "title": "Appliances",
+    "type": "sections",
+  },
+]
 `;

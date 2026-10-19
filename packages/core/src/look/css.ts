@@ -4,12 +4,15 @@ import {
   lookDeclarations,
   paletteKey,
   seedOf,
+  statusesKey,
+  withStatuses,
   type Palette,
   type CssDeclaration,
   type PaletteChoice,
   type PaletteMode,
   type PillName,
   type ShapeName,
+  type StatusColours,
 } from '@fluvy/tokens/runtime';
 
 import { CHROME_DEFAULTS, TABS_DEFAULTS, type Chrome, type ViewTabs } from './tabs.js';
@@ -37,12 +40,19 @@ export const chromeOf = (look: Look): Chrome => look.chrome ?? CHROME_DEFAULTS;
 
 const palettes = new Map<string, Palette>();
 
-/** A palette derived once per choice (both modes, 1–2 ms). */
-export function paletteOf(choice: PaletteChoice): Palette {
-  const key = paletteKey(choice);
+/**
+ * A palette derived once per choice (both modes, 1–2 ms), with the house's status colours over it where it has any
+ * (`withStatuses`).
+ */
+export function paletteOf(choice: PaletteChoice, statuses: StatusColours = {}): Palette {
+  const own = paletteKey(choice);
+  const key = own + statusesKey(statuses);
   let palette = palettes.get(key);
   if (!palette) {
-    palette = derivePalette(seedOf(choice));
+    palette =
+      key === own
+        ? derivePalette(seedOf(choice))
+        : withStatuses(seedOf(choice), paletteOf(choice), statuses);
     palettes.set(key, palette);
   }
   return palette;
@@ -52,9 +62,13 @@ export function paletteOf(choice: PaletteChoice): Palette {
 export const lookKey = (look: Look): string =>
   `${paletteKey(look.palette)}|${look.shape}|${look.pills}`;
 
-/** One mode of a look as declarations. */
-export const declarationsOf = (look: Look, mode: PaletteMode): readonly CssDeclaration[] =>
-  lookDeclarations(paletteOf(look.palette), mode, look.shape, look.pills);
+/** One mode of a look as declarations, in the house's status colours. */
+export const declarationsOf = (
+  look: Look,
+  mode: PaletteMode,
+  statuses?: StatusColours,
+): readonly CssDeclaration[] =>
+  lookDeclarations(paletteOf(look.palette, statuses), mode, look.shape, look.pills);
 
 /** One mode of a look as a CSS rule on `selector`; `important` to win over a theme Home Assistant set inline. */
 export function lookRule(
@@ -62,6 +76,7 @@ export function lookRule(
   mode: PaletteMode,
   selector: string,
   important = false,
+  statuses?: StatusColours,
 ): string {
-  return `${selector}{${declarationsCss(declarationsOf(look, mode), important)}}`;
+  return `${selector}{${declarationsCss(declarationsOf(look, mode, statuses), important)}}`;
 }

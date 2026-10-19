@@ -7,13 +7,13 @@
  *   PLAYGROUND=http://127.0.0.1:5184/ node perf.mjs [--sheet home] [--cards 40] [--cpu 4]
  */
 import { chromium } from 'playwright';
-import { launchOptions } from './lib.mjs';
+import { launchOptions, PLAYGROUND } from './lib.mjs';
 
 const arg = (name, fallback) => {
   const i = process.argv.indexOf(`--${name}`);
   return i === -1 ? fallback : process.argv[i + 1];
 };
-const BASE = process.env.PLAYGROUND ?? 'http://127.0.0.1:5183/';
+const BASE = PLAYGROUND;
 const sheet = arg('sheet', '');
 const wanted = Number(arg('cards', 40));
 const cpu = Number(arg('cpu', 1));

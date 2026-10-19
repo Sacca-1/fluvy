@@ -15,6 +15,9 @@
   --tone-border: var(--fluvy-accent-fill-border);
   --tone-on: var(--fluvy-accent-on-fill);
 }
+.fv-ico--accent {
+  --tone-ring: var(--fluvy-accent-ring);
+}
 .fv-bar--accent {
   background: var(--fluvy-accent);
 }
@@ -323,6 +326,42 @@
 }
 .fv-bar--warning {
   background: var(--fluvy-warning);
+}
+
+.fv-tone--danger,
+.fv-ico--danger,
+.fv-badge--danger,
+.fv-option.is-active.fv-option--danger,
+.fv-tile--danger.is-on,
+.fv-ruler--danger,
+.fv-dial--danger,
+.fv-knob--danger,
+.fv-switch--danger {
+  --tone-ink: var(--fluvy-danger);
+  --tone-fill: var(--fluvy-danger-fill);
+  --tone-border: var(--fluvy-danger-fill-border);
+  --tone-on: var(--fluvy-danger-on-fill);
+}
+.fv-bar--danger {
+  background: var(--fluvy-danger);
+}
+
+.fv-tone--notice,
+.fv-ico--notice,
+.fv-badge--notice,
+.fv-option.is-active.fv-option--notice,
+.fv-tile--notice.is-on,
+.fv-ruler--notice,
+.fv-dial--notice,
+.fv-knob--notice,
+.fv-switch--notice {
+  --tone-ink: var(--fluvy-notice);
+  --tone-fill: var(--fluvy-notice-fill);
+  --tone-border: var(--fluvy-notice-fill-border);
+  --tone-on: var(--fluvy-notice-on-fill);
+}
+.fv-bar--notice {
+  background: var(--fluvy-notice);
 }
 
 .fv-tone--off,

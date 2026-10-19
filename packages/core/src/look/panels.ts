@@ -12,11 +12,11 @@ type DialogElement = HTMLElement & { hass?: { panelUrl?: string } };
 
 type Wears = (urlPath: string | undefined) => boolean;
 
-/** Marks one panel from its dashboard's url path; true when the mark changed. */
-function mark(panel: PanelElement, wears: Wears): boolean {
-  const on = wears(panel.panel?.url_path);
-  if (panel.hasAttribute(PANEL_ATTRIBUTE) === on) return false;
-  panel.toggleAttribute(PANEL_ATTRIBUTE, on);
+/** Marks a panel, or the card editor, from the url path of the dashboard it shows; true when the mark changed. */
+function mark(element: HTMLElement, urlPath: string | undefined, wears: Wears): boolean {
+  const on = wears(urlPath);
+  if (element.hasAttribute(PANEL_ATTRIBUTE) === on) return false;
+  element.toggleAttribute(PANEL_ATTRIBUTE, on);
   return true;
 }
 
@@ -38,7 +38,7 @@ export async function patchLovelacePanels(
   if (!proto.__fluvyLook) {
     proto.updated = function (this: PanelElement, changes: unknown): void {
       original.call(this, changes);
-      if (mark(this, wears)) changed();
+      if (mark(this, this.panel?.url_path, wears)) changed();
     };
     proto.__fluvyLook = true;
   }
@@ -47,11 +47,13 @@ export async function patchLovelacePanels(
 
 /**
  * Keeps the card editor dialog marked as the dashboard it was opened on: the colour picker's swatches then show
- * the palette's colours (they resolve where the dialog lives, outside the panel). Wrapped as the panels are.
+ * the palette's colours (they resolve where the dialog lives, outside the panel). Wrapped as the panels are, and
+ * `changed` runs when its mark moves: the preview inside looks for the theme again.
  */
 export async function patchEditDialog(
   registry: CustomElementRegistry,
   wears: Wears,
+  changed: () => void,
 ): Promise<boolean> {
   await registry.whenDefined('hui-dialog-edit-card');
   const proto = registry.get('hui-dialog-edit-card')?.prototype as PanelPrototype | undefined;
@@ -60,7 +62,7 @@ export async function patchEditDialog(
   if (!proto.__fluvyLook) {
     proto.updated = function (this: DialogElement, changes: unknown): void {
       original.call(this, changes);
-      this.toggleAttribute(PANEL_ATTRIBUTE, wears(this.hass?.panelUrl));
+      if (mark(this, this.hass?.panelUrl, wears)) changed();
     };
     proto.__fluvyLook = true;
   }
@@ -71,12 +73,12 @@ export async function patchEditDialog(
 export function markPanels(doc: Document, wears: Wears): boolean {
   let changed = false;
   walkShadow(doc, (element) => {
-    if (element.localName === 'ha-panel-lovelace' && mark(element as PanelElement, wears))
-      changed = true;
-    if (element.localName === 'hui-dialog-edit-card') {
+    if (element.localName === 'ha-panel-lovelace') {
+      const panel = element as PanelElement;
+      if (mark(panel, panel.panel?.url_path, wears)) changed = true;
+    } else if (element.localName === 'hui-dialog-edit-card') {
       const dialog = element as DialogElement;
-      const on = wears(dialog.hass?.panelUrl);
-      if (dialog.hasAttribute(PANEL_ATTRIBUTE) !== on) dialog.toggleAttribute(PANEL_ATTRIBUTE, on);
+      if (mark(dialog, dialog.hass?.panelUrl, wears)) changed = true;
     }
   });
   return changed;

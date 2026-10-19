@@ -43,6 +43,11 @@ describe('todayOf', () => {
     expect(todayOf(rows(900, [5, 5]), MIDNIGHT, 3)).toBe(13);
   });
 
+  it('reads a small dip as a dip, as Home Assistant does: only a fall below 90 % is a reset', () => {
+    // 910 at the last hour, 905 now: 5 less, not 905 more
+    expect(todayOf(rows(900, [5, 5]), MIDNIGHT, 905)).toBe(5);
+  });
+
   it('says nothing it cannot know: no statistics, or no reading now', () => {
     expect(todayOf([], MIDNIGHT, 10)).toBeNull();
     expect(todayOf(rows(100, [1, 2]), MIDNIGHT, null)).toBeNull();

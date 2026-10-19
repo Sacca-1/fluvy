@@ -6,6 +6,8 @@ import {
   AutomationStore,
   automationEntity,
   CONFIG_PATH,
+  RELATED_TTL,
+  RETRY_AFTER,
   scheduleIds,
   workdaySensor,
 } from './store.js';
@@ -313,6 +315,130 @@ describe('AutomationStore', () => {
     await store.load([ID]);
     expect(store.config(ID)).toBeUndefined();
     expect(store.error(ID)).toBeUndefined();
+  });
+});
+
+describe('what Home Assistant relates to an entity', () => {
+  /**
+   * A house whose search answers from a table (item → its automations), with a plug alone on its device and two relays
+   * on one board; every `search/related` is counted.
+   */
+  function house(
+    options: { admin?: boolean; fail?: () => boolean } = {},
+    answers: Record<string, string[]> = {
+      'entity:switch.plug': ['automation.plug_timer'],
+      'device:plug_device': ['automation.plug_by_device'],
+      'entity:switch.relay_0': ['automation.relay_0'],
+      'entity:light.kitchen': ['automation.kitchen', 'automation.motion'],
+    },
+  ) {
+    const { hass, callApi, reload } = fixture(options);
+    const callWS = vi.fn(async (message: { item_type: string; item_id: string }) => {
+      if (options.fail?.()) throw { code: 'unknown_error', message: 'nope' };
+      return { automation: answers[`${message.item_type}:${message.item_id}`] ?? [] };
+    });
+    const entities = {
+      'switch.plug': { entity_id: 'switch.plug', device_id: 'plug_device' },
+      'sensor.plug_power': { entity_id: 'sensor.plug_power', device_id: 'plug_device' },
+      'switch.relay_0': { entity_id: 'switch.relay_0', device_id: 'board' },
+      'switch.relay_1': { entity_id: 'switch.relay_1', device_id: 'board' },
+    };
+    const withWs = { ...hass, entities, callWS } as unknown as HomeAssistant;
+    return { hass: withWs, callApi, callWS, reload };
+  }
+  const asked = (callWS: ReturnType<typeof vi.fn>): string[] =>
+    callWS.mock.calls.map(([message]) => `${message.item_type}:${message.item_id}`);
+  const AUTOMATIONS = ['automation.kitchen', 'automation.motion'];
+
+  it('asks once per entity, and its device where the entity is the one thing the device drives', async () => {
+    const { hass, callWS } = house();
+    const store = AutomationStore.for(hass);
+    expect(store.related('switch.plug')).toBeUndefined();
+    expect(store.relatedSettled(['switch.plug'])).toBe(false);
+    await store.loadRelated(['switch.plug', 'switch.relay_0', 'switch.plug'], AUTOMATIONS);
+    expect(asked(callWS)).toEqual([
+      'entity:switch.plug',
+      'device:plug_device',
+      'entity:switch.relay_0', // two relays on one board: the board is not asked
+    ]);
+    expect(callWS.mock.calls[0]?.[0]).toEqual({
+      type: 'search/related',
+      item_type: 'entity',
+      item_id: 'switch.plug',
+    });
+    expect([...(store.related('switch.plug') ?? [])]).toEqual([
+      'automation.plug_timer',
+      'automation.plug_by_device',
+    ]);
+    expect([...(store.related('switch.relay_0') ?? [])]).toEqual(['automation.relay_0']);
+    expect(store.relatedSettled(['switch.plug', 'switch.relay_0'])).toBe(true);
+    // asked again by another card of the same house: the answers are kept
+    await store.loadRelated(['switch.plug'], AUTOMATIONS);
+    expect(callWS).toHaveBeenCalledTimes(3);
+  });
+
+  it('asks for anyone, never through the config API', async () => {
+    const { hass, callApi, callWS } = house({ admin: false });
+    const store = AutomationStore.for(hass);
+    await store.loadRelated(['light.kitchen'], AUTOMATIONS);
+    expect(callWS).toHaveBeenCalledTimes(1);
+    expect(callApi).not.toHaveBeenCalled();
+    expect([...(store.related('light.kitchen') ?? [])]).toEqual(AUTOMATIONS);
+  });
+
+  it('asks again once automations reload, once the house’s automations change, and once five minutes old', async () => {
+    vi.useFakeTimers();
+    const { hass, callWS, reload } = house();
+    const store = AutomationStore.for(hass);
+    store.subscribe(() => undefined);
+    await store.loadRelated(['light.kitchen'], AUTOMATIONS);
+    expect(callWS).toHaveBeenCalledTimes(1);
+    reload();
+    await store.loadRelated(['light.kitchen'], AUTOMATIONS);
+    expect(callWS).toHaveBeenCalledTimes(2);
+    // an automation added (or removed) anywhere in the house: a guest hears no reload, the list says it
+    await store.loadRelated(['light.kitchen'], [...AUTOMATIONS, 'automation.new']);
+    expect(callWS).toHaveBeenCalledTimes(3);
+    await store.loadRelated(['light.kitchen'], [...AUTOMATIONS, 'automation.new']);
+    expect(callWS).toHaveBeenCalledTimes(3);
+    vi.advanceTimersByTime(RELATED_TTL - 1000);
+    await store.loadRelated(['light.kitchen'], [...AUTOMATIONS, 'automation.new']);
+    expect(callWS).toHaveBeenCalledTimes(3);
+    vi.advanceTimersByTime(1000);
+    await store.loadRelated(['light.kitchen'], [...AUTOMATIONS, 'automation.new']);
+    expect(callWS).toHaveBeenCalledTimes(4);
+  });
+
+  it('never asks the moment a write lands: Home Assistant reloads after answering it', async () => {
+    const { hass, callWS } = house({}, {});
+    const api = vi.fn(async () => ({ result: 'ok' }));
+    const store = AutomationStore.for({ ...hass, callApi: api } as unknown as HomeAssistant);
+    await store.loadRelated(['light.kitchen'], AUTOMATIONS);
+    expect(callWS).toHaveBeenCalledTimes(1);
+    await store.save(ID, built);
+    await store.remove(ID);
+    await flush();
+    await store.loadRelated(['light.kitchen'], AUTOMATIONS);
+    expect(callWS).toHaveBeenCalledTimes(1);
+    expect(api).toHaveBeenCalledTimes(2);
+  });
+
+  it('waits out a failure, as the reads do, and counts it as settled', async () => {
+    vi.useFakeTimers();
+    let failing = true;
+    const { hass, callWS } = house({ fail: () => failing });
+    const store = AutomationStore.for(hass);
+    await store.loadRelated(['light.kitchen'], AUTOMATIONS);
+    expect(store.related('light.kitchen')).toBeUndefined();
+    expect(store.relatedSettled(['light.kitchen'])).toBe(true); // the rows go by their configs meanwhile
+    vi.advanceTimersByTime((RETRY_AFTER[0] ?? 0) - 1000);
+    await store.loadRelated(['light.kitchen'], AUTOMATIONS);
+    expect(callWS).toHaveBeenCalledTimes(1);
+    failing = false;
+    vi.advanceTimersByTime(1000);
+    await store.loadRelated(['light.kitchen'], AUTOMATIONS);
+    expect(callWS).toHaveBeenCalledTimes(2);
+    expect([...(store.related('light.kitchen') ?? [])]).toEqual(AUTOMATIONS);
   });
 });
 

@@ -25,7 +25,7 @@ import { HeadFit } from '../energy/head.js';
 import { durationFigure, durationReadout } from '../energy/duration.js';
 import { MARK_LABEL, markedRuler } from '../energy/marked-ruler.js';
 import { modeRow } from '../energy/mode-row.js';
-import { valueRow, type Figure } from '../energy/value-row.js';
+import { valueRow, type Figure } from '../shared/value-row.js';
 import { deviceName, scaled, scaleOf, type Scale } from '../energy/power.js';
 import { Card, type BaseKey } from '../shared/base.js';
 import { toneOf } from '../shared/colour.js';
@@ -40,6 +40,7 @@ import {
   fieldRow,
   iconField,
   numberField,
+  showIconField,
   textField,
   titleFields,
 } from '../shared/form.js';
@@ -98,8 +99,8 @@ const kwh = (hass: HomeAssistant | undefined, value: number): string =>
  * be read is "—", and what depends on it is not drawn: nothing is estimated.
  */
 export class FluvyBatteriesCard extends Card<BatteriesCardConfig> {
-  static override layoutHeight(config: BatteriesCardConfig): number {
-    return batteriesHeight(config);
+  static override layoutHeight(config: BatteriesCardConfig, hass?: HomeAssistant): number {
+    return batteriesHeight(config, hass);
   }
 
   static override styles: CSSResultGroup = [
@@ -120,6 +121,7 @@ export class FluvyBatteriesCard extends Card<BatteriesCardConfig> {
     'card_color',
     'tap_action',
     'hold_action',
+    'show_icon',
   ];
   static override keys = configKeys<BatteriesCardConfig>()([
     'title',
@@ -164,6 +166,7 @@ export class FluvyBatteriesCard extends Card<BatteriesCardConfig> {
       schema: [
         titleFields(),
         fieldRow(iconField(), numberField('reserve', 0, 100, 1)),
+        showIconField(),
         entityField(['select', 'input_select'], 'mode', false),
         ...colourFields(),
         actionFields(),
@@ -180,6 +183,8 @@ export class FluvyBatteriesCard extends Card<BatteriesCardConfig> {
   private readonly head = new HeadFit(this);
   private prefs: EnergyPrefs | null | undefined;
   private prefsAsked = false;
+  /** What the charge's row last showed beside it while it could be read: the time's label, none (null), or not yet. */
+  private side: string | null | undefined;
 
   override getCardSize(): number {
     return Math.ceil(FluvyBatteriesCard.layoutHeight(this.config ?? { type: '' }) / 50);
@@ -340,8 +345,8 @@ export class FluvyBatteriesCard extends Card<BatteriesCardConfig> {
         sub: fitted.sub,
         trailing: fitted.badge,
         name: Boolean(this.config?.title),
-        onIconTap: () => this.tap(first),
-        onHold: () => this.hold(first),
+        cut: fitted.cut,
+        ...this.headActions(first),
       })}
       ${
         all.length
@@ -394,6 +399,11 @@ export class FluvyBatteriesCard extends Card<BatteriesCardConfig> {
             }
           : { label: this.t('energy.power'), value: '—', unit: '' };
     const sideLabel = s(this.hass, way === 'charging' ? 'full_in' : 'empty_in');
+    // out of reach (a charge or a power that cannot be read), the row keeps the time it last showed beside the charge,
+    // "—" in it, or "Full in —" when the card opens so: it keeps its second figure while the batteries are away (1.9)
+    const away = cells.some((c) => c.charge === null || c.level === null);
+    if (!away) this.side = left === null ? null : sideLabel;
+    const kept = away ? (this.side === undefined ? s(this.hass, 'full_in') : this.side) : null;
     return html`${valueRow(
       this.head.ruler,
       w,
@@ -403,7 +413,9 @@ export class FluvyBatteriesCard extends Card<BatteriesCardConfig> {
             figure: durationFigure(this.hass, sideLabel, left),
             drawn: durationReadout(this.hass, sideLabel, left),
           }
-        : null,
+        : kept
+          ? { figure: { label: kept, value: '—', unit: '' } }
+          : null,
     )}
     ${
       soc !== undefined
@@ -426,10 +438,34 @@ export class FluvyBatteriesCard extends Card<BatteriesCardConfig> {
 
   /** A row a battery; in a column too narrow for their circles, bare: the words take the row. */
   private renderRows(all: readonly Battery[], scale: Scale, tone: Tone, w: number): TemplateResult {
-    const bare = w < BARE_BELOW;
+    // bare in a narrow column, or where a row's first words (its capacity, else its power: "descargando 500 W") would
+    // be cut beside its charge: the rows give their circles together, the charge leading the second line
+    const bare =
+      w < BARE_BELOW ||
+      !this.head.rowsKeepIcon(
+        w,
+        all.map((b) => ({
+          title: b.name,
+          value: levelText(this.hass, b.cell.level),
+          sub: this.rowTexts(b, scale, false)[0] ?? '',
+        })),
+      );
     return html`<div class="ef-rows ${bare ? 'is-bare' : ''}">
       ${all.map((b) => this.renderRow(b, scale, tone, w, bare))}
     </div>`;
+  }
+
+  /** A battery row's second line, in order: its charge where the row is bare, its capacity, its power. */
+  private rowTexts(b: Battery, scale: Scale, bare: boolean): string[] {
+    const c = b.cell;
+    const texts = [
+      bare ? levelText(this.hass, c.level) : '',
+      c.capacity !== undefined ? kwh(this.hass, c.capacity) : '',
+      this.powerWords(c.charge, scale),
+    ].filter(Boolean);
+    // a state opens the line capitalised ("Unavailable"), and follows a "·" in lower case
+    if (texts[0] === s(this.hass, 'unavailable')) texts[0] = this.t('state.unavailable');
+    return texts;
   }
 
   /**
@@ -451,18 +487,10 @@ export class FluvyBatteriesCard extends Card<BatteriesCardConfig> {
       (c.level === null || c.charge === null) &&
       typeof c.level !== 'number' &&
       typeof c.charge !== 'number';
-    const level = levelText(this.hass, c.level);
-    const value = bare ? '' : level;
-    const texts = [
-      bare ? level : '',
-      c.capacity !== undefined ? kwh(this.hass, c.capacity) : '',
-      this.powerWords(c.charge, scale),
-    ].filter(Boolean);
-    // a state opens the line capitalised ("Unavailable"), and follows a "·" in lower case
-    if (texts[0] === s(this.hass, 'unavailable')) texts[0] = this.t('state.unavailable');
+    const value = bare ? '' : levelText(this.hass, c.level);
     // the segments after the first leave from the end before anything is cut
     const sub = this.head.fitRowSegments(
-      texts.map((text, index) => ({ text, optional: index > 0 })),
+      this.rowTexts(b, scale, bare).map((text, index) => ({ text, optional: index > 0 })),
       bare ? w : this.head.rowRoom(w, value),
     );
     const onTap = b.entity ? () => this.tap(b.entity, { action: 'more-info' }) : undefined;

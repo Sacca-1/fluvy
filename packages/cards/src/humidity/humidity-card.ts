@@ -23,9 +23,9 @@ import {
   type TemplateResult,
 } from 'lit';
 
-import { HeadFit } from '../energy/head.js';
+import { HeadFit, SWITCH_SLOT } from '../energy/head.js';
 
-import { Card } from '../shared/base.js';
+import { Card, HEAD_BASE } from '../shared/base.js';
 
 import { glyphFor } from '../shared/domain.js';
 import {
@@ -37,6 +37,7 @@ import {
   fieldRow,
   iconField,
   numberField,
+  showIconField,
   textField,
 } from '../shared/form.js';
 import { Refresher } from '../shared/refresh.js';
@@ -44,6 +45,7 @@ import { configKeys, type AliasSpec } from '../shared/config.js';
 import { toneOf } from '../shared/colour.js';
 import { ROW } from '../shared/heights.js';
 import type { EditorDefaults } from '../shared/rows-editor.js';
+import { sideStacked } from '../shared/value-row.js';
 
 const strings = words('humidity');
 
@@ -120,6 +122,7 @@ export class FluvyHumidityCard extends Card<HumidityCardConfig> {
     this.series_ = undefined;
   }
 
+  static override base = HEAD_BASE;
   static override keys = configKeys<HumidityCardConfig>()([
     'subtitle',
     'low',
@@ -138,7 +141,7 @@ export class FluvyHumidityCard extends Card<HumidityCardConfig> {
       schema: [
         entityField(['sensor', 'number', 'input_number']),
         fieldRow(textField('name'), textField('subtitle')),
-        iconField(),
+        fieldRow(iconField(), showIconField()),
         ...colourFields(),
         fieldRow(numberField('low', 0, 100), numberField('high', 0, 100)),
         {
@@ -227,28 +230,44 @@ export class FluvyHumidityCard extends Card<HumidityCardConfig> {
   }
 
   /** "+3 %": where the reading stands against the start of the window. */
-  private trendRow(value: number | null, unusable: boolean, onTap: () => void): TemplateResult {
+  private trendText(value: number | null): string {
     const first = this.series_?.values[0];
     const delta = value !== null && first !== undefined ? value - first : null;
     const size = delta === null ? 0 : Math.abs(delta);
-    const text =
-      delta === null
-        ? '—'
-        : `${delta > 0 ? '+' : delta < 0 ? '−' : ''}${formatNumber(this.hass, size, { digits: size < 10 ? 1 : 0 })} %`;
+    return delta === null
+      ? '—'
+      : `${delta > 0 ? '+' : delta < 0 ? '−' : ''}${formatNumber(this.hass, size, { digits: size < 10 ? 1 : 0 })} %`;
+  }
+
+  /** The trend's window, "Last 6 h": a figure with its unit, so its row's circle gives way before it is cut. */
+  private trendWindow(): string {
+    return strings(this.hass, 'last_hours', {
+      hours: formatNumber(this.hass, this.trendHours, { digits: 1 }),
+    });
+  }
+
+  /** The trend's row. `keep`: the rows keep their circles (the rows' rule, decided for the list at once). */
+  private trendRow(
+    value: number | null,
+    unusable: boolean,
+    keep: boolean,
+    onTap: () => void,
+  ): TemplateResult {
+    const first = this.series_?.values[0];
+    const delta = value !== null && first !== undefined ? value - first : null;
+    const text = this.trendText(value);
     return listRow({
-      icon: delta !== null && delta < 0 ? 'trendDown' : 'trendUp',
+      icon: !keep ? null : delta !== null && delta < 0 ? 'trendDown' : 'trendUp',
       tone: unusable ? 'off' : 'neutral',
       title: strings(this.hass, 'trend'),
-      sub: strings(this.hass, 'last_hours', {
-        hours: formatNumber(this.hass, this.trendHours, { digits: 1 }),
-      }),
+      sub: this.trendWindow(),
       trailing: 'value',
       value: text,
       onTap,
     });
   }
 
-  private humidifierRow(entityId: string): TemplateResult {
+  private humidifierRow(entityId: string, keep: boolean): TemplateResult {
     const view = this.entity(entityId);
     const usable = view.status === 'ok' || view.status === 'unknown';
     const on = this.stateOf(view) === 'on';
@@ -261,9 +280,9 @@ export class FluvyHumidityCard extends Card<HumidityCardConfig> {
     ]
       .filter(Boolean)
       .join(' · ');
-    const room = this.head.rowRoom(this.contentWidth, '') - 56; // the 56 × 44 switch hit
+    const room = this.head.rowRoom(this.contentWidth, '', { icon: keep }) - SWITCH_SLOT;
     return listRow({
-      icon: glyphFor(view),
+      icon: keep ? glyphFor(view) : null,
       tone: !usable ? 'off' : on ? 'water' : 'neutral',
       title: view.name,
       name: true,
@@ -283,9 +302,8 @@ export class FluvyHumidityCard extends Card<HumidityCardConfig> {
   protected renderCard(): TemplateResult {
     const view = this.entity();
     const name = this.config?.name ?? view.name;
-    if (view.status === 'missing')
-      return this.renderEmpty(`${name} · ${stateText(this.hass, view)}`);
-
+    // out of reach (unavailable, missing) it keeps its anatomy and its size, its controls disabled: only the colours
+    // change (1.9)
     const unusable = !isUsable(view);
     const value = view.number;
     const low = clampPercent(this.config?.low ?? 30);
@@ -344,8 +362,48 @@ export class FluvyHumidityCard extends Card<HumidityCardConfig> {
 
     // `dark` on the ruler: its lit ticks glow in dark mode, and nothing else tells a control which mode it is in
     const parts = valueParts(this.hass, view);
+    // the dew point beside the humidity in the longest of its words that leaves the dew point its room ("Humidity"
+    // where "Relative humidity" would wrap), else under it: measured at the widest humidity and under both of the
+    // side's words, so the humidity going unknown never moves the row; alone, the longest the column holds (de's
+    // "Relative Luftfeuchtigkeit" does not hold half a column, "Luftfeuchte" does)
+    const named = [strings(this.hass, 'relative'), strings(this.hass, 'relative_short')] as const;
+    const beside = side
+      ? named.find(
+          (label) =>
+            !sideStacked(
+              this.head.ruler,
+              width,
+              [parts.value, '100'].map((value) => ({ label, value, unit: '%' })),
+              (['dew_point', 'temperature'] as const).map((key) => ({
+                ...side,
+                label: strings(this.hass, key),
+              })),
+            ),
+        )
+      : undefined;
+    const stacked = side !== null && beside === undefined;
+    const relative =
+      beside ??
+      named.find(
+        (label) => this.head.ruler.width('fv-readout > fv-readout__label', label) <= width,
+      ) ??
+      named[1];
     const openInfo = (): void => this.tap(view.id, { action: 'more-info' });
     const humidifier = this.config?.humidifier_entity;
+    // a column too narrow for a row's words beside its figure or its switch gives every row's circle to the words,
+    // as every list does
+    const keepRows = this.head.rowsKeepIcon(this.contentWidth, [
+      ...(this.trendHours > 0
+        ? [
+            {
+              title: strings(this.hass, 'trend'),
+              value: this.trendText(value),
+              sub: this.trendWindow(),
+            },
+          ]
+        : []),
+      ...(humidifier ? [{ title: this.entity(humidifier).name, value: '', end: SWITCH_SLOT }] : []),
+    ]);
     const fitted = this.head.fit({
       width,
       title: name,
@@ -363,13 +421,12 @@ export class FluvyHumidityCard extends Card<HumidityCardConfig> {
         title: name,
         sub: fitted.sub,
         trailing: fitted.badge,
-        onIconTap: () => this.tap(view.id),
-        onHold: () => this.hold(view.id),
-        iconLabel: name,
+        cut: fitted.cut,
+        ...this.headActions(view.id),
         name: true,
       })}
-      <div class="so-top fv-value-row">
-        ${readout({ label: strings(this.hass, 'relative'), value: parts.value, unit: value === null ? '' : parts.unit || '%', size: 'l' })}
+      <div class="so-top fv-value-row ${stacked ? 'is-stacked' : ''}">
+        ${readout({ label: relative, value: parts.value, unit: value === null ? '' : parts.unit || '%', size: 'l' })}
         ${side ? html`<div class="so-top__side">${readout({ label: side.label, value: side.value, unit: side.unit, size: 's' })}</div>` : nothing}
       </div>
       <div class="so-band">
@@ -398,8 +455,8 @@ export class FluvyHumidityCard extends Card<HumidityCardConfig> {
       ${
         this.trendHours > 0 || humidifier
           ? html`<div class="so-rows">
-              ${this.trendHours > 0 ? this.trendRow(value, unusable, openInfo) : nothing}
-              ${humidifier ? this.humidifierRow(humidifier) : nothing}
+              ${this.trendHours > 0 ? this.trendRow(value, unusable, keepRows, openInfo) : nothing}
+              ${humidifier ? this.humidifierRow(humidifier, keepRows) : nothing}
             </div>`
           : nothing
       }

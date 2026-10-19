@@ -13,7 +13,12 @@ import type { SheetSpec } from '../scenes.js';
  */
 class KeypadDemo extends Card {
   protected renderCard(): TemplateResult {
-    return html`<fluvy-keypad docked .hass=${this.hass}></fluvy-keypad>`;
+    return html`<fluvy-keypad
+      docked
+      ?dark=${this.dark}
+      ?no-theme=${this.noTheme}
+      .hass=${this.hass}
+    ></fluvy-keypad>`;
   }
 
   protected override firstUpdated(changed: PropertyValues): void {
@@ -449,6 +454,24 @@ export const sheet: SheetSpec = {
       title: 'Camera · live, no stream',
       cards: [
         { type: 'custom:fluvy-camera-card', entity: 'camera.side_gate', camera_view: 'live' },
+      ],
+    },
+    // the compact alarm at its own size: half a section (the compact lock's is on the narrow sheet)
+    {
+      title: 'Alarm · compact · half a section',
+      cards: [
+        {
+          type: 'custom:fluvy-alarm-card',
+          entity: 'alarm_control_panel.house',
+          variant: 'compact',
+          cols: 6,
+        },
+        {
+          type: 'custom:fluvy-alarm-card',
+          entity: 'alarm_control_panel.away',
+          variant: 'compact',
+          cols: 6,
+        },
       ],
     },
   ],

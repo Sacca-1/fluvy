@@ -52,7 +52,7 @@ export function formatNumber(
   }
 }
 
-/** `Intl.NumberFormat` construction is the expensive part of formatting; forty cards share one per locale and option set. */
+/** `Intl.NumberFormat` construction is the expensive part of formatting; fifty-five cards share one per locale and option set. */
 const formatters = new Map<string, Intl.NumberFormat>();
 function numberFormat(
   locale: string | undefined,
@@ -348,11 +348,15 @@ export function formatDate(
   return dateFormat(hass?.language ?? 'en', opts).format(date);
 }
 
-/** "5 min ago" / "hace 5 min" with the platform's own rules; under a minute it is simply "now" / "ahora". */
+/**
+ * "5 min ago" / "hace 5 min" with the platform's own rules; under a minute it is simply "now" / "ahora". `short`: a
+ * past of days in its short form ("32 d ago"), for a line too narrow for "32 days ago".
+ */
 export function relativeTime(
   hass: HomeAssistant | undefined,
   from: Date,
   now: Date = new Date(),
+  short = false,
 ): string {
   if (!validDate(from) || !validDate(now)) return '—';
   const seconds = (now.getTime() - from.getTime()) / 1000;
@@ -370,7 +374,11 @@ export function relativeTime(
     if (abs < 86_400)
       return localize(hass, past ? 'time.hours_ago' : 'time.in_hours', { n: hours });
     if (days === 1) return localize(hass, past ? 'time.yesterday' : 'time.tomorrow');
-    return localize(hass, past ? 'time.days_ago' : 'time.in_days', { n: days });
+    return localize(
+      hass,
+      past ? (short ? 'time.days_ago_short' : 'time.days_ago') : 'time.in_days',
+      { n: days },
+    );
   }
   const rtf = new Intl.RelativeTimeFormat(hass?.language ?? 'en', {
     numeric: 'auto',

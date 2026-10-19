@@ -23,6 +23,7 @@
   },
   "type": "module",
   "exports": {
+    "./english": "./src/english.ts",
     "./scenes": "./src/scenes.ts",
     "./hass": "./src/hass.ts",
     "./panel": "./src/panel.ts",

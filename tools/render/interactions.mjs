@@ -374,7 +374,7 @@ for (const width of [360, 412]) {
     .nth(1)
     .locator('article')
     .nth(0); // Office mini, off
-  await mini.focus();
+  await mini.locator('.fv-tile__tap').focus(); // the tile's button, laid over it
   await page.keyboard.press('Enter');
   await page.waitForTimeout(400);
   c = await calls(page);

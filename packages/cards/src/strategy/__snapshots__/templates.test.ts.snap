@@ -806,3 +806,191 @@ exports[`the dashboard templates > generate the same dashboard for the demo home
   ],
 }
 `;
+
+exports[`the dashboard templates > lay a room’s appliances across its subview, on the wall across its two columns (golden file, #47) > rooms 1`] = `
+{
+  "back_path": "/fluvy-home/floor-ground",
+  "icon": "mdi:silverware-fork-knife",
+  "max_columns": 3,
+  "path": "room-kitchen",
+  "sections": [
+    {
+      "cards": [
+        {
+          "type": "custom:fluvy-hello-card",
+          "weather": "weather.home",
+        },
+        {
+          "icon": "fluvy:home",
+          "path": "/fluvy-home/floor-ground",
+          "title": "All rooms",
+          "type": "custom:fluvy-heading-card",
+        },
+      ],
+      "type": "grid",
+    },
+    {
+      "cards": [
+        {
+          "entities": [
+            "switch.kitchen_light",
+          ],
+          "icon": "fluvy:bulb",
+          "title": "Lights",
+          "type": "custom:fluvy-heading-card",
+        },
+        {
+          "entity": "switch.kitchen_light",
+          "grid_options": {
+            "columns": 12,
+          },
+          "size": "compact",
+          "type": "custom:fluvy-tile-card",
+        },
+      ],
+      "type": "grid",
+    },
+    {
+      "cards": [],
+      "type": "grid",
+    },
+    {
+      "cards": [
+        {
+          "heading_style": "title",
+          "icon": "fluvy:dishwasher",
+          "title": "Large appliances",
+          "type": "custom:fluvy-heading-card",
+        },
+        {
+          "appliances": [
+            {
+              "device": "hc-dish",
+              "kind": "dishwasher",
+            },
+          ],
+          "grid_options": {
+            "columns": "full",
+          },
+          "type": "custom:fluvy-appliances-card",
+          "variant": "cards",
+        },
+        {
+          "heading_style": "title",
+          "icon": "fluvy:plug",
+          "title": "Small appliances",
+          "type": "custom:fluvy-heading-card",
+        },
+        {
+          "appliances": [
+            {
+              "device": "tuya-kettle",
+              "kind": "kettle",
+            },
+          ],
+          "grid_options": {
+            "columns": "full",
+          },
+          "type": "custom:fluvy-appliances-card",
+          "variant": "cards",
+        },
+      ],
+      "column_span": 3,
+      "type": "grid",
+    },
+  ],
+  "subview": true,
+  "title": "Kitchen",
+  "type": "sections",
+}
+`;
+
+exports[`the dashboard templates > lay a room’s appliances across its subview, on the wall across its two columns (golden file, #47) > wall 1`] = `
+{
+  "back_path": "/fluvy-home/wall",
+  "icon": "mdi:silverware-fork-knife",
+  "max_columns": 2,
+  "path": "room-kitchen",
+  "sections": [
+    {
+      "cards": [
+        {
+          "icon": "fluvy:home",
+          "path": "/fluvy-home/wall",
+          "title": "Home",
+          "type": "custom:fluvy-heading-card",
+        },
+      ],
+      "type": "grid",
+    },
+    {
+      "cards": [
+        {
+          "entities": [
+            "switch.kitchen_light",
+          ],
+          "icon": "fluvy:bulb",
+          "title": "Lights",
+          "type": "custom:fluvy-heading-card",
+        },
+        {
+          "entity": "switch.kitchen_light",
+          "grid_options": {
+            "columns": 12,
+          },
+          "size": "compact",
+          "type": "custom:fluvy-tile-card",
+        },
+      ],
+      "type": "grid",
+    },
+    {
+      "cards": [
+        {
+          "heading_style": "title",
+          "icon": "fluvy:dishwasher",
+          "title": "Large appliances",
+          "type": "custom:fluvy-heading-card",
+        },
+        {
+          "appliances": [
+            {
+              "device": "hc-dish",
+              "kind": "dishwasher",
+            },
+          ],
+          "grid_options": {
+            "columns": "full",
+          },
+          "type": "custom:fluvy-appliances-card",
+          "variant": "cards",
+        },
+        {
+          "heading_style": "title",
+          "icon": "fluvy:plug",
+          "title": "Small appliances",
+          "type": "custom:fluvy-heading-card",
+        },
+        {
+          "appliances": [
+            {
+              "device": "tuya-kettle",
+              "kind": "kettle",
+            },
+          ],
+          "grid_options": {
+            "columns": "full",
+          },
+          "type": "custom:fluvy-appliances-card",
+          "variant": "cards",
+        },
+      ],
+      "column_span": 2,
+      "type": "grid",
+    },
+  ],
+  "subview": true,
+  "title": "Kitchen",
+  "type": "sections",
+}
+`;

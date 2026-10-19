@@ -2,7 +2,7 @@ import { haptic, strings, type HomeAssistant } from '@fluvy/core';
 import { glyph } from '@fluvy/ui';
 import { css, html, LitElement } from 'lit';
 
-const s = strings('panel');
+const s = strings('wall');
 
 /*
  * The way back from a subview on a wall, at the top left: a pill on the card's fill — the corner's disc, grown to hold
@@ -108,9 +108,9 @@ export class FluvyWallBack extends LitElement {
   };
 
   protected override render() {
-    const words = this.title || s(this.hass, 'wall.back');
+    const words = this.title || s(this.hass, 'back');
     return html`<button
-      aria-label=${this.title ? s(this.hass, 'wall.back_to', { view: this.title }) : words}
+      aria-label=${this.title ? s(this.hass, 'back_to', { view: this.title }) : words}
       @click=${this.back}
     >
       <span class="pill">${glyph('chevronLeft')}<span class="title">${words}</span></span>

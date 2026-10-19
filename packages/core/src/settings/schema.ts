@@ -7,10 +7,12 @@ import {
   isShapeName,
   parseCustomPalette,
   parsePaletteFile,
+  parseStatuses,
   type PaletteChoice,
   type PaletteFile,
   type PillName,
   type ShapeName,
+  type StatusColours,
 } from '@fluvy/tokens/runtime';
 import { THEME_NAME } from '@fluvy/tokens/config';
 import type { Look } from '../look/css.js';
@@ -56,6 +58,10 @@ export type WallExit = 'button' | 'hold';
 export type WallSubview = 'button' | 'header';
 export const WALL_AFTER = [0, 2, 5, 10, 30] as const;
 export const WALL_NIGHT_DIM = [0, 20, 40, 60] as const;
+
+/** When a light card shows its light's colour on its surface: never, while the light is on, or at rest too. */
+export const LIGHT_TINTS = ['off', 'on', 'always'] as const;
+export type LightTint = (typeof LIGHT_TINTS)[number];
 
 /** How the house's wall panels behave (a device says it is one: `DeviceSettings`). */
 export interface WallSettings {
@@ -107,6 +113,12 @@ export interface HouseSettings {
   /** The palettes the house keeps (shared files), up to twelve. */
   readonly palettes: readonly SavedPalette[];
   readonly wall: WallSettings;
+  /** A light card's `tint` where the card says none (1.9). */
+  readonly lightTint: LightTint;
+  /** `light_colors` where a tile, a group of tiles, a room or a row of lights says none (1.9). */
+  readonly lightColors: boolean;
+  /** The statuses in colours of the house's own, over every palette (1.9); one left out is the palette's (Auto). */
+  readonly statuses: StatusColours;
 }
 
 /** What each person may choose for themselves. */
@@ -142,6 +154,10 @@ export interface EffectiveSettings {
   readonly activityCard: boolean;
   /** How the house's walls behave (the device says whether this page is one). */
   readonly wall: WallSettings;
+  readonly lightTint: LightTint;
+  readonly lightColors: boolean;
+  /** The house's status colours, worn over this person's palette too. */
+  readonly statuses: StatusColours;
 }
 
 export const HOUSE_DEFAULTS: HouseSettings = {
@@ -172,6 +188,11 @@ export const HOUSE_DEFAULTS: HouseSettings = {
     exit: 'button',
     subview: 'button',
   },
+  // the cards' keys new in 1.9 start where 1.8 drew them: no dashboard changes on upgrade
+  lightTint: 'off',
+  lightColors: false,
+  // every status the palette's own, as before 1.9
+  statuses: {},
 };
 export const WALL_DEFAULTS: WallSettings = HOUSE_DEFAULTS.wall;
 
@@ -256,6 +277,9 @@ export function parseHouse(raw: unknown): HouseSettings {
     history: typeof value['history'] === 'boolean' ? value['history'] : d.history,
     palettes: parseSavedPalettes(value['palettes']),
     wall: parseWall(value['wall']),
+    lightTint: oneOf(value['lightTint'], LIGHT_TINTS) ? value['lightTint'] : d.lightTint,
+    lightColors: typeof value['lightColors'] === 'boolean' ? value['lightColors'] : d.lightColors,
+    statuses: parseStatuses(value['statuses']),
   };
 }
 
@@ -306,6 +330,9 @@ export function resolveSettings(
     haptics: personal.haptics,
     activityCard: personal.activityCard,
     wall: house.wall,
+    lightTint: house.lightTint,
+    lightColors: house.lightColors,
+    statuses: house.statuses,
   };
 }
 

@@ -4,7 +4,7 @@
 | --- | --- |
 | [Installation](installation.md) | HACS or the release zip, updating, uninstalling, what the integration registers, the Repairs it can raise |
 | [Getting started](getting-started.md) | the first ten minutes: the look, the scope, the automatic dashboards, a first card |
-| [The settings panel](settings-panel.md) | the six tabs, house and personal settings, where they are stored |
+| [The settings panel](settings-panel.md) | the five tabs, house and personal settings, where they are stored |
 | [The theme](theme.md) | palettes, custom accents, shapes and buttons, the tokens, using the theme on its own |
 | [The cards](cards.md) | every card with its purpose, a minimal configuration and its options |
 | [Energy](energy.md) | how the energy cards read a house (the Energy dashboard, or your sources: one sensor, two, per phase), and every case |

@@ -7,7 +7,16 @@
  *   node interactions-media.mjs            (expects the playground dev server on :5183)
  */
 import { mousePointer, seekTo } from './lib/gestures.mjs';
-import { calls, frame, moreInfo, PAGE_INTERVALS, reset, settle, startSuite } from './lib/suite.mjs';
+import {
+  calls,
+  frame,
+  moreInfo,
+  PAGE_INTERVALS,
+  reset,
+  settle,
+  startSuite,
+  tapHead,
+} from './lib/suite.mjs';
 
 const suite = await startSuite();
 const { check } = suite;
@@ -211,8 +220,8 @@ const open = (sheet, options) => suite.sheet(sheet, options);
     'media: half a column lets the art go before the last round, and keeps play',
     (await labels(halves.nth(0))).join() === 'Pause' &&
       (await labels(halves.nth(1))).join() === 'Pause' &&
-      (await halves.locator('.md-art-tap, .fv-ico').count()) === 0 &&
-      (await halves.locator('button.md-mini__text').count()) === 2,
+      (await halves.locator('.md-mini__row :is(.fv-art, .fv-ico)').count()) === 0 &&
+      (await halves.locator('.md-mini__row .fv-card__tap').count()) === 2,
     `${await labels(halves.nth(0))} · ${await labels(halves.nth(1))}`,
   );
   const strips = frame(page, 'Now playing · power').locator('fluvy-now-playing-card');
@@ -286,7 +295,7 @@ const open = (sheet, options) => suite.sheet(sheet, options);
     JSON.stringify(c.map((x) => x.s)),
   );
   await reset(page);
-  await halves.nth(0).locator('button.md-mini__text').click();
+  await tapHead(halves.nth(0), '.md-mini__row .fv-row__title');
   check(
     'media: where the art has given way, the row’s words open the dialog',
     (await moreInfo(page)).join() === 'media_player.tv' && (await calls(page)).length === 0,

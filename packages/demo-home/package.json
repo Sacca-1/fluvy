@@ -24,7 +24,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./simulate": "./src/simulate.ts"
+    "./simulate": "./src/simulate.ts",
+    "./out-of-reach": "./src/out-of-reach.ts"
   },
   "scripts": {
     "test": "vitest run",

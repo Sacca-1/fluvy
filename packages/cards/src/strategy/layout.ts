@@ -1,5 +1,5 @@
 import type { HomeRegistry } from './home-registry.js';
-import type { Card, CardStyle, EnergyRoles, Section, View } from './types.js';
+import type { Card, CardStyle, EnergyRoles, Section, StrategyContext, View } from './types.js';
 import { layoutHeightOf } from '@fluvy/core';
 
 /*
@@ -175,15 +175,18 @@ const listLength = (card: Card): number => {
   }
   return 0;
 };
-export /** A card's height: what the card declares for its config (`static layoutHeight`), else a head and 64 a row. */
-const heightOf = (card: Card): number => layoutHeightOf(card, 100 + 64 * listLength(card));
+/** What the columns are cut with: the header's height over the first column, and the house the cards count with. */
+export type LayoutContext = Pick<StrategyContext, 'header' | 'hass'>;
+export /** A card's height: what the card declares for its config and the house (`static layoutHeight`), else a head and 64 a row. */
+const heightOf = (card: Card, { hass }: LayoutContext): number =>
+  layoutHeightOf(card, 100 + 64 * listLength(card), hass);
 const halfColumn = (card: Card): boolean => card.grid_options?.columns === 6;
 /** A run of cards stacked in one column; half-column cards side by side, two a row. */
-function heightOfAll(cards: readonly Card[]): number {
+function heightOfAll(cards: readonly Card[], ctx: LayoutContext): number {
   let height = 0;
   let pending: number | undefined;
   for (const card of cards) {
-    const own = heightOf(card) + GAP;
+    const own = heightOf(card, ctx) + GAP;
     if (!halfColumn(card)) height += own;
     else if (pending === undefined) pending = own;
     else {
@@ -211,7 +214,7 @@ function* cutsOf(count: number, parts: number, from = 1): Generator<number[]> {
  * columns end closest to one line once the loose cards are in (the first column carries the header).
  */
 export function flowed(
-  header: number,
+  ctx: LayoutContext,
   blocks: readonly (readonly Card[])[],
   loose: readonly Card[] = [],
   columns = 3,
@@ -222,12 +225,12 @@ export function flowed(
     const bounds = [0, ...cuts, runs.length];
     const laid = Array.from({ length: columns }, (_, i) => {
       const cards = runs.slice(bounds[i] ?? runs.length, bounds[i + 1] ?? runs.length).flat();
-      return { cards, height: (i === 0 ? header : 0) + heightOfAll(cards) };
+      return { cards, height: (i === 0 ? ctx.header : 0) + heightOfAll(cards, ctx) };
     });
     for (const card of loose) {
       const shortest = laid.reduce((low, next) => (next.height < low.height ? next : low));
       shortest.cards.push(card);
-      shortest.height += heightOf(card) + GAP;
+      shortest.height += heightOf(card, ctx) + GAP;
     }
     const heights = laid.map((column) => column.height);
     const spread = Math.max(...heights) - Math.min(...heights);
@@ -238,8 +241,8 @@ export function flowed(
 }
 
 /** Cards shared out over the columns: the lead card under the header, every other one where the columns are shortest. */
-export const balanced = (header: number, [lead, ...rest]: readonly Card[]): Section[] =>
-  flowed(header, lead ? [[lead]] : [], rest);
+export const balanced = (ctx: LayoutContext, [lead, ...rest]: readonly Card[]): Section[] =>
+  flowed(ctx, lead ? [[lead]] : [], rest);
 
 /** Tiles two a row; an odd one out closes the run as a compact tile across the column, so no row is half empty. */
 export function tileRows(tiles: readonly Card[]): Card[][] {

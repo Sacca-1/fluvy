@@ -383,5 +383,25 @@ export const sheet: SheetSpec = {
         { type: 'custom:fluvy-energy-card', entity: 'sensor.ef_not_there' },
       ],
     },
+    // the compact chart at its own size: half a section
+    {
+      title: 'Energy · compact · half a section',
+      cards: [
+        {
+          type: 'custom:fluvy-energy-card',
+          entity: 'sensor.ef_house_power',
+          variant: 'compact',
+          _now: SHEET_NOW,
+          cols: 6,
+        },
+        {
+          type: 'custom:fluvy-energy-card',
+          entity: 'sensor.ef_solar_power',
+          variant: 'compact',
+          _now: SHEET_NOW,
+          cols: 6,
+        },
+      ],
+    },
   ],
 };

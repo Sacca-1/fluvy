@@ -12,16 +12,17 @@ import {
   type LovelaceConfigForm,
   type LovelaceGridOptions,
 } from '@fluvy/core';
-import { head, readout, sheetStyles, type Tone } from '@fluvy/ui';
+import { head, sheetStyles, type Tone } from '@fluvy/ui';
 import { css, html, nothing, type CSSResultGroup, type TemplateResult } from 'lit';
 
 import { HeadFit } from '../energy/head.js';
-import { durationReadout } from '../energy/duration.js';
+import { durationFigure, durationReadout } from '../energy/duration.js';
 import { MARK_LABEL, markedRuler } from '../energy/marked-ruler.js';
 import { modeRow } from '../energy/mode-row.js';
-import { valueRow, type Figure } from '../energy/value-row.js';
+import { valueRow, type Figure } from '../shared/value-row.js';
 import { deviceName, readoutParts, scaled, scaleOf, watts } from '../energy/power.js';
-import { Card, ENTITY_BASE, type BaseKey } from '../shared/base.js';
+import { statsCols, statsStyles, type Stat } from '../energy/stats.js';
+import { Card, HEAD_BASE, type BaseKey } from '../shared/base.js';
 import { toneOf } from '../shared/colour.js';
 import { configKeys } from '../shared/config.js';
 import {
@@ -32,6 +33,7 @@ import {
   entityField,
   fieldRow,
   iconField,
+  showIconField,
   textField,
 } from '../shared/form.js';
 import {
@@ -73,9 +75,6 @@ export interface EvChargerCardConfig extends FluvyCardConfig {
   _now?: string;
 }
 
-/** Under this column the readouts stand one under another. */
-const STACK_BELOW = 240;
-
 /**
  * The car on its charger: its charge on a read-only ruler with the target marked, when it is due, what the session
  * added, for how long it has charged and how much came from the sun, and the charging mode as tiles. The head's
@@ -83,30 +82,22 @@ const STACK_BELOW = 240;
  * drawn, and a reading that cannot be read is "—".
  */
 export class FluvyEvChargerCard extends Card<EvChargerCardConfig> {
-  static override layoutHeight(config: EvChargerCardConfig): number {
-    return chargerHeight(config);
+  static override layoutHeight(config: EvChargerCardConfig, hass?: HomeAssistant): number {
+    return chargerHeight(config, hass);
   }
 
   static override styles: CSSResultGroup = [
     ...(Card.styles as CSSResultGroup[]),
     sheetStyles.energy,
+    statsStyles,
     css`
       .ef-card {
         width: 100%;
       }
-      .ef-cols {
-        grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr));
-      }
-      .ef-cols .fv-readout {
-        min-width: 0;
-      }
-      .ef-cols--stack {
-        grid-template-columns: minmax(0, 1fr);
-      }
     `,
   ];
 
-  static override base: readonly BaseKey[] = ENTITY_BASE;
+  static override base: readonly BaseKey[] = HEAD_BASE;
   static override keys = configKeys<EvChargerCardConfig>()([
     'invert',
     'level',
@@ -125,6 +116,7 @@ export class FluvyEvChargerCard extends Card<EvChargerCardConfig> {
       schema: [
         entityField(['sensor']),
         fieldRow(textField('name'), iconField()),
+        showIconField(),
         boolField('invert'),
         fieldRow(entityField(['sensor'], 'level', false), textField('target')),
         fieldRow(textField('ready_by'), entityField(['sensor', 'binary_sensor'], 'status', false)),
@@ -267,10 +259,9 @@ export class FluvyEvChargerCard extends Card<EvChargerCardConfig> {
   protected renderCard(): TemplateResult {
     const view = this.entity();
     const title = this.name(view);
-    if (!this.config?.entity || view.status === 'missing')
-      return this.renderEmpty(
-        this.config?.entity ? `${title} · ${stateText(this.hass, view)}` : undefined,
-      );
+    // a charger out of reach, even one no longer there, is the live card with its badge saying so (the owner's rule,
+    // 1.9): its figures "—", its ruler and its mode in place
+    if (!this.config?.entity) return this.renderEmpty();
     const w = this.contentWidth;
     const flow = this.flow();
     const tone = toneOf(this.config, 'accent');
@@ -288,7 +279,10 @@ export class FluvyEvChargerCard extends Card<EvChargerCardConfig> {
     // the badge is the power either way — in the car's own colour while it powers the house — and the sub says which
     // way (the charger's status, or our words when it has none)
     const badge: { text: string; tone: Tone } | null = !flow
-      ? { text: this.t('state.unavailable'), tone: 'warning' }
+      ? {
+          text: view.status === 'ok' ? this.t('state.unavailable') : stateText(this.hass, view),
+          tone: 'warning',
+        }
       : flow.way === 'feeding' && powerText
         ? { text: `${powerText.value} ${powerText.unit}`, tone: 'vehicle' }
         : flow.way === 'charging' && level !== undefined && powerText
@@ -312,9 +306,8 @@ export class FluvyEvChargerCard extends Card<EvChargerCardConfig> {
         sub: fitted.sub,
         trailing: fitted.badge,
         name: true,
-        onIconTap: () => this.tap(),
-        onHold: () => this.hold(),
-        iconLabel: title,
+        cut: fitted.cut,
+        ...this.headActions(),
       })}
       ${this.renderTop(level, powerText, title, tone, w)} ${this.renderReadouts(statusView, w)}
       ${this.renderMode(tone, w)}
@@ -378,41 +371,34 @@ export class FluvyEvChargerCard extends Card<EvChargerCardConfig> {
     statusView: EntityView | undefined,
     w: number,
   ): TemplateResult | typeof nothing {
-    const items: TemplateResult[] = [];
+    const stats: Stat[] = [];
     const energy = this.config?.session_energy;
-    if (energy) {
-      const parts = readoutParts(this.hass, this.entity(energy));
-      items.push(readout({ label: s(this.hass, 'added'), ...parts, size: 's' }));
-    }
+    if (energy)
+      stats.push({ label: s(this.hass, 'added'), ...readoutParts(this.hass, this.entity(energy)) });
     if (statusView && this.charging()) {
       const since = Date.parse(statusView.stateObj?.last_changed ?? '');
-      if (Number.isFinite(since))
-        items.push(
-          durationReadout(this.hass, s(this.hass, 'for'), Math.max(0, (this.now() - since) / 1000)),
-        );
+      if (Number.isFinite(since)) {
+        const label = s(this.hass, 'for');
+        const seconds = Math.max(0, (this.now() - since) / 1000);
+        stats.push({
+          ...durationFigure(this.hass, label, seconds),
+          draw: (size) => durationReadout(this.hass, label, seconds, size),
+        });
+      }
     }
     const sun = this.config?.solar_share;
     if (sun) {
       const view = this.entity(sun);
       const ok = view.status === 'ok' && view.number !== null;
-      items.push(
-        readout({
-          label: s(this.hass, 'from_sun'),
-          value: ok
-            ? formatNumber(this.hass, clampPercent(view.number as number), { digits: 0 })
-            : '—',
-          unit: ok ? '%' : '',
-          size: 's',
-        }),
-      );
+      stats.push({
+        label: s(this.hass, 'from_sun'),
+        value: ok
+          ? formatNumber(this.hass, clampPercent(view.number as number), { digits: 0 })
+          : '—',
+        unit: ok ? '%' : '',
+      });
     }
-    if (!items.length) return nothing;
-    return html`<div
-      class="ef-cols fv-cols ${w < STACK_BELOW ? 'ef-cols--stack' : ''}"
-      style="--cols:${items.length}"
-    >
-      ${items}
-    </div>`;
+    return stats.length ? statsCols(this.head.ruler, w, stats) : nothing;
   }
 
   /** The charging mode, when the card is given one: off pauses, the sun charges from its surplus, fast at full power. */

@@ -1,6 +1,6 @@
 import { setMotionPreference } from '@fluvy/ui';
 import { setHaptics } from '../actions.js';
-import { PREFERENCES_EVENT, refreshCards, resyncCardThemes } from '../card.js';
+import { PREFERENCES_EVENT, refreshCards, resyncCardThemes, setLightDefaults } from '../card.js';
 import type { HomeAssistant } from '../ha/types.js';
 import { setLanguageOverride } from '../i18n/index.js';
 import { cachedSettings, SettingsStore } from '../settings/store.js';
@@ -28,8 +28,9 @@ import {
 import { safeStorage } from '../storage.js';
 
 /**
- * What the panel can show on its page before it is saved: the look, where it applies (scope, dashboards, the
- * frame, the menus' icons, our Activity page) and a person's preferences (language, motion, haptics).
+ * What the panel can show on its page before it is saved: the look and the house's status colours, where it applies
+ * (scope, dashboards, the frame, the menus' icons, our Activity page), the lights' defaults and a person's preferences
+ * (language, motion, haptics).
  */
 export type LookPreview = Partial<
   Pick<
@@ -44,6 +45,9 @@ export type LookPreview = Partial<
     | 'motion'
     | 'haptics'
     | 'activityCard'
+    | 'lightTint'
+    | 'lightColors'
+    | 'statuses'
   >
 >;
 
@@ -149,6 +153,8 @@ export function startLook(): LookHandle | undefined {
     env.document.documentElement.toggleAttribute(ORIGINAL_ACTIVITY, !now.activity);
     env.document.documentElement.toggleAttribute(ORIGINAL_HISTORY, !now.history);
     env.document.documentElement.toggleAttribute(ACTIVITY_CARD, now.activityCard);
+    // the lights' defaults: every card that leaves them to the house draws again
+    setLightDefaults({ tint: now.lightTint, colors: now.lightColors });
     // the corner of every page: the sidebar's head (the shell's sheets fill on these), the dashboards' headers marked
     const chrome = chromeOf(now.look);
     env.document.documentElement.toggleAttribute(SIDEBAR_LOGO_ATTRIBUTE, chrome.logo);
@@ -162,9 +168,10 @@ export function startLook(): LookHandle | undefined {
   void attachToElementClass('ha-panel-lovelace', engine.panelSheet, env);
   // a card connects before its panel is marked: the cards look again whenever a mark moves
   void patchLovelacePanels(env.customElements, wears, resyncCardThemes);
-  // the card editor's colour swatches show the palette's colours: the dialog wears the look of its dashboard
+  // the card editor's colour swatches show the palette's colours: the dialog wears the look of its dashboard (and
+  // its preview looks again when that mark moves)
   void attachToElementClass('hui-dialog-edit-card', engine.panelSheet, env);
-  void patchEditDialog(env.customElements, wears);
+  void patchEditDialog(env.customElements, wears, resyncCardThemes);
   // the view tabs as the house chose them, in every dashboard's header (re-marked on each of its updates)
   void patchViewRoots(env.customElements, tabsFor);
   const offFrames = onPanelFrame((frame) =>

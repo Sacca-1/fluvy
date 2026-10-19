@@ -2,7 +2,7 @@
  * A chart of the History page: everything measured in one unit, on one scale, with the page's cursor across it.
  * One series draws the cards' curve (a gradient under it); several draw their lines, each in its own graph colour.
  */
-import { formatNumber, scaleUnit } from '@fluvy/core';
+import { formatNumber, plural, scaleUnit } from '@fluvy/core';
 import { sampleTrack, valueAt, type Track } from '@fluvy/core/history';
 import {
   areaUnder,
@@ -357,7 +357,7 @@ export function renderChart(page: FluvyHistory, chart: Chart): TemplateResult {
                       class="fv-link hs-legend__more"
                       @click=${() => page.expandChart(chart.key)}
                     >
-                      ${page.t('more', { n: chart.hidden })}
+                      ${plural(page.hass, 'history.more', chart.hidden)}
                     </button>
                   </li>`
                 : nothing

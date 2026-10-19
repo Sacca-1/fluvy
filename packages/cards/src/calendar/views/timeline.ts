@@ -3,13 +3,13 @@ import { badge, head } from '@fluvy/ui';
 import { html, nothing, type TemplateResult } from 'lit';
 import { hoursOf } from '../config.js';
 import { wallHours } from '../../shared/dates.js';
-import { FACE, fitText } from '../fit.js';
 import type { DayEvent } from '../model.js';
 import type { ViewContext } from './context.js';
 import {
   dayList,
   eventAria,
   fitBadgeHead,
+  headSub,
   headTone,
   notice,
   note,
@@ -109,17 +109,19 @@ export function timelineView(ctx: ViewContext): TemplateResult {
   const clock = words.time(agenda.now);
   // "Now 21:47"; the accent pill alone says "now" where the word does not fit beside the title, and the body's line
   // where not even the time does
+  const line = words.dates(day);
   const fit = fitBadgeHead(
     ctx,
     'clock',
     title,
-    broken ? [] : [`${words.t('common.now')} ${clock}`, clock],
+    broken || ctx.away ? [] : [`${words.t('common.now')} ${clock}`, clock],
+    line,
   );
 
   const body = (): TemplateResult => {
-    if (!ready) return dayList(ctx, day).body; // the skeleton
-    if (!items.length) return note(words.events(0));
+    // the day not read yet, or its calendars out of reach: the configured hours, empty, at the card's size
     const { start, end } = hoursFor(ctx, timed, day);
+    if (ready && !items.length) return note(words.events(0));
     const y = (hours: number): number => (hours - start) * PPH;
     const hours: number[] = [];
     for (let hour = start; hour <= end; hour += 2) hours.push(hour);
@@ -127,10 +129,10 @@ export function timelineView(ctx: ViewContext): TemplateResult {
     const room = Math.max(GUTTER, ctx.width - GUTTER);
     const whole = dayList(ctx, day, { items: allDay, max: 2 });
 
-    return html` ${allDay.length ? whole.body : nothing}
+    return html` ${allDay.length && ready ? whole.body : nothing}
     ${whole.more === nothing ? nothing : html`<div class="cd-rows">${whole.more}</div>`}
     ${
-      timed.length
+      timed.length || !ready
         ? html`<div class="cd-timeline" style="height:${y(end) + 16}px">
             ${hours.map((hour) => html`<span class="cd-hour" style="top:${y(hour)}px"><span class="cd-hour__label">${words.hour(hour)}</span><span class="cd-hour__line" data-measure="value"></span></span>`)}
             ${layout(timed, day, start, end).map((block, _, blocks) => {
@@ -164,7 +166,7 @@ export function timelineView(ctx: ViewContext): TemplateResult {
         icon: fit.icon,
         tone: headTone(ctx),
         title,
-        sub: fitText(words.dates(day), fit.room, FACE.sub),
+        sub: headSub(ctx, line, fit.room),
         trailing: fit.pill ? badge(fit.pill, 'accent') : nothing,
       })}
       ${broken ?? html`${body()}${notice(ctx)}`}

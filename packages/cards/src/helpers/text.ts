@@ -1,10 +1,10 @@
-import { numberAttr, type EntityView } from '@fluvy/core';
+import { numberAttr, stateText, type EntityView } from '@fluvy/core';
 import { glyph, type GlyphName } from '@fluvy/ui';
 import { html, noChange, nothing, type TemplateResult } from 'lit';
 import { live } from 'lit/directives/live.js';
 import {
-  contextOf,
   field,
+  fieldContext,
   isUnusable,
   nameOf,
   type HelperHost,
@@ -106,11 +106,13 @@ export function textBlocks(
   const value = view.status === 'ok' ? state : '';
   const min = numberAttr(view, 'min');
   return [
-    field(name, contextOf(host, view, row), nothing, unusable),
+    field(name, fieldContext(host, view, row), nothing, unusable),
     textField({
       id: view.id,
       value,
       label: name,
+      // an empty field out of reach says why
+      ...(view.status === 'ok' ? {} : { placeholder: stateText(host.hass, view) }),
       password: view.attr<string>('mode') === 'password',
       minLength: min !== null && min > 0 ? min : null,
       maxLength: numberAttr(view, 'max'),

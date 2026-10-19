@@ -1,4 +1,5 @@
 import type { HomeAssistant } from '@fluvy/core';
+import { appliancesView } from './appliances.js';
 import { buildContext, framed, withCards } from './context.js';
 import { roomView } from './rooms.js';
 import { HOME_TEMPLATE, templateOf, viewsOf, type Template } from './templates.js';
@@ -14,7 +15,8 @@ export async function generate(
 
 /**
  * A template's dashboard: its views built from the house (the first always, the others when the house has what
- * they show and the configuration keeps them), each framed; then a subview per room the template opens.
+ * they show and the configuration keeps them), each framed; then a subview per room the template opens, and the one
+ * of every appliance its Home leads to.
  */
 export async function generateWith(
   template: Template,
@@ -51,5 +53,9 @@ export async function generateWith(
   ).map(({ area, back }) =>
     framed(roomView(ctx, area, template.columns, back), ctx, views, template),
   );
-  return { views: [...framedViews, ...rooms] };
+  const appliances =
+    template.appliances && ctx.home.applianceDevices.length
+      ? [framed(appliancesView(ctx, template.columns), ctx, views, template)]
+      : [];
+  return { views: [...framedViews, ...rooms, ...appliances] };
 }

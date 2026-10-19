@@ -3,6 +3,7 @@ import { html, nothing, type TemplateResult } from 'lit';
 import {
   domainOf,
   formatDate,
+  localize,
   moreInfo,
   navigate,
   type EntityView,
@@ -65,7 +66,10 @@ export function renderDetail(
   if (focus && JSON.stringify(focus) !== JSON.stringify(page.target))
     buttons.push([page.t('only_this'), () => focusOn(page, focus)]);
   if (config !== undefined && hass.user?.is_admin)
-    buttons.push([page.t('trace'), () => navigate(`/config/automation/trace/${String(config)}`)]);
+    buttons.push([
+      localize(hass, 'common.trace'),
+      () => navigate(`/config/automation/trace/${String(config)}`),
+    ]);
   else if (event.entity_id && view?.stateObj) {
     const from = new Date(when.getTime() - HOUR).toISOString();
     const to = new Date(when.getTime() + HOUR).toISOString();

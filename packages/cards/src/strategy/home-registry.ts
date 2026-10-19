@@ -1,3 +1,4 @@
+import { applianceDevices, kindOf, signalsOf, type ApplianceKind } from '../appliance/kinds.js';
 import { printerDevices } from '../printer/roles.js';
 import {
   areaOf,
@@ -319,14 +320,15 @@ export class HomeRegistry {
       ),
     );
   }
+  /** A room's temperatures: not the weather service's, nor an appliance's (a fridge's, an oven's: its card's). */
   get temperatures(): readonly string[] {
     return this.memo('temperatures', () =>
-      this.sensors('temperature').filter((id) => !this.fromWeather(id)),
+      this.sensors('temperature').filter((id) => !this.fromWeather(id) && !this.ofAppliance(id)),
     );
   }
   get humidities(): readonly string[] {
     return this.memo('humidities', () =>
-      this.sensors('humidity').filter((id) => !this.fromWeather(id)),
+      this.sensors('humidity').filter((id) => !this.fromWeather(id) && !this.ofAppliance(id)),
     );
   }
   get powers(): readonly string[] {
@@ -402,6 +404,45 @@ export class HomeRegistry {
    */
   get printers(): readonly string[] {
     return this.memo('printers', () => printerDevices(this.hass));
+  }
+  /**
+   * The house's appliances (#47): the devices the appliance card reads as one — a washer or a fridge of its
+   * integration, a kettle on its plug — found strictly, as the card's own search finds them.
+   */
+  get applianceDevices(): readonly string[] {
+    return this.memo('applianceDevices', () => applianceDevices(this.hass));
+  }
+  /** What an appliance is, as its card reads it (`appliance` where nothing says more). */
+  applianceKind(device: string): ApplianceKind {
+    const verdict = kindOf(signalsOf(this.hass, device));
+    return verdict && 'kind' in verdict ? verdict.kind : 'appliance';
+  }
+  /**
+   * The appliances' switches a tile shows: those of a device no appliance card shows (`appliances` keeps every one: the
+   * energy views read the plugs' power through it).
+   */
+  get applianceTiles(): readonly string[] {
+    return this.memo('applianceTiles', () => this.appliances.filter((id) => !this.ofAppliance(id)));
+  }
+  /** Whether an entity is one of an appliance’s (its card shows it: never a room’s reading). */
+  ofAppliance(id: string): boolean {
+    const device = this.deviceOf(id);
+    return (
+      device !== undefined &&
+      this.memo('applianceSet', () => new Set(this.applianceDevices)).has(device)
+    );
+  }
+  /** The area a device is in: its own, else its first entity's that has one. */
+  deviceArea(device: string): string | undefined {
+    const own = this.hass.devices?.[device]?.area_id;
+    if (own) return own;
+    return this.memo('deviceAreas', () => {
+      const areas = new Map<string, string>();
+      for (const entry of Object.values(this.hass.entities ?? {}))
+        if (entry.device_id && entry.area_id && !areas.has(entry.device_id))
+          areas.set(entry.device_id, entry.area_id);
+      return areas;
+    }).get(device);
   }
   get players(): readonly string[] {
     return this.domain('media_player');

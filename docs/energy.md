@@ -111,14 +111,27 @@ battery exported, then the rest ran the house — and adds the hours up. The fig
     there is no line.
 
   At the top, "right now" and the charge now. Run a finger along the chart and the readouts and the legend show that
-  moment. `show_soc: false` and `show_house: false` hide the two lines. A generator or a car shows only when the
-  Energy dashboard names a power sensor for every source.
+  moment, with a dot on each source's edge. `show_soc: false` and `show_house: false` hide the two lines. A
+  generator or a car shows only when the Energy dashboard names a power sensor for every source.
+
+  Both charts by source carry a power scale on the left (W or kW, negatives below the line) with dashed gridlines
+  across, and the whole house a 0–100 % scale for the charge on the right, on the same lines. In a narrow column
+  the charge's scale goes first (its readout and the "100 %" at the top still say it), then the power's.
+  `show_axis: false` and `show_grid: false` turn them off. `line_width: thin` draws every line 1 px.
+
+  The sources are stacked: each one sits on the one before it, so the battery's band starts where the sun's ends and
+  its top is the two added together (5.6 kW of sun and 4.2 kW from the battery top out at 9.8 kW). Each band keeps
+  its own edge in its colour, and the legend gives each source's own value under your finger. `stack: false` draws
+  every source from zero on its own instead, so their heights can be compared directly.
 - **Energy devices** — rows can nest (`parent`), and a `total` meter shows what is not measured, at every level.
 - **Production** — `arrays` stacks each array's hourly bars.
 - **History bars** — a sensor's last `days` days (or weeks, or months: `period`) as bars from its long-term
   statistics, the value over each bar, the total and the average beside the title, and a strip of facts under the
   chart: the highest, the lowest and the average, or `co2`, `trees`, `km`, `money`, a `share` of another sensor and
   a `template`, each named, iconed, coloured and tappable as you like (`head` and `facts` are lists in your order).
+  A counter that starts again on a cycle is read by its own readings (`reset: day`, `week`, `month`, `year`, or
+  `never` for a lifetime meter) so a reset or a restart is never counted twice; a sensor with no state class reads
+  the recorder's history; today is live and the average, highest and lowest are the finished bars'.
 - **Gauge** — `variant: signed` for a meter that can be negative: zero at the top, "1.8 kW out".
 
 ## A configuration each

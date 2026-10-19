@@ -1,7 +1,14 @@
 // @vitest-environment happy-dom
 import type { HaFormSchemaItem } from '@fluvy/core';
 import { describe, expect, it } from 'vitest';
-import { editorLabels, formLabels, selectField, toneField } from './form.js';
+import {
+  accentField,
+  colourFields,
+  editorLabels,
+  formLabels,
+  selectField,
+  toneField,
+} from './form.js';
 
 const label = (form: ReturnType<typeof formLabels>, name: string): string | undefined =>
   form.computeLabel?.({ name } as HaFormSchemaItem, (key) => key);
@@ -45,5 +52,16 @@ describe('a select that takes a value of its own', () => {
     expect(
       select(selectField('secondary', ['area', 'none'], { custom: true }))['custom_value'],
     ).toBe(true);
+  });
+});
+
+describe('a colour field', () => {
+  const picker = (item: HaFormSchemaItem): Record<string, unknown> =>
+    (item.selector as { ui_color: Record<string, unknown> }).ui_color;
+  it('says the palette’s accent for a card’s or an item’s colour, none for a surface until one is chosen (#40)', () => {
+    expect(picker(accentField())).toMatchObject({ default_color: 'primary', include_none: false });
+    const surface = colourFields()[1]!;
+    expect(surface.name).toBe('card_color');
+    expect(picker(surface)).toMatchObject({ default_color: 'none', include_none: true });
   });
 });

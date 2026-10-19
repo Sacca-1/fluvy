@@ -14,20 +14,27 @@ describe('the card editor dialog', () => {
     }
     customElements.define('hui-dialog-edit-card', Dialog);
     const wears = (urlPath: string | undefined): boolean => urlPath === 'fluvy-auto';
-    expect(await patchEditDialog(customElements, wears)).toBe(true);
+    let moved = 0;
+    expect(await patchEditDialog(customElements, wears, () => (moved += 1))).toBe(true);
     const dialog = document.createElement('hui-dialog-edit-card') as Dialog;
     document.body.append(dialog);
     dialog.hass = { panelUrl: 'fluvy-auto' };
     dialog.updated();
     expect(dialog.updates).toBe(1); // Home Assistant's own update still runs
     expect(dialog.hasAttribute(PANEL_ATTRIBUTE)).toBe(true);
+    // the preview inside looks for the theme again when the mark moves, and only then (#40)
+    expect(moved).toBe(1);
+    dialog.updated();
+    expect(moved).toBe(1);
     dialog.hass = { panelUrl: 'lovelace' };
     dialog.updated();
     expect(dialog.hasAttribute(PANEL_ATTRIBUTE)).toBe(false);
-    // the settings changed: the open dialog is marked again with the panels
+    expect(moved).toBe(2);
+    // the settings changed: the open dialog is marked again with the panels, and that is a change of its own
     dialog.hass = { panelUrl: 'fluvy-auto' };
-    markPanels(document, wears);
+    expect(markPanels(document, wears)).toBe(true);
     expect(dialog.hasAttribute(PANEL_ATTRIBUTE)).toBe(true);
+    expect(markPanels(document, wears)).toBe(false);
     dialog.remove();
   });
 });

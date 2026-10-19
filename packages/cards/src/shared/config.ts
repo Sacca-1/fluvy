@@ -1,4 +1,5 @@
 import type { FluvyCardConfig, LovelaceCardConfig } from '@fluvy/core';
+import type { HeadConfig } from './base.js';
 
 /**
  * The cards' configuration vocabulary, shared: the names every card reads the same way, the older names each still
@@ -42,6 +43,23 @@ const move = (from: string, to: string, extra: Omit<Move, 'from' | 'to'> = {}): 
 export const inverted = (from: string, to: string): Move =>
   move(from, to, { map: (value) => (typeof value === 'boolean' ? !value : value) });
 
+/**
+ * A YAML-mode dashboard reads an unquoted `on` or `off` as true or false (Home Assistant's loader speaks YAML 1.1):
+ * where a key's values are words, on and off among them, the boolean is the word it was.
+ */
+export const onOff = (value: unknown): unknown =>
+  value === true ? 'on' : value === false ? 'off' : value;
+
+type Bag = Record<string, unknown>;
+
+/** The bag with these keys' booleans read as on or off: the same bag when none is one. */
+function words(bag: Bag, keys: readonly string[]): Bag {
+  let next = bag;
+  for (const key of keys)
+    if (typeof bag[key] === 'boolean') next = { ...next, [key]: onOff(bag[key]) };
+  return next;
+}
+
 /** The names every card once read, now read as the shared ones. */
 export const COMMON_ALIASES: AliasSpec = {
   keys: [
@@ -52,6 +70,20 @@ export const COMMON_ALIASES: AliasSpec = {
     move('trend_hours', 'hours'),
     move('accent', 'color'),
   ],
+  // the keys whose values are on/off words: a tint, the flow's motion, where the alerts' snoozes are kept, a
+  // thermostat's modes, a schedule target's verb
+  upgrade: (config) => {
+    let next = words(config, ['tint', 'motion', 'snooze']);
+    for (const key of ['modes', 'targets']) {
+      const list = next[key];
+      if (!Array.isArray(list)) continue;
+      const items = list.map((item: unknown) =>
+        typeof item === 'object' && item !== null ? words(item as Bag, ['verb']) : onOff(item),
+      );
+      if (items.some((item, index) => item !== list[index])) next = { ...next, [key]: items };
+    }
+    return next;
+  },
 };
 
 /** The names an item of a list once carried, now read as the shared ones. */
@@ -60,8 +92,6 @@ export const ITEM_ALIASES: readonly Move[] = [
   move('sub', 'secondary'),
   move('meta', 'subtitle'),
 ];
-
-type Bag = Record<string, unknown>;
 
 function applyMoves(bag: Bag, moves: readonly Move[]): Bag {
   let next = bag;
@@ -139,10 +169,13 @@ export type KnownKeys<T> = keyof {
 
 /**
  * A card's own keys: what its config declares beyond the base card's fields (entity, name, icon, the actions,
- * tone, colour) and Home Assistant's envelope. A key that starts with `_` (`_now`, the instant a test freezes)
- * is a hook for the tests, never something an editor shows.
+ * tone, colour, whether its head shows its circle) and Home Assistant's envelope. A key that starts with `_` (`_now`,
+ * the instant a test freezes) is a hook for the tests, never something an editor shows.
  */
-export type OwnKeys<C> = Exclude<KnownKeys<C>, KnownKeys<FluvyCardConfig> | `_${string}`>;
+export type OwnKeys<C> = Exclude<
+  KnownKeys<C>,
+  KnownKeys<FluvyCardConfig & HeadConfig> | `_${string}`
+>;
 
 type Missing<C, K extends readonly unknown[]> = Exclude<OwnKeys<C>, K[number]>;
 

@@ -33,6 +33,8 @@ export default tseslint.config(
       // temporary probe scripts (judges, debugging): never committed
       'tools/render/.*',
       '.local/**',
+      // an agent's worktree under the checkout is its own tree, linted there
+      '.claude/**',
     ],
   },
   js.configs.recommended,

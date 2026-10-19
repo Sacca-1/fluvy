@@ -52,6 +52,7 @@ export type {
   PaletteMode,
   PaletteModeColors,
   PaletteSeed,
+  RoleColors,
 } from './types.js';
 export { derivePalette };
 export {
@@ -72,9 +73,28 @@ export {
   type PaletteFile,
 } from './palettes/file.js';
 export { meshOf, type Mesh } from './build/mesh.js';
+export { deltaE } from './color/delta-e.js';
+export { GATES } from './build/derive/limits.js';
 export { HA_COLOR_NAMES, NAMED_COLORS, resolveAccent, type HaColorName } from './ha/named.js';
-export { accentFamily, type AccentFamily } from './build/accent-family.js';
-export { accentFamilyVars, identityVars, surfaceWash } from './emit/vars.js';
+export { accentFamily, paletteAccent, type AccentFamily } from './build/accent-family.js';
+export {
+  parseStatuses,
+  splitStatuses,
+  STATUS_NAMES,
+  statusesKey,
+  withStatuses,
+  type StatusColours,
+  type StatusName,
+} from './build/statuses.js';
+export {
+  accentFamilyVars,
+  identityVars,
+  LIT_FLOOR,
+  LIT_REST,
+  litSurface,
+  surfaceInset,
+  surfaceWash,
+} from './emit/vars.js';
 
 export function isShapeName(value: unknown): value is ShapeName {
   return typeof value === 'string' && (SHAPE_NAMES as readonly string[]).includes(value);

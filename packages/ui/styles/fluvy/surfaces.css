@@ -24,7 +24,35 @@
 /* a head that answers a still press: no text selection or callout under the finger while it is held */
 .fv-card__head--hold {
   user-select: none;
+  -webkit-user-select: none;
   -webkit-touch-callout: none;
+}
+
+/* the head is the card's button: its title is a button whose overlay (`::after`) is stretched over the whole row —
+   the circle, the name, the line under it, the room up to what trails them; the title's own box does not clip it,
+   as the overlay's box is the head's */
+.fv-card__head--tap {
+  position: relative;
+}
+
+/* the title's own words, as the title sets them (`all: unset` leaves a button nothing but what it inherits) */
+.fv-card__tap {
+  all: unset;
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.fv-card__tap::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--fluvy-radius-control);
 }
 
 .fv-card__titles {
@@ -89,12 +117,20 @@
     var(--tone-fill) var(--fluvy-wash, 100%),
     var(--fluvy-wash-base, var(--fluvy-card))
   );
+  /* a colour as pale as the card (white, on the grey ladder) is an outlined disc: its tone's ring (tones.css) */
+  box-shadow: inset 0 0 0 1px var(--tone-ring, transparent);
   color: var(--tone-ink);
 }
 
 .fv-ico svg {
   width: 20px;
   height: 20px;
+}
+
+/* a resting neutral circle on a washed card (`card_color`, a lit light card) takes the wash's deeper step, never a
+   hole of the page's colour in it (`--fluvy-inset`, 1.9); the page's fill elsewhere */
+.fv-ico--neutral {
+  --tone-fill: var(--fluvy-inset, var(--fluvy-page));
 }
 
 /* unavailable: the dashed ring alone — a palette's wash would otherwise mix the transparent fill into a card disc */
@@ -331,8 +367,71 @@
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
+  column-gap: 12px;
   height: 64px;
   margin-top: 16px;
+}
+
+/* a column too narrow for the readout beside its control (half a section): the readout centred on its own row, the
+   control centred 12 under it — the dial's column without its ring. The readout keeps its 64 block at every size, so
+   l, m, s and xs stack to the same 120 (fitValueRow decides the size and the layout from the width, never the state) */
+.fv-frame .fv-value-row--stack {
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  row-gap: 12px;
+  height: auto;
+}
+
+.fv-value-row--stack > .fv-readout {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 64px;
+  text-align: center;
+}
+
+.fv-value-row--stack > .fv-readout .fv-readout__value {
+  justify-content: center;
+}
+
+/* stacked, a control keeps its own size: its basis was a width, and a column's main axis is its height */
+.fv-value-row--stack > :not(.fv-readout) {
+  flex: none;
+}
+
+/* a readout alone where its control would be (none asked for, or a column too narrow for even its halves): the card's
+   tap, a button laid over the row (`pressCover`) */
+.fv-value-row:has(> .fv-tile__tap) {
+  position: relative;
+}
+
+/* under the stepper's 96 (a half section zoomed in): its two halves at 44, still a finger's */
+.fv-value-row--halves .fv-stepper {
+  width: 88px;
+}
+
+.fv-value-row--halves .fv-stepper__half {
+  width: 44px;
+}
+
+/* a reading and the readout that qualifies it (the forecast, the cost, when it is full) in a column too narrow for
+   the two side by side: the side readout — the row's last — goes under the reading, on the column's start, 12 below
+   (sideStacked) */
+.fv-frame .fv-value-row.is-stacked {
+  flex-direction: column;
+  align-items: flex-start;
+  row-gap: 12px;
+  height: auto;
+}
+
+.fv-value-row.is-stacked > :last-child {
+  padding-bottom: 0;
+  text-align: left;
+}
+
+.fv-value-row.is-stacked > :last-child .fv-readout__value {
+  justify-content: flex-start;
 }
 
 /* three readouts in columns of 96, 16 apart, 16 under what they qualify (min · max · average, today · month · year) */
@@ -341,6 +440,11 @@
   grid-template-columns: 96px 96px 96px;
   gap: 16px;
   margin-top: 16px;
+}
+
+/* fewer columns than readouts (a narrow column, statsRow): the last one, alone on its row, takes the whole row */
+.fv-cols--odd > :last-child {
+  grid-column: 1 / -1;
 }
 
 /* a plate: a picture's surface (a camera's frames, a room's photo, a map), 16 radius, its images stacked and cross-fading */

@@ -3,7 +3,8 @@ import { css } from 'lit';
 /**
  * What the card adds to the approved sheet (`packages/ui/styles/calendar.css`): the fluid geometry
  * (the sheet is drawn at 360), the selection the sheet has no frame for, the tones its five
- * calendars never needed, and the one-liners and skeleton of the states it does not show.
+ * calendars never needed, and the one-liners and skeleton of the states it does not show (loading, and out of reach,
+ * where the rows hold still).
  */
 export const calendarStyles = css`
   /* the sheet fixes 360; a dashboard column decides here */
@@ -41,6 +42,22 @@ export const calendarStyles = css`
     border-radius: var(--fluvy-radius-control);
   }
 
+  /* when, whole, then where: a name */
+  .cd-up__sub {
+    display: flex;
+  }
+
+  .cd-up__sub > :first-child {
+    flex: none;
+    white-space: pre;
+  }
+
+  .cd-up__sub > [data-name] {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   /* ---------- timeline ---------- */
   button.cd-block {
     cursor: pointer;
@@ -76,22 +93,18 @@ export const calendarStyles = css`
     gap: 4px;
   }
 
-  .fv-tile--off {
-    display: flex;
-    height: 76px;
+  /* a tile whose calendars are out of reach is the live one in the off skin: its name keeps its place under the head */
+  .cd-tile.fv-tile--off > .fv-tile__name {
+    margin-top: 12px;
   }
 
-  /* ---------- one quiet line instead of an empty box ---------- */
+  /* ---------- one quiet line instead of an empty box (a sentence: it wraps) ---------- */
   .cd-note {
-    height: 20px;
     margin-top: 16px;
     font-size: 13px;
     font-weight: 500;
     line-height: 20px;
     color: var(--fluvy-text-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   .cd-note--tight {
@@ -126,6 +139,13 @@ export const calendarStyles = css`
     width: 80px;
     height: 12px;
     margin-top: 8px;
+  }
+
+  /* out of reach, the rows hold still, drawn on the page's fill (1.9: a card keeps its size) */
+  .is-off .fv-skeleton,
+  .is-off .cd-sk--bar {
+    animation: none;
+    background: var(--fluvy-border);
   }
 
   /* in a tile each bar sits in its own 20 px line */

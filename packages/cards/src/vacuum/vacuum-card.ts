@@ -3,13 +3,13 @@ import {
   formatTime,
   isUsable,
   numberAttr,
-  stateText,
   strings,
   valueParts,
   type EntityView,
   type FluvyCardConfig,
   type LovelaceConfigForm,
   type LovelaceGridOptions,
+  type HomeAssistant,
 } from '@fluvy/core';
 
 import {
@@ -28,7 +28,7 @@ import {
 import { css, html, nothing, type CSSResultGroup, type TemplateResult } from 'lit';
 
 import { batteryOf } from '../shared/battery.js';
-import { Card } from '../shared/base.js';
+import { Card, HEAD_BASE } from '../shared/base.js';
 
 import { glyphFor } from '../shared/domain.js';
 
@@ -41,6 +41,7 @@ import {
   fieldRow,
   nameIconFields,
   selectField,
+  showIconField,
   textField,
 } from '../shared/form.js';
 import {
@@ -55,7 +56,17 @@ import {
 import { configKeys, type RowStyle } from '../shared/config.js';
 import { chipRow } from '../shared/chips.js';
 import { HeadFit } from '../energy/head.js';
-import { COMPACT } from '../shared/heights.js';
+import {
+  attrOf,
+  chipBlock,
+  chipRows,
+  COMPACT,
+  drawnAs,
+  featuresOf,
+  known,
+  listAttr,
+} from '../shared/heights.js';
+import { statsRow, type StatText } from '../shared/readouts.js';
 import type { EditorDefaults } from '../shared/rows-editor.js';
 
 const vacuumStrings = strings('vacuum');
@@ -111,6 +122,13 @@ const MOWER: Robot = {
   },
 };
 
+/**
+ * What a robot draws where the house is not there to say (`layoutHeight`; one never read): Start, Stop and Dock, its
+ * battery and its suction.
+ */
+const usual = ({ bits }: Robot): number =>
+  bits.start | bits.stop | bits.dock | bits.battery | bits.suction;
+
 const GAUGE: ReadonlyArray<readonly [number, number]> = [
   [0, 0],
   [0.25, 25],
@@ -126,8 +144,35 @@ const GAUGE: ReadonlyArray<readonly [number, number]> = [
  */
 export class FluvyVacuumCard extends Card<VacuumCardConfig> {
   /** The card's height at a 360 column, for the automatic dashboard's columns. */
-  static override layoutHeight(config: VacuumCardConfig): number {
-    return config.variant === 'compact' ? COMPACT : 448;
+  static override layoutHeight(config: VacuumCardConfig, hass?: HomeAssistant): number {
+    if (config.variant === 'compact') return COMPACT;
+    // the head; the readouts' row (16 + 44) where the config names a sensor; the battery (a label, the gauge and its
+    // marks: 112) where the robot has one; the commands (16 + 44) it takes; its suction as a row of chips under a
+    // label. Where the house is not there to say, every part, and two rows of suction chips.
+    const id = config.entity;
+    const robot = typeof id === 'string' && id.startsWith('lawn_mower.') ? MOWER : VACUUM;
+    const features = known(hass, id) ? featuresOf(hass, id) : usual(robot);
+    const has = (key: Command | 'suction' | 'battery'): boolean =>
+      robot.bits[key] !== 0 && (features & robot.bits[key]) !== 0;
+    const readouts =
+      config.area_entity || config.duration_entity || config.remaining_entity ? 60 : 0;
+    const battery =
+      config.show_battery !== false &&
+      (config.battery_entity || attrOf(hass, id, 'battery_level') !== undefined || has('battery'))
+        ? 112
+        : 0;
+    const commands =
+      has('start') || has('pause') || has('stop') || has('dock') || has('locate') ? 60 : 0;
+    const speeds = has('suction') ? listAttr(hass, id, 'fan_speed_list').map(pretty) : [];
+    const suction = has('suction')
+      ? chipBlock(
+          Math.max(
+            hass ? 0 : 2,
+            chipRows(speeds, config.suction_style === 'chips' ? 'chips' : 'full'),
+          ),
+        )
+      : 0;
+    return 64 + readouts + battery + commands + suction + 20;
   }
 
   static override styles: CSSResultGroup = [
@@ -135,9 +180,10 @@ export class FluvyVacuumCard extends Card<VacuumCardConfig> {
     sheetStyles.devices,
     motionStyles,
     css`
-      /* the sheet's 3 × 96 + 2 × 16 at 320, fluid; one or two readouts keep their third of the column */
+      /* the sheet's 3 × 96 + 2 × 16 at 320, fluid: as many columns as hold every label and figure (\`statsRow\`), a
+         shorter last row's one readout across the row */
       .dv-cols {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(var(--dv-cols, 3), minmax(0, 1fr));
       }
     `,
   ];
@@ -145,6 +191,7 @@ export class FluvyVacuumCard extends Card<VacuumCardConfig> {
   private readonly suctionHold = new Hold<string | null>(this);
   private readonly head = new HeadFit(this);
 
+  static override base = HEAD_BASE;
   static override keys = configKeys<VacuumCardConfig>()([
     'subtitle',
     'variant',
@@ -166,6 +213,7 @@ export class FluvyVacuumCard extends Card<VacuumCardConfig> {
       schema: [
         entityField(['vacuum', 'lawn_mower']),
         nameIconFields(),
+        showIconField(),
         fieldRow(textField('subtitle'), selectField('variant', ['full', 'compact'])),
         fieldRow(boolField('show_battery'), entityField(['sensor'], 'battery_entity', false)),
         fieldRow(
@@ -245,22 +293,34 @@ export class FluvyVacuumCard extends Card<VacuumCardConfig> {
     this.call(view.domain, service);
   }
 
-  /** A readout for a configured sensor; nothing when it is not configured or does not exist. */
-  private column(id: string | undefined, text: string): TemplateResult | null {
+  /** A configured sensor's statistic, "—" while it cannot be read; nothing when it is not configured. */
+  private column(id: string | undefined, label: string): StatText | null {
     if (!id) return null;
-    const view = this.entity(id);
-    if (view.status === 'missing') return null;
-    const parts = valueParts(this.hass, view);
-    return readout({ label: text, value: parts.value, unit: parts.unit, size: 's' });
+    const parts = valueParts(this.hass, this.entity(id));
+    return { label, value: parts.value, unit: parts.unit };
+  }
+
+  /**
+   * The readouts (the area, the time, the time left) in as many equal columns as hold every label and figure at the
+   * size the widest fits (`statsRow`, measured): three in a phone's column, two and one in a 211 column, never cut.
+   */
+  private renderColumns(stats: readonly StatText[], w: number): TemplateResult {
+    const row = statsRow(this.head.ruler, w, stats);
+    return html`<div
+      class="dv-cols fv-cols ${row.odd ? 'fv-cols--odd' : ''}"
+      style="--dv-cols:${row.columns}"
+    >
+      ${stats.map((stat) => readout({ label: stat.label, value: stat.value, unit: stat.unit ?? '', size: row.size }))}
+    </div>`;
   }
 
   protected renderCard(): TemplateResult {
-    const view = this.entity();
+    // out of reach (unavailable, missing; never read: its usual parts) it keeps its anatomy and its size, its controls
+    // disabled: only the colours change (1.9)
+    const found = this.entity();
+    const robot = found.domain === 'lawn_mower' ? MOWER : VACUUM;
+    const view = drawnAs(found, usual(robot));
     const name = this.config?.name ?? view.name;
-    if (view.status === 'missing')
-      return this.renderEmpty(`${name} · ${stateText(this.hass, view)}`);
-
-    const robot = view.domain === 'lawn_mower' ? MOWER : VACUUM;
     const unusable = !isUsable(view);
     const compact = this.config?.variant === 'compact';
     const shown = this.stateOf(view);
@@ -280,9 +340,10 @@ export class FluvyVacuumCard extends Card<VacuumCardConfig> {
       this.column(this.config?.area_entity, vacuumStrings(this.hass, 'area')),
       this.column(this.config?.duration_entity, vacuumStrings(this.hass, 'elapsed')),
       this.column(this.config?.remaining_entity, this.t('timer.remaining')),
-    ].filter((column): column is TemplateResult => column !== null);
+    ].filter((column): column is StatText => column !== null);
 
-    // the battery: its own sensor where there is one, the legacy attribute otherwise; an unavailable robot keeps the empty gauge
+    // the battery: its own sensor where there is one, the legacy attribute otherwise; the gauge is there for a robot
+    // that says it has one, at rest while it cannot be read (unknown, out of reach, its sensor gone)
     const batteryId = this.batteryId();
     const sensor = batteryId ? this.entity(batteryId) : undefined;
     const level =
@@ -290,9 +351,7 @@ export class FluvyVacuumCard extends Card<VacuumCardConfig> {
     const hasBattery =
       !compact &&
       this.config?.show_battery !== false &&
-      (level !== null ||
-        (sensor !== undefined && sensor.status !== 'missing') ||
-        (unusable && has('battery')));
+      (level !== null || sensor !== undefined || has('battery'));
     const battery = level === null || unusable ? null : clamp(Math.round(level), 0, 100);
 
     const row: ActionItem[] = [];
@@ -369,10 +428,12 @@ export class FluvyVacuumCard extends Card<VacuumCardConfig> {
       sub: headSub(sub, w),
       badge: { text: shownStateText(this.hass, view, shown), tone },
     });
+    // the commands in equal cells, two rows where one would leave a cell under a finger's 44
+    const cells = actionGap(w, row.length);
 
     return html`<article
       class="fv-card dv-card ${unusable ? 'is-unavailable is-off' : ''}"
-      style="--dv-action-gap:${actionGap(w, row.length)}px"
+      style="--dv-action-gap:${cells.gap}px"
       data-card
     >
       ${head({
@@ -384,11 +445,10 @@ export class FluvyVacuumCard extends Card<VacuumCardConfig> {
         name: true,
         sub: fitted.sub,
         trailing: fitted.badge,
-        onIconTap: () => this.tap(view.id),
-        onHold: () => this.hold(view.id),
-        iconLabel: name,
+        cut: fitted.cut,
+        ...this.headActions(view.id),
       })}
-      ${columns.length && !compact ? html`<div class="dv-cols fv-cols">${columns}</div>` : nothing}
+      ${columns.length && !compact ? this.renderColumns(columns, w) : nothing}
       ${
         hasBattery
           ? html` ${label(batteryText)}
@@ -410,7 +470,7 @@ export class FluvyVacuumCard extends Card<VacuumCardConfig> {
               ${rulerLabels(GAUGE.map(([fraction, value]) => [fraction, formatNumber(this.hass, value, { digits: 0 })] as const))}`
           : nothing
       }
-      ${row.length ? actions(row, (key) => this.command(view, robot, key as Command)) : nothing}
+      ${row.length ? actions(row, (key) => this.command(view, robot, key as Command), cells.columns) : nothing}
       ${
         chipItems.length && !compact
           ? html`${label(this.t('vacuum.suction'))}${chipRow(

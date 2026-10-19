@@ -8,6 +8,7 @@ import {
   type HomeAssistant,
   HOUSE_DEFAULTS,
   LANGUAGES,
+  LIGHT_TINTS,
   localize,
   offeredLanguages,
   parsePalette,
@@ -27,7 +28,7 @@ import {
   type WallSettings,
   wearsLook,
 } from '@fluvy/core';
-import { chips, head, icon, listRow, options } from '@fluvy/ui';
+import { chipColumns, chips, head, icon, listRow, options } from '@fluvy/ui';
 import '@fluvy/ui/select';
 import '@fluvy/ui/time-field';
 import type { TimeFieldDetail } from '@fluvy/ui/time-field';
@@ -51,10 +52,14 @@ import {
   type PaletteFile,
   PILL_NAMES,
   type PillName,
+  parseStatuses,
   SHAPE_NAMES,
   type ShapeName,
+  STATUS_NAMES,
+  type StatusName,
 } from '@fluvy/tokens/runtime';
 import { html, nothing, svg, type TemplateResult } from 'lit';
+import { defaultColumns, fittedColumns } from '../shared/chips.js';
 import {
   optionalViews,
   TEMPLATES,
@@ -64,12 +69,15 @@ import {
 import {
   ACCENTS,
   accentFor,
+  closeStatuses,
   DEFAULT_CUSTOM,
   HIGHLIGHTS,
   isCustom,
   LINES,
   lookTitle,
   paletteTitle,
+  STATUS_STARTS,
+  STATUS_SWATCHES,
   swatchColors,
   type DashboardInfo,
   type PanelContext,
@@ -77,23 +85,35 @@ import {
   TRANSLATING_URL,
 } from './model.js';
 
-/** A short choice (a variant, a language): one full row of chips, the chosen one on the accent fill. */
+/** One rhythm for every choice inside a card: 8 between cells on a phone, 12 on a wide panel. */
+const gap = (ctx: PanelContext): number => (ctx.wide ? 12 : 8);
+
+/**
+ * A short choice (a variant, a language): one full row of chips, the chosen one on the accent fill — laid out by
+ * measure, as a card's chips are: as many a row as the labels suggest (or `columns`) while every word holds its cell,
+ * else fewer (three go two and one), never a word cut (pt-BR's "Quando ligado" in a phone's column).
+ */
 function choice(
+  ctx: PanelContext,
   items: readonly { readonly key: string; readonly label: string; readonly active: boolean }[],
   onSelect: ((key: string) => void) | null,
   columns?: number,
 ): TemplateResult {
+  const most = columns ?? chipColumns(items.map((item) => item.label));
   return chips(
     items,
     onSelect ?? (() => undefined),
     onSelect ? '' : 'pn-chips--static',
     true,
-    columns,
+    ctx.fit
+      ? fittedColumns(
+          items,
+          { ...ctx.fit, gap: gap(ctx) },
+          defaultColumns(items.length).filter((n) => n <= most),
+        )
+      : columns,
   );
 }
-
-/** One rhythm for every choice inside a card: 8 between cells on a phone, 12 on a wide panel. */
-const gap = (ctx: PanelContext): number => (ctx.wide ? 12 : 8);
 
 /* ---------- appearance ---------- */
 
@@ -259,14 +279,18 @@ function inkOn(color: Hex): string {
   return (luminance + 0.05) / 0.05 > 1.05 / (luminance + 0.05) ? '#111111' : '#ffffff';
 }
 
-/** Colour dots, six a row on a phone and twelve on a wide panel (the highlights under the accents, column for column). */
+/**
+ * Colour dots, six a row on a phone and twelve on a wide panel (the highlights under the accents, column for column);
+ * `six`: six a row at every width (a row of its own); `onPick` null: shown to someone who may not change them.
+ */
 function dots(
   colors: readonly (Hex | null)[],
   chosen: Hex | undefined,
   ctx: PanelContext,
-  onPick: (color: Hex | undefined) => void,
+  onPick: ((color: Hex | undefined) => void) | null,
+  six = false,
 ): TemplateResult {
-  return html`<div class="pn-dots">
+  return html`<div class="pn-dots ${six ? 'pn-dots--six' : ''} ${onPick ? '' : 'pn-dots--static'}">
     ${colors.map((color) => {
       const active = (color ?? undefined) === chosen;
       return html`<button
@@ -275,7 +299,8 @@ function dots(
         style=${color ? `--dot:${color};--dot-ink:${inkOn(color)}` : nothing}
         aria-label=${color ?? ctx.t('custom.none')}
         aria-pressed=${active ? 'true' : 'false'}
-        @click=${() => onPick(color ?? undefined)}
+        tabindex=${onPick ? nothing : '-1'}
+        @click=${() => onPick?.(color ?? undefined)}
       >
         ${active ? icon('check') : color ? nothing : icon('ban')}
       </button>`;
@@ -289,8 +314,12 @@ function hexOf(text: string): Hex | undefined {
   return match ? `#${(match[1] ?? '').toLowerCase()}` : undefined;
 }
 
-/** Any colour: typed as a hex in our own field, or picked from the system's well behind its swatch. */
-function hexField(value: Hex, ctx: PanelContext, onColor: (color: Hex) => void): TemplateResult {
+/** Any colour: typed as a hex in our own field, or picked from the system's well behind its swatch (`onColor` null: read only). */
+function hexField(
+  value: Hex,
+  ctx: PanelContext,
+  onColor: ((color: Hex) => void) | null,
+): TemplateResult {
   return html`<div class="fv-field pn-hex">
     <input
       class="fv-field__input pn-hex__input"
@@ -299,11 +328,12 @@ function hexField(value: Hex, ctx: PanelContext, onColor: (color: Hex) => void):
       autocomplete="off"
       maxlength="7"
       aria-label=${ctx.t('custom.hex')}
+      ?readonly=${!onColor}
       .value=${value}
       @change=${(event: Event) => {
         const input = event.target as HTMLInputElement;
         const color = hexOf(input.value);
-        if (color) onColor(color);
+        if (color && onColor) onColor(color);
         else input.value = value;
       }}
     />
@@ -312,9 +342,10 @@ function hexField(value: Hex, ctx: PanelContext, onColor: (color: Hex) => void):
         type="color"
         .value=${value}
         aria-label=${ctx.t('custom.pick')}
+        ?disabled=${!onColor}
         @change=${(event: Event) => {
           const color = hexOf((event.target as HTMLInputElement).value);
-          if (color) onColor(color);
+          if (color) onColor?.(color);
         }}
       />
     </label>
@@ -331,6 +362,7 @@ function customEditor(custom: CustomPalette, ctx: PanelContext): TemplateResult 
     ${head({ icon: 'drop', title: ctx.t('custom.title'), sub: ctx.t('custom.sub') })}
     <p class="fv-label pn-label">${ctx.t('custom.character')}</p>
     ${choice(
+      ctx,
       [
         { key: 'soft', label: ctx.t('custom.soft'), active: !vivid },
         { key: 'vivid', label: ctx.t('custom.vivid'), active: vivid },
@@ -343,6 +375,7 @@ function customEditor(custom: CustomPalette, ctx: PanelContext): TemplateResult 
     )}
     <p class="fv-label pn-label">${ctx.t('custom.base')}</p>
     ${choice(
+      ctx,
       CUSTOM_BASES.map((base) => ({
         key: base,
         label: ctx.t(`custom.${base}` as StringKey),
@@ -354,6 +387,7 @@ function customEditor(custom: CustomPalette, ctx: PanelContext): TemplateResult 
       vivid
         ? html`<p class="fv-label pn-label">${ctx.t('custom.fill')}</p>
             ${choice(
+              ctx,
               [
                 {
                   key: 'tint',
@@ -596,6 +630,93 @@ function cornerCard(ctx: PanelContext): TemplateResult {
   </section>`;
 }
 
+/**
+ * What a card of lights shows where it says nothing of its own (1.9): its light's colour on a light card (never, while
+ * on, always) and a lit light in its bulb's colour on tiles, rows and rooms — the house's, an administrator's to set.
+ */
+function lightsCard(ctx: PanelContext): TemplateResult {
+  const { shown, admin } = ctx;
+  return html`<section class="fv-card pn-card">
+    ${head({ icon: 'bulb', title: ctx.t('lights.title'), sub: ctx.t(admin ? 'lights.sub' : 'scope.admin_only') })}
+    <p class="fv-label pn-label">${ctx.t('lights.tint')}</p>
+    ${choice(
+      ctx,
+      LIGHT_TINTS.map((tint) => ({
+        key: tint,
+        // "Never", not "Off": a light's own off is another thing
+        label: localize(ctx.hass, `option.${tint === 'off' ? 'never' : tint}`),
+        active: shown.lightTint === tint,
+      })),
+      admin ? (key) => ctx.editHouse({ lightTint: key as (typeof LIGHT_TINTS)[number] }) : null,
+    )}
+    <div class="pn-rows">
+      ${listRow({
+        icon: 'palette',
+        title: ctx.t('lights.colors'),
+        sub: ctx.t('lights.colors_sub'),
+        trailing: 'switch',
+        on: shown.lightColors,
+        readonly: !admin,
+        onToggle: (on) => ctx.editHouse({ lightColors: on }),
+      })}
+    </div>
+  </section>`;
+}
+
+/**
+ * The statuses in colours of the house's own (1.9): each the palette's (Auto) or a colour picked — six round the wheel
+ * or any — that the engine fits to read on every card, a line under it where it still sits close to another status.
+ * The house's, an administrator's to set; shown on the panel and the page at once, saved from the bar.
+ */
+function statusesCard(ctx: PanelContext): TemplateResult {
+  const { shown, admin } = ctx;
+  const close = closeStatuses(ctx.draft.palette, shown.statuses);
+  // in the statuses' order, whatever was touched first: an edit back to the saved picks is no edit
+  const set = (name: StatusName, pick: Hex | undefined): void =>
+    ctx.editHouse({ statuses: parseStatuses({ ...shown.statuses, [name]: pick }) });
+  return html`<section class="fv-card pn-card">
+    ${head({ icon: 'warn', title: ctx.t('statuses.title'), sub: ctx.t(admin ? 'statuses.sub' : 'scope.admin_only') })}
+    ${STATUS_NAMES.map((name) => {
+      const own = shown.statuses[name];
+      const near = close[name];
+      return html`<p class="fv-label pn-label">${ctx.t(`statuses.${name}`)}</p>
+        ${choice(
+          ctx,
+          [
+            { key: 'auto', label: ctx.t('statuses.auto'), active: !own },
+            { key: 'own', label: ctx.t('statuses.own'), active: !!own },
+          ],
+          admin
+            ? (key) => {
+                // Custom starts on the status's own swatch, and keeps a colour already picked
+                if (key === 'auto') set(name, undefined);
+                else if (!own) set(name, STATUS_STARTS[name]);
+              }
+            : null,
+        )}
+        ${
+          own
+            ? html`${dots(
+                STATUS_SWATCHES,
+                own,
+                ctx,
+                admin ? (pick) => pick && set(name, pick) : null,
+                true,
+              )}
+              ${hexField(own, ctx, admin ? (pick) => set(name, pick) : null)}`
+            : nothing
+        }
+        ${
+          near
+            ? html`<p class="pn-hint pn-hint--after">
+                ${ctx.t('statuses.close', { status: ctx.t(`statuses.${near}`) })}
+              </p>`
+            : nothing
+        }`;
+    })}
+  </section>`;
+}
+
 /** The look on the real cards, and the switch that tries it on the whole app. */
 export function appearancePreview(ctx: PanelContext, preview: TemplateResult): TemplateResult {
   return html`<section class="fv-card pn-card pn-card--preview">
@@ -754,7 +875,7 @@ export function appearance(ctx: PanelContext, share: ShareActions): TemplateResu
         gap(ctx),
       )}
     </section>
-    ${tabsCard(ctx)} ${cornerCard(ctx)}
+    ${tabsCard(ctx)} ${cornerCard(ctx)} ${lightsCard(ctx)} ${statusesCard(ctx)}
     ${
       settings.personalLook
         ? html`<section class="fv-card pn-card pn-rows">
@@ -959,6 +1080,7 @@ function optionChoice(
   const [fallback] = option.values;
   const chosen = option.values.some((known) => known.value === current) ? current : fallback?.value;
   return choice(
+    ctx,
     option.values.map((known) => ({
       key: String(known.value),
       label: ctx.t(
@@ -983,6 +1105,7 @@ function areasChoice(ctx: PanelContext, urlPath: string, current: unknown): Temp
   const rooms = Object.values(ctx.hass.areas ?? {}).sort((a, b) => a.name.localeCompare(b.name));
   const chosen = Array.isArray(current) ? new Set(current as readonly string[]) : null;
   return choice(
+    ctx,
     rooms.map((area) => ({
       key: area.area_id,
       label: area.name,
@@ -1258,6 +1381,7 @@ export function wall(ctx: PanelContext): TemplateResult {
       ${head({ icon: 'clock', title: ctx.t('wall.screen'), ...(admin ? {} : { sub: ctx.t('scope.admin_only') }) })}
       <p class="fv-label pn-label">${ctx.t('wall.after')}</p>
       ${choice(
+        ctx,
         WALL_AFTER.map((minutes) =>
           chip(
             minutes === 0 ? ctx.t('wall.never') : ctx.t('wall.minutes', { count: minutes }),
@@ -1320,6 +1444,7 @@ export function wall(ctx: PanelContext): TemplateResult {
       <p class="fv-label pn-label">${ctx.t('wall.exit')}</p>
       <p class="pn-hint">${ctx.t('wall.exit_sub')}</p>
       ${choice(
+        ctx,
         [
           chip(ctx.t('wall.exit_button'), 'button', settings.exit === 'button'),
           chip(ctx.t('wall.exit_hold'), 'hold', settings.exit === 'hold'),
@@ -1329,6 +1454,7 @@ export function wall(ctx: PanelContext): TemplateResult {
       <p class="fv-label pn-label">${ctx.t('wall.subview')}</p>
       <p class="pn-hint">${ctx.t('wall.subview_sub')}</p>
       ${choice(
+        ctx,
         [
           chip(ctx.t('wall.subview_button'), 'button', settings.subview === 'button'),
           chip(ctx.t('wall.subview_header'), 'header', settings.subview === 'header'),
@@ -1380,6 +1506,7 @@ export function wall(ctx: PanelContext): TemplateResult {
       }
       <p class="fv-label pn-label">${ctx.t('wall.night_dim')}</p>
       ${choice(
+        ctx,
         WALL_NIGHT_DIM.map((share) =>
           chip(
             share === 0 ? ctx.t('wall.off') : ctx.t('wall.percent', { count: share }),
@@ -1393,6 +1520,7 @@ export function wall(ctx: PanelContext): TemplateResult {
     <section class="fv-card pn-card">
       ${head({ icon: 'palette', title: ctx.t('wall.background'), sub: ctx.t(admin ? 'wall.background_sub' : 'scope.admin_only') })}
       ${choice(
+        ctx,
         [
           chip(ctx.t('wall.plain'), 'plain', settings.background === 'plain'),
           chip(ctx.t('wall.mesh'), 'wall', settings.background === 'wall'),
@@ -1421,6 +1549,7 @@ function deviceSize(ctx: PanelContext): TemplateResult {
   const zoom = ctx.deviceEdit.zoom ?? ctx.device.zoom;
   return html`<p class="fv-label pn-label">${ctx.t('pref.size')}</p>
     ${choice(
+      ctx,
       DEVICE_ZOOMS.map((size) => ({
         key: String(size),
         label: ctx.t('wall.percent', { count: size }),

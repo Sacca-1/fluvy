@@ -5,7 +5,7 @@
  * in the settings panel, a scrub across the History charts. Each clip becomes a GIF (what GitHub and HACS show) and
  * an mp4 beside it, in `docs/media/`.
  *
- *   node tools/render/clip.mjs                                 every clip (expects the playground on :5183)
+ *   node tools/render/clip.mjs                                 every clip (the playground at $PLAYGROUND, else :5183)
  *   node tools/render/clip.mjs --clip dimmer,palette --out docs/media
  *   --url http://127.0.0.1:5183/  --fps 30  --gif-fps 20  --max-gif-kb 4096  --keep-frames 1
  *
@@ -18,7 +18,7 @@ import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
-import { parseArgs, launchOptions } from './lib.mjs';
+import { parseArgs, launchOptions, PLAYGROUND } from './lib.mjs';
 import { encode, ffmpegVersion, record } from './lib/capture.mjs';
 import {
   driftDrag,
@@ -32,7 +32,7 @@ import { touchPointer } from './lib/pointer.mjs';
 
 const args = parseArgs(process.argv.slice(2), {
   clip: '',
-  url: 'http://127.0.0.1:5183/',
+  url: PLAYGROUND,
   out: 'docs/media',
   fps: '30',
   'gif-fps': '20',

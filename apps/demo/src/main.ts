@@ -1,3 +1,5 @@
+// every part of English first: the playground's sheets define the families' cards themselves
+import '@fluvy/playground/english';
 import '@fluvy/cards';
 import { type EffectiveSettings, ensureLanguage, type Look, lookKey, paletteOf } from '@fluvy/core';
 import { PALETTE_NAMES } from '@fluvy/tokens/runtime';

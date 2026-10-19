@@ -8,15 +8,17 @@ import {
   type LovelaceConfigForm,
   type LovelaceGridOptions,
 } from '@fluvy/core';
-import { glyph, head, icon, round, sheetStyles, type IconRef } from '@fluvy/ui';
+import { glyph, head, icon, sheetStyles, type IconRef } from '@fluvy/ui';
 import { css, html, nothing, type CSSResultGroup, type TemplateResult } from 'lit';
 import { keyed } from 'lit/directives/keyed.js';
 import { relativeAgo } from '../helpers/datetime.js';
+import { HeadFit } from '../energy/head.js';
 import { Card, type BaseKey } from '../shared/base.js';
 import { glyphFor } from '../shared/domain.js';
 import {
   actionFields,
   colourFields,
+  emptyFields,
   entitiesField,
   entityField,
   fieldRow,
@@ -24,13 +26,15 @@ import {
   iconField,
   nameIconFields,
   numberField,
+  showIconField,
   textField,
   titleFields,
 } from '../shared/form.js';
 import type { RowsListSpec } from '../shared/rows-editor.js';
 import { configKeys, ITEM_ALIASES, type AliasSpec } from '../shared/config.js';
 import { toneOf } from '../shared/colour.js';
-import { listLength, rowsOf } from '../shared/heights.js';
+import { EMPTY, entryCount, HEAD, rowsOf } from '../shared/heights.js';
+import { EMPTY_KEYS, emptyPanel, itemsOf, listOf, type EmptyList } from '../shared/lists.js';
 import { isTemplate, TemplateTexts } from '../shared/templates.js';
 
 const s = strings('actions');
@@ -43,7 +47,7 @@ export interface ActionRowConfig {
   secondary?: string;
 }
 
-export interface ActionsCardConfig extends FluvyCardConfig {
+export interface ActionsCardConfig extends FluvyCardConfig, EmptyList {
   title?: string;
   subtitle?: string;
   /** The same actions as `entities`, with a name, an icon or a context line each (YAML). */
@@ -76,6 +80,19 @@ const MIN_CELL = 148;
 /** A run this recent is told by its time of day ("ran 23:10"); an older one by how long ago. */
 const RECENT_MS = 24 * 3600_000;
 
+/* a cell beside its words: the 44 glyph column and a 12 gap before them, a 12 gap and the play's 56 after them (its
+   44 box, 16 inside it, 4 back out); without the play, the 12 the glyph column has; without either, 16 and 12 */
+const BESIDE_BOTH = 44 + 12 + 12 + 56;
+const BESIDE_GLYPH = 44 + 12 + 12;
+const BARE = 16 + 12;
+
+/** What the cells keep beside their words, and the room left for them. */
+interface Layout {
+  readonly glyph: boolean;
+  readonly play: boolean;
+  readonly room: number;
+}
+
 const sentence = (text: string): string => text.charAt(0).toLocaleUpperCase() + text.slice(1);
 
 /**
@@ -86,8 +103,10 @@ const sentence = (text: string): string => text.charAt(0).toLocaleUpperCase() + 
 export class FluvyActionsCard extends Card<ActionsCardConfig> {
   /** The card's height at a 360 column, for the automatic dashboard's columns. */
   static override layoutHeight(config: ActionsCardConfig): number {
+    const n = entryCount(config, ['rows', 'entities']);
+    if (!n) return HEAD + EMPTY;
     const columns = Math.min(3, Math.max(1, Math.round(Number(config.columns ?? 1)) || 1));
-    return 92 + 68 * rowsOf(listLength(config, ['rows', 'entities']), columns);
+    return 92 + 68 * rowsOf(n, columns);
   }
 
   static override styles: CSSResultGroup = [
@@ -112,18 +131,27 @@ export class FluvyActionsCard extends Card<ActionsCardConfig> {
         align-self: center;
       }
 
-      .in-action .fv-row__title,
-      .in-action .fv-row__sub {
+      /* a name wraps at its words, never inside one, and ends in its ellipsis on its second line */
+      .in-action .fv-row__title {
         display: -webkit-box;
         -webkit-box-orient: vertical;
         -webkit-line-clamp: 2;
         white-space: normal;
-        overflow-wrap: anywhere;
       }
 
-      /* side by side there is no room for the play affordance: the text keeps the 12 the glyph column has */
-      .in-actions--grid .in-action {
+      /* when it ran is the line's fact: whole, at its words where it must */
+      .in-action__when {
+        white-space: normal;
+      }
+
+      /* where the play cannot stand (side by side, a narrow column) the text keeps the 12 the glyph column has */
+      .in-actions--still .in-action {
         padding-right: 12px;
+      }
+
+      /* a row that gave its glyph to its name starts its words 16 in */
+      .in-actions--bare .in-action {
+        padding-left: 16px;
       }
 
       .in-action__ink {
@@ -140,6 +168,7 @@ export class FluvyActionsCard extends Card<ActionsCardConfig> {
   private readonly timers = new Map<string, number>();
   /** A row's context when it is a template: rendered by Home Assistant, live. */
   private readonly texts = new TemplateTexts(this);
+  private readonly head = new HeadFit(this);
 
   constructor() {
     super();
@@ -155,8 +184,15 @@ export class FluvyActionsCard extends Card<ActionsCardConfig> {
     'card_color',
     'tap_action',
     'hold_action',
+    'show_icon',
   ];
-  static override keys = configKeys<ActionsCardConfig>()(['title', 'subtitle', 'rows', 'columns']);
+  static override keys = configKeys<ActionsCardConfig>()([
+    'title',
+    'subtitle',
+    'rows',
+    'columns',
+    ...EMPTY_KEYS,
+  ]);
   static override lists: readonly RowsListSpec[] = [
     {
       key: 'rows',
@@ -173,8 +209,10 @@ export class FluvyActionsCard extends Card<ActionsCardConfig> {
       schema: [
         titleFields(),
         fieldRow(iconField(), numberField('columns', 1, 3)),
+        showIconField(),
         ...colourFields(),
         entitiesField('entities', ACTION_DOMAINS, true),
+        emptyFields(),
         actionFields(),
       ],
       ...formLabels({}),
@@ -190,14 +228,12 @@ export class FluvyActionsCard extends Card<ActionsCardConfig> {
   }
 
   protected override prepare(config: ActionsCardConfig): ActionsCardConfig {
-    if (!config.rows?.length && !config.entities?.length)
-      throw new Error('fluvy-actions-card: add at least one entity');
+    listOf(config, 'rows', ['entities']);
     return config;
   }
 
   private rows(): ActionRowConfig[] {
-    const source = this.config?.rows ?? this.config?.entities ?? [];
-    return source.map((row) => (typeof row === 'string' ? { entity: row } : row));
+    return itemsOf(this.config?.rows ?? this.config?.entities);
   }
 
   protected override watched(): readonly string[] {
@@ -242,9 +278,10 @@ export class FluvyActionsCard extends Card<ActionsCardConfig> {
     return Number.isNaN(date.getTime()) ? null : date;
   }
 
-  private sub(view: EntityView, row: ActionRowConfig): string {
+  /** What a row's line says: what the action does ("Lights & blinds", by default its area) and when it last ran. */
+  private parts(view: EntityView, row: ActionRowConfig): { context: string; when: string } {
     if (view.status === 'unavailable' || view.status === 'missing')
-      return stateText(this.hass, view);
+      return { context: '', when: stateText(this.hass, view) };
     const run = this.lastRun(view);
     const when =
       view.domain === 'script' && view.state === 'on'
@@ -261,7 +298,20 @@ export class FluvyActionsCard extends Card<ActionsCardConfig> {
         : isTemplate(row.secondary)
           ? this.texts.text(row.secondary, row.entity)
           : row.secondary;
-    return context ? `${context} · ${when}` : sentence(when);
+    return { context, when: context ? when : sentence(when) };
+  }
+
+  /**
+   * The line in the row's room for words: one line while it holds; else what the action does over when it ran — the
+   * first a name (the owner's words, an area's) that may end in its ellipsis, the second the line's fact, whole.
+   */
+  private line(view: EntityView, row: ActionRowConfig, room: number): TemplateResult {
+    const { context, when } = this.parts(view, row);
+    const full = context ? `${context} · ${when}` : when;
+    return !context || this.head.ruler.width('fv-row__sub', full) <= room
+      ? html`<span class="fv-row__sub in-action__when fv-swap">${full}</span>`
+      : html`<span class="fv-row__sub fv-swap" data-name title=${context}>${context}</span
+          ><span class="fv-row__sub in-action__when fv-swap">${when}</span>`;
   }
 
   private run(view: EntityView): void {
@@ -285,7 +335,7 @@ export class FluvyActionsCard extends Card<ActionsCardConfig> {
 
   /* ---------- render ---------- */
 
-  private action(row: ActionRowConfig, grid: boolean): TemplateResult {
+  private action(row: ActionRowConfig, layout: Layout): TemplateResult {
     const view = this.entity(row.entity);
     const name = row.name ?? view.name;
     const runnable =
@@ -300,39 +350,76 @@ export class FluvyActionsCard extends Card<ActionsCardConfig> {
       aria-label=${s(this.hass, 'run', { name })}
       @click=${() => this.run(view)}
     >
-      <span class="in-action__glyph"
-        >${keyed(done, html`<span class="in-action__ink fv-swap">${done ? glyph('check') : icon(ref)}</span>`)}</span
-      >
+      ${
+        layout.glyph
+          ? html`<span class="in-action__glyph"
+              >${keyed(done, html`<span class="in-action__ink fv-swap">${done ? glyph('check') : icon(ref)}</span>`)}</span
+            >`
+          : nothing
+      }
       <span class="fv-row__text"
-        ><span class="fv-row__title">${name}</span
-        >${keyed(done, html`<span class="fv-row__sub fv-swap">${done ? s(this.hass, 'done') : this.sub(view, row)}</span>`)}</span
+        ><span class="fv-row__title" data-name>${name}</span>${keyed(
+          done,
+          done
+            ? html`<span class="fv-row__sub fv-swap">${s(this.hass, 'done')}</span>`
+            : this.line(view, row, layout.room),
+        )}</span
       >
-      ${grid ? nothing : html`<span class="in-action__go">${glyph('play')}</span>`}
+      ${layout.play ? html`<span class="in-action__go">${glyph('play')}</span>` : nothing}
     </button>`;
   }
 
+  /**
+   * What a cell keeps beside its words, decided from the column, the names and the language's words, never from a
+   * state: the glyph and the play while every name keeps its room beside them (96, or the name itself: the rows' rule)
+   * and when an action runs is said on one line ("ausgeführt 07:00"); else the play goes, as it does side by side;
+   * else the glyph too.
+   */
+  private cells(columns: number, gap: number): Layout {
+    const cell = (this.contentWidth - gap * (columns - 1)) / columns;
+    const names = this.rows().map((row) => row.name ?? this.entity(row.entity).name);
+    const facts = [
+      s(this.hass, 'ran', { time: formatTime(this.hass, new Date(2000, 0, 1, 23, 59)) }),
+      sentence(s(this.hass, 'never')),
+      sentence(s(this.hass, 'running')),
+    ];
+    const holds = (room: number): boolean =>
+      names.every((name) => room >= this.head.rowNameRoom(name)) &&
+      facts.every((fact) => this.head.ruler.width('fv-row__sub', fact) <= room);
+    const play = columns === 1 && holds(cell - BESIDE_BOTH);
+    const glyph = play || holds(cell - BESIDE_GLYPH);
+    return { glyph, play, room: cell - (play ? BESIDE_BOTH : glyph ? BESIDE_GLYPH : BARE) };
+  }
+
   protected renderCard(): TemplateResult {
-    const columns = this.columns;
-    const action = this.config?.tap_action;
+    const rows = this.rows();
+    const panel = emptyPanel(this, !rows.length, 'bolt', 'common.no_actions');
+    // the panel takes the whole column the actions would share
+    const columns = panel ? 1 : this.columns;
+    const gap = cellGap(this.contentWidth, columns);
+    const layout = this.cells(columns, gap);
+    const title = this.config?.title ?? s(this.hass, 'title');
+    const fitted = this.head.fit({
+      width: this.contentWidth,
+      title,
+      sub: this.config?.subtitle ?? s(this.hass, 'subtitle'),
+    });
 
     return html`<article class="fv-card" data-card>
       ${head({
-        icon: this.config?.icon ?? 'bolt',
+        icon: fitted.icon ? (this.config?.icon ?? 'bolt') : null,
         tone: toneOf(this.config, 'accent'),
-        title: this.config?.title ?? s(this.hass, 'title'),
-        sub: this.config?.subtitle ?? s(this.hass, 'subtitle'),
-        // "…" appears when it has somewhere to go: a card of many entities has no more-info of its own
-        trailing:
-          action && action.action !== 'none'
-            ? round('dots', 'quiet', this.t('common.more'), () => this.tap(undefined, action))
-            : nothing,
-        onHold: () => this.hold(),
+        title,
+        sub: fitted.sub,
+        cut: fitted.cut,
+        // the head is the card's button where its tap has somewhere to go: a card of many has no details of its own
+        ...this.headActions(),
       })}
       <div
-        class="in-actions ${columns > 1 ? 'in-actions--grid' : ''}"
-        style="--in-columns:${columns};--in-gap:${cellGap(this.contentWidth, columns)}px"
+        class="in-actions ${layout.play ? '' : 'in-actions--still'} ${layout.glyph ? '' : 'in-actions--bare'}"
+        style="--in-columns:${columns};--in-gap:${gap}px"
       >
-        ${this.rows().map((row) => this.action(row, columns > 1))}
+        ${panel ?? rows.map((row) => this.action(row, layout))}
       </div>
     </article>`;
   }

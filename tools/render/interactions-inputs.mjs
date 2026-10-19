@@ -94,7 +94,8 @@ const keysSeen = (page) => page.evaluate(() => window.__keys.splice(0));
 
   await field.click();
   await field.fill('Bon dia');
-  await card.locator('.fv-card__title').first().click(); // leaving the field
+  // leaving the field for the page (the head is the card's button: a tap there would go to the helpers' page)
+  await page.mouse.click(4, 4);
   await page.waitForTimeout(80);
   c = await calls(page);
   check(

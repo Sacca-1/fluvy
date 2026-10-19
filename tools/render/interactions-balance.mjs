@@ -10,7 +10,7 @@
  * taps open more-info; the signed gauge lights zero to the value in the grid's colour and says the direction; an
  * unreadable or missing sensor is "—" and nothing that depends on it is guessed; nothing configured says so.
  */
-import { frame, moreInfo, reset, settle, startSuite } from './lib/suite.mjs';
+import { frame, moreInfo, reset, settle, startSuite, tapHead } from './lib/suite.mjs';
 
 const suite = await startSuite();
 const { check } = suite;
@@ -129,14 +129,15 @@ const phases = (card) =>
 
   const down = balance(page, 'Balance · the grid unreadable');
   const d = await blocks(down);
+  // 1.9 (the owner's rule): a grid that cannot be read at all is listed once, among what comes in
   check(
     'balance: a phase unreadable — the grid, both totals and the house are “—”, the bars draw no proportions',
     d[0]?.total === '—' &&
       d[1]?.total === '—' &&
       d[0]?.items.join(' | ') === 'Solar1.8kW | Grid—' &&
-      d[1]?.items.join(' | ') === 'House— | Grid—' &&
+      d[1]?.items.join(' | ') === 'House—' &&
       d.every((x) => x.bars.join() === 'en-bar12__track') &&
-      (await text(down.locator('.fv-card__sub'))).startsWith('Grid unavailable since') &&
+      (await text(down.locator('.fv-card__sub'))).startsWith('Grid · unavailable · since') &&
       (await phases(down))[1]?.value === '—',
     JSON.stringify(d),
   );
@@ -224,7 +225,7 @@ const phases = (card) =>
   );
   await reset(page);
   await card.locator('.fv-row').click();
-  await card.locator('.fv-card__head .fv-ico').click();
+  await tapHead(card, 'icon');
   await settle(page, 200);
   check(
     'grid: the price row and the head’s icon open their sensors’ more-info',
@@ -263,7 +264,7 @@ const phases = (card) =>
     (await text(down.locator('.ef-top .fv-readout'))) === 'Net —' &&
       (await bare(down.locator('.en-inout'))) === 'In—Out—' &&
       (await phases(down))[1]?.value === '—' &&
-      (await text(down.locator('.fv-card__sub'))).startsWith('Grid unavailable since') &&
+      (await text(down.locator('.fv-card__sub'))).startsWith('Grid · unavailable · since') &&
       (await text(down.locator('.fv-row__value'))) === '—',
   );
   await page.close();
@@ -316,7 +317,7 @@ const phases = (card) =>
       (await text(card.locator('.fv-badge'))) === 'Importing',
   );
   await reset(page);
-  await card.locator('.fv-card__head .fv-ico').click();
+  await tapHead(card, 'icon');
   await settle(page, 200);
   check(
     'gauge: the head’s icon opens the meter’s more-info',

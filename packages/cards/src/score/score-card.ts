@@ -38,11 +38,13 @@ import {
   fieldRow,
   iconField,
   selectField,
+  showIconField,
   titleFields,
 } from '../shared/form.js';
 import type { EditorDefaults } from '../shared/rows-editor.js';
 import {
   arcDash,
+  hasCo2Signal,
   netWay,
   RING,
   RING_COLUMN,
@@ -141,6 +143,7 @@ export class FluvyEnergyScoreCard extends Card<EnergyScoreCardConfig> {
     'card_color',
     'tap_action',
     'hold_action',
+    'show_icon',
   ];
   static override keys = configKeys<EnergyScoreCardConfig>()([
     'title',
@@ -155,6 +158,7 @@ export class FluvyEnergyScoreCard extends Card<EnergyScoreCardConfig> {
       schema: [
         titleFields(),
         fieldRow(iconField(), selectField('period', PERIODS)),
+        showIconField(),
         fieldRow(boolField('show_period'), entityField(['sensor'], 'co2', false)),
         ...colourFields(),
         actionFields(),
@@ -275,10 +279,11 @@ export class FluvyEnergyScoreCard extends Card<EnergyScoreCardConfig> {
     else this.fossil = undefined;
   }
 
-  /** Low-carbon needs the grid's import metered and a CO₂ signal that exists. */
+  /** Low-carbon needs the grid's import metered and a CO₂ signal, even one out of reach (`hasCo2Signal`). */
   private lowCarbonShown(): boolean {
-    const co2 = this.co2();
-    return Boolean(co2 && this.hass?.states[co2]) && this.meters('grid', 'energyIn').length > 0;
+    return (
+      hasCo2Signal(this.co2(), this.hass?.entities) && this.meters('grid', 'energyIn').length > 0
+    );
   }
 
   /* ---------- the figures ---------- */
@@ -321,11 +326,21 @@ export class FluvyEnergyScoreCard extends Card<EnergyScoreCardConfig> {
 
   protected renderCard(): TemplateResult {
     const w = this.contentWidth;
-    const title = this.config?.title ?? s(this.hass, 'title');
     const period = this.period();
     const configured = this.prefs === undefined || this.sources().length > 0;
-    const sub = this.config?.subtitle ?? this.outage() ?? flow(this.hass, `period_${period}`);
-    const fitted = this.head.fit({ width: w, title, sub, badge: null });
+    const own = this.config?.subtitle ?? this.outage();
+    const sub = own ?? flow(this.hass, `period_${period}`);
+    // "Since midnight" is "Today" where a column cannot hold it (es "Desde medianoche" in half a column)
+    const shorter = own === undefined && period === 'day' ? [this.t('common.today')] : [];
+    const fit = (title: string) => this.head.fit({ width: w, title, sub, badge: null, shorter });
+    let title = this.config?.title ?? s(this.hass, 'title');
+    let fitted = fit(title);
+    // the card's own title where it holds whole, else its short one (it's "Punteggio energetico" at 211); a typed
+    // title is the person's
+    if (this.config?.title === undefined && fitted.cut) {
+      title = s(this.hass, 'title_short');
+      fitted = fit(title);
+    }
     return html`<article class="fv-card en-card" data-card>
       ${head({
         icon: fitted.icon ? (this.config?.icon ?? 'leaf') : null,
@@ -333,8 +348,8 @@ export class FluvyEnergyScoreCard extends Card<EnergyScoreCardConfig> {
         title,
         sub: fitted.sub,
         name: Boolean(this.config?.title),
-        onIconTap: () => this.tap(),
-        onHold: () => this.hold(),
+        cut: fitted.cut,
+        ...this.headActions(),
       })}
       ${
         configured && this.config?.show_period !== false

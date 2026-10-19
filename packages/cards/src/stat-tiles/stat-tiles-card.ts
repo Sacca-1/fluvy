@@ -8,6 +8,8 @@ import {
   type FluvyCardConfig,
   type LovelaceConfigForm,
   type LovelaceGridOptions,
+  type HomeAssistant,
+  entriesOf,
 } from '@fluvy/core';
 
 import {
@@ -27,7 +29,7 @@ import { HeadFit } from '../energy/head.js';
 
 import { baseOf, figure, figureText, scaleFor, type Scale } from '../gauge/units.js';
 
-import { Card } from '../shared/base.js';
+import { Card, HEAD_BASE } from '../shared/base.js';
 
 import { glyphFor, stateWord } from '../shared/domain.js';
 
@@ -38,6 +40,7 @@ import {
   boolField,
   colourFields,
   editorLabels,
+  emptyFields,
   entitiesField,
   entityField,
   fieldRow,
@@ -45,6 +48,7 @@ import {
   idsOnly,
   nameIconFields,
   selectField,
+  showIconField,
   textField,
   titleFields,
   toneField,
@@ -53,7 +57,17 @@ import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 import { configKeys, ITEM_ALIASES, type AliasSpec } from '../shared/config.js';
 import { toneOf } from '../shared/colour.js';
 import { optionColumnsFor } from '../shared/options.js';
-import { HEAD, listLength, rowsOf, ROW, ROW_COMPACT } from '../shared/heights.js';
+import {
+  attrOf,
+  EMPTY,
+  entryCount,
+  HEAD,
+  rowsOf,
+  ROW,
+  ROW_COMPACT,
+  textWidth,
+} from '../shared/heights.js';
+import { EMPTY_KEYS, emptyPanel, itemsOf, listOf, type EmptyList } from '../shared/lists.js';
 import { TemplateTexts } from '../shared/templates.js';
 
 const strings = words('stat-tiles');
@@ -91,7 +105,7 @@ export interface StatRowConfig {
   tap_action?: ActionConfig;
 }
 
-export interface StatTilesCardConfig extends FluvyCardConfig {
+export interface StatTilesCardConfig extends FluvyCardConfig, EmptyList {
   title?: string;
   subtitle?: string;
   /** Head badge: the entity's value, with `badge_label` in front of it ("Health 92 %"). */
@@ -112,6 +126,8 @@ const TILE_HEIGHT = 84;
 const TILE_COMPACT = 64;
 /** A tile's two sides (12 px of padding each), which its words sit between. */
 const TILE_SIDES = 24;
+/** The room a tile's figure takes when none can be read: "88.8 kWh" in its 16/600 type, about 76 px. */
+const STAND_IN = 76;
 /** The big readout above the tiles (`.fv-value-row`: 64 tall, 16 above it). */
 const LEAD = 80;
 
@@ -126,6 +142,32 @@ function tileGap(width: number, count: number): number {
 }
 
 /**
+ * Tiles a row: as asked, or measured — as many as the count suggests (three, four as two by two) while the widest
+ * label and the widest value fit a cell's content; else two — and fewer than that, down to one a row, where the
+ * cells would not hold the widest value: a figure never wraps. A figure that cannot be read (`null`) is laid out as
+ * the widest the others show, or as `standIn` where none can be read, so the tiles keep their rows while a sensor is
+ * away (the owner's rule, 1.9). The widths are the words' as the tile's own classes draw them.
+ */
+export function statTileColumns(
+  asked: StatColumns,
+  width: number,
+  labels: readonly number[],
+  values: ReadonlyArray<number | null>,
+  standIn: number,
+): number {
+  // the widest figure: a figure that cannot be read is as wide as the widest read, or the stand-in where none is
+  const figure = Math.max(0, ...values.map((value) => value ?? 0)) || standIn;
+  const gap = (columns: number): number => tileGap(width, columns);
+  let columns =
+    asked === 'auto'
+      ? optionColumnsFor(labels.map(String), width, gap, () => Math.max(figure, ...labels))
+      : asked;
+  while (columns > 1 && figure > (width - gap(columns) * (columns - 1)) / columns - TILE_SIDES)
+    columns = columns > 2 ? 2 : 1;
+  return columns;
+}
+
+/**
  * A set of figures as read-only tiles: the option-tile anatomy (glyph top-left, label, value) without
  * the interaction, two per row, one of them optionally filled with its tone — or, compact, 64 px tiles
  * of label over value, three a row when they fit. An optional big readout sits above them, optional
@@ -133,20 +175,44 @@ function tileGap(width: number, count: number): number {
  */
 export class FluvyStatTilesCard extends Card<StatTilesCardConfig> {
   /** The card's height at a 360 column, for the automatic dashboard's columns. */
-  static override layoutHeight(config: StatTilesCardConfig): number {
+  static override layoutHeight(config: StatTilesCardConfig, hass?: HomeAssistant): number {
     const compact = config.variant === 'compact';
-    const count = Math.min(MAX_TILES, listLength(config, ['tiles']));
-    // `auto` is measured when drawn; at a 360 column the count decides (three a row, four as two by two)
+    // auto-entities hands its figures over as `entities` (read as `tiles` once the card has them)
+    const items = entriesOf<{ readonly entity: string; readonly name?: string }>(
+      config.tiles ?? config.entities,
+    )
+      .slice(0, MAX_TILES)
+      .map((item) => (typeof item === 'string' ? { entity: item } : item));
+    const count = items.length;
+    const rows = entryCount(config, ['rows']);
+    const lead = config.entity ? LEAD : 0;
+    if (!count && !rows) return HEAD + lead + EMPTY;
+    // `auto` is laid out by the words (`statTileColumns`): three a row while the widest label holds a cell, four
+    // as two by two, else two — the names the config's or the house's, the figures the stand-in's width; the
+    // count alone where the house is not there to say
     const asked = statColumns(config.columns, compact ? 'auto' : 2);
-    const perRow = Math.max(1, Math.min(count, asked === 'auto' ? optionColumns(count) : asked));
+    const labels = items.map((item) => {
+      const name = item.name ?? attrOf(hass, item.entity, 'friendly_name');
+      return textWidth(typeof name === 'string' ? name : '', 'option');
+    });
+    const perRow = Math.max(
+      1,
+      Math.min(
+        count,
+        asked === 'auto' && hass
+          ? statTileColumns(asked, 320, labels, [], STAND_IN)
+          : asked === 'auto'
+            ? optionColumns(count)
+            : asked,
+      ),
+    );
     const gap = tileGap(320, perRow);
-    const tiles = rowsOf(count, perRow) * ((compact ? TILE_COMPACT : TILE_HEIGHT) + gap) - gap;
-    const rows = listLength(config, ['rows']);
+    const tiles = count
+      ? rowsOf(count, perRow) * ((compact ? TILE_COMPACT : TILE_HEIGHT) + gap) - gap
+      : 0;
+    // the rows sit 16 under the tiles, or where the tiles would be
     return (
-      HEAD +
-      (config.entity ? LEAD : 0) +
-      tiles +
-      (rows ? 16 + (compact ? ROW_COMPACT : ROW) * rows : 0)
+      HEAD + lead + tiles + (rows ? (count ? 16 : 0) + (compact ? ROW_COMPACT : ROW) * rows : 0)
     );
   }
 
@@ -159,6 +225,7 @@ export class FluvyStatTilesCard extends Card<StatTilesCardConfig> {
   /** A row's second line when it is a template: rendered by Home Assistant, live. */
   private readonly texts = new TemplateTexts(this);
 
+  static override base = HEAD_BASE;
   static override keys = configKeys<StatTilesCardConfig>()([
     'title',
     'subtitle',
@@ -168,6 +235,7 @@ export class FluvyStatTilesCard extends Card<StatTilesCardConfig> {
     'badge_label',
     'tiles',
     'rows',
+    ...EMPTY_KEYS,
   ]);
   static override lists: readonly RowsListSpec[] = [
     {
@@ -189,7 +257,10 @@ export class FluvyStatTilesCard extends Card<StatTilesCardConfig> {
       ],
     },
   ];
-  static override aliases: AliasSpec = { items: { rows: ITEM_ALIASES, tiles: ITEM_ALIASES } };
+  static override aliases: AliasSpec = {
+    keys: [{ from: 'entities', to: 'tiles' }],
+    items: { rows: ITEM_ALIASES, tiles: ITEM_ALIASES },
+  };
   /** Two a row in full; compact tiles take three when they fit. */
   static override defaults: EditorDefaults = (config) => ({
     variant: 'full',
@@ -199,13 +270,14 @@ export class FluvyStatTilesCard extends Card<StatTilesCardConfig> {
     return {
       schema: [
         titleFields(),
-        iconField(),
+        fieldRow(iconField(), showIconField()),
         ...colourFields(),
         fieldRow(selectField('variant', VARIANTS), selectField('columns', COLUMNS)),
         entitiesField('tiles', undefined, true),
         fieldRow(entityField(undefined, 'entity', false), textField('name')),
         fieldRow({ name: 'badge_entity', selector: { entity: {} } }, textField('badge_label')),
         entitiesField('rows'),
+        emptyFields(),
         actionFields(),
       ],
       ...idsOnly('tiles', 'rows'),
@@ -226,15 +298,11 @@ export class FluvyStatTilesCard extends Card<StatTilesCardConfig> {
   }
 
   private tiles(): StatTileConfig[] {
-    return (this.config?.tiles ?? [])
-      .slice(0, MAX_TILES)
-      .map((tile) => (typeof tile === 'string' ? { entity: tile } : tile));
+    return itemsOf<StatTileConfig>(this.config?.tiles).slice(0, MAX_TILES);
   }
 
   private rows(): StatRowConfig[] {
-    return (this.config?.rows ?? []).map((row) =>
-      typeof row === 'string' ? { entity: row } : row,
-    );
+    return itemsOf(this.config?.rows);
   }
 
   private compact(): boolean {
@@ -242,8 +310,8 @@ export class FluvyStatTilesCard extends Card<StatTilesCardConfig> {
   }
 
   protected override prepare(config: StatTilesCardConfig): StatTilesCardConfig {
-    if (!config.tiles?.length)
-      throw new Error('fluvy-stat-tiles-card: add at least one entity to "tiles"');
+    listOf(config, 'tiles');
+    listOf(config, 'rows');
     return config;
   }
 
@@ -293,7 +361,9 @@ export class FluvyStatTilesCard extends Card<StatTilesCardConfig> {
     const lead = this.config?.entity ? this.entity(this.config.entity) : null;
     const tone: Tone = toneOf(this.config, 'accent');
     const gone = (view: EntityView): boolean => !isUsable(view);
-    const unusable = views.every(gone) && (!lead || gone(lead));
+    // every figure gone: the card is; a card with no figure at all is only empty
+    const figures = lead ? [...views, lead] : views;
+    const unusable = figures.length > 0 && figures.every(gone);
     const headTone: Tone = unusable ? 'off' : tone;
 
     const badgeView = this.config?.badge_entity ? this.entity(this.config.badge_entity) : null;
@@ -327,7 +397,7 @@ export class FluvyStatTilesCard extends Card<StatTilesCardConfig> {
 
     const width = this.contentWidth;
     const compact = this.compact();
-    const columns = this.columns(items, width);
+    const columns = this.columns(items, views, width);
     const gap = tileGap(width, Math.min(columns, items.length));
     // every row's value first: whether the rows keep their circles is decided over all of them; a compact row has
     // no second line to say why there is no figure, so the state's word is its value where it leaves the name its room
@@ -342,6 +412,7 @@ export class FluvyStatTilesCard extends Card<StatTilesCardConfig> {
       return { row, view, title, value };
     });
     const keepIcon = this.head.rowsKeepIcon(width, rows, compact);
+    const panel = emptyPanel(this, !items.length && !rows.length, 'grid', 'common.no_readings');
     const title = this.config?.title ?? lead?.name ?? strings(this.hass, 'stats');
     const fitted = this.head.fit({
       width,
@@ -360,19 +431,19 @@ export class FluvyStatTilesCard extends Card<StatTilesCardConfig> {
         title,
         sub: fitted.sub,
         trailing: fitted.badge,
-        ...(lead
-          ? {
-              onIconTap: (): void => this.tap(lead.id),
-              onHold: (): void => this.hold(lead.id),
-              iconLabel: lead.name,
-            }
-          : {}),
+        ...this.headActions(lead?.id),
         name: Boolean(this.config?.title),
+        cut: fitted.cut,
       })}
       ${lead && leadParts ? html`<div class="so-top fv-value-row">${readout({ label: this.config?.name ?? lead.name, value: leadParts.value, unit: leadParts.unit, size: 'l' })}</div>` : nothing}
-      <div class="so-tiles">
-        ${options(items, null, gap, compact ? TILE_COMPACT : TILE_HEIGHT, columns, compact)}
-      </div>
+      ${
+        // the rows alone sit where the tiles would; nothing at all, the panel does
+        panel || items.length
+          ? html`<div class="so-tiles">
+              ${panel ?? options(items, null, gap, compact ? TILE_COMPACT : TILE_HEIGHT, columns, compact)}
+            </div>`
+          : nothing
+      }
       ${
         rows.length
           ? html`<div class="so-rows">
@@ -408,24 +479,21 @@ export class FluvyStatTilesCard extends Card<StatTilesCardConfig> {
     </article>`;
   }
 
-  /**
-   * Tiles a row: as asked, or measured — as many as the count suggests (three, four as two by two) while the
-   * widest label and the widest value, laid out in the tile's own classes, fit a cell's content; else two; and
-   * one a row where not even two cells hold the widest value (half a column): a value never wraps.
-   */
-  private columns(items: readonly OptionItem[], width: number): number {
-    const asked = statColumns(this.config?.columns, this.compact() ? 'auto' : 2);
-    if (asked !== 'auto') return asked;
-    const labels = items.map((item) => this.head.ruler.width('fv-option__label', item.label));
-    const values = items.map((item) => this.head.ruler.width('fv-option__value', item.value ?? ''));
-    const gap = (columns: number): number => tileGap(width, columns);
-    const columns = optionColumnsFor(
-      items.map((_, index) => String(index)),
+  /** Tiles a row (`statTileColumns`), from the tiles' words measured in their own classes. */
+  private columns(
+    items: readonly OptionItem[],
+    views: readonly EntityView[],
+    width: number,
+  ): number {
+    const r = this.head.ruler;
+    return statTileColumns(
+      statColumns(this.config?.columns, this.compact() ? 'auto' : 2),
       width,
-      gap,
-      (index) => Math.max(labels[Number(index)] ?? 0, values[Number(index)] ?? 0),
+      items.map((item) => r.width('fv-option__label', item.label)),
+      items.map((item, index) =>
+        views[index]?.status === 'ok' ? r.width('fv-option__value', item.value ?? '') : null,
+      ),
+      STAND_IN,
     );
-    const cell = (width - gap(2)) / 2 - TILE_SIDES;
-    return columns === 2 && Math.max(0, ...values) > cell ? 1 : columns;
   }
 }

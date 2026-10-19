@@ -1,5 +1,6 @@
 import { formatNumber, type HomeAssistant } from '@fluvy/core';
 import { houseMidnight } from '../energy-model/period.js';
+import { stepGain } from '../history-bars/gain.js';
 
 /**
  * A water or gas meter's day, from Home Assistant's long-term statistics: what it has used since the house's
@@ -49,9 +50,10 @@ const finite = (raw: unknown): number | null =>
 
 /**
  * Today's use: every finished hour since midnight (the statistics' change), plus what the meter has gained since the
- * last of them was compiled (its reading now, against the reading that hour ended on). A meter that reads less than
- * that has been reset and counts from zero. `null` when it cannot be known: no statistics, or no reading now — the
- * hour in progress would be missing, and a day without it is not today.
+ * last of them was compiled (its reading now, against the reading that hour ended on), by Home Assistant's own rule
+ * (`stepGain`): a meter that reads below 90 % of that has been reset and counts from zero; a smaller dip is a dip.
+ * `null` when it cannot be known: no statistics, or no reading now — the hour in progress would be missing, and a day
+ * without it is not today.
  */
 export function todayOf(
   rows: readonly StatRow[],
@@ -66,8 +68,7 @@ export function todayOf(
     baseline = finite(row.state) ?? baseline;
   }
   if (baseline === null) return null;
-  const gain = live - baseline;
-  return finished + (gain >= 0 ? gain : Math.max(0, live));
+  return finished + stepGain(baseline, live);
 }
 
 /** A typical day: the mean of the full days the statistics know (of the last seven). `null` with none. */

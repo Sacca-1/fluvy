@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import type { HaFormSchemaItem } from '@fluvy/core';
 import { describe, expect, it } from 'vitest';
 import {
   FluvyRowsEditor,
@@ -12,6 +13,7 @@ import {
   withoutUntouchedDefaults,
   itemHelpers,
   listsEditor,
+  withChoices,
   type RowsListSpec,
 } from './rows-editor.js';
 import { inverted } from './config.js';
@@ -244,6 +246,54 @@ describe('an editor with aliases', () => {
     ) as FluvyRowsEditor;
     editor.setConfig({ type: 'custom:x', sub: 'Upstairs', hide_done: true });
     expect(editor.config).toEqual({ type: 'custom:x', subtitle: 'Upstairs', show_done: false });
+  });
+});
+
+describe('a select’s options as the house has them', () => {
+  const modes = {
+    name: 'modes',
+    selector: {
+      select: { multiple: true, reorder: true, options: [{ value: 'off', label: 'Off' }] },
+    },
+  };
+  const style = {
+    name: 'style',
+    selector: { select: { options: [{ value: 'tiles', label: 'Tiles' }] } },
+  };
+  const schema: HaFormSchemaItem[] = [
+    { name: '', type: 'grid', schema: [modes, style] },
+    { name: 'title', selector: { text: {} } },
+  ];
+  const heat = [
+    { value: 'off', label: 'Aus' },
+    { value: 'heat', label: 'Heizen' },
+  ];
+
+  it('swaps in the options of the field it names, through grids, and leaves the rest as they were', () => {
+    const chosen = withChoices(schema, { modes: heat });
+    expect(chosen[0]?.schema?.[0]?.selector).toEqual({
+      select: { multiple: true, reorder: true, options: heat },
+    });
+    expect(chosen[0]?.schema?.[1]).toBe(style);
+    expect(chosen[1]).toBe(schema[1]);
+    // a name that is no select keeps its field
+    expect(withChoices(schema, { title: heat })[1]).toBe(schema[1]);
+  });
+
+  it('draws the form with them, the same schema while they say the same', () => {
+    let house = 'heat';
+    const editor = listsEditor({ schema }, [], undefined, undefined, () =>
+      house === 'heat' ? { modes: heat } : {},
+    ) as FluvyRowsEditor;
+    editor.setConfig({ type: 'custom:x' });
+    const formOf = (): unknown =>
+      (editor as unknown as { schema(spec: unknown): unknown }).schema(editor.spec);
+    const first = formOf();
+    expect(formOf()).toBe(first);
+    expect(first).not.toBe(editor.spec?.schema);
+    // a house that says nothing of them leaves the form as the card wrote it
+    house = 'none';
+    expect(formOf()).toBe(editor.spec?.schema);
   });
 });
 

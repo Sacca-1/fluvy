@@ -110,6 +110,47 @@ describe('resolveEntity', () => {
     expect(resolveEntity(h, 'cover.a').supports(128)).toBe(false);
     expect(resolveEntity(h, 'cover.b').supports(1)).toBe(false);
   });
+
+  it('keeps what an entity gone missing could do as the page last read it, never what it was (1.9)', () => {
+    const climate = {
+      state: 'heat',
+      attributes: {
+        friendly_name: 'Hall',
+        supported_features: 401,
+        hvac_modes: ['off', 'heat'],
+        min_temp: 7,
+        target_temp_step: 0.5,
+        unit_of_measurement: '°C',
+        device_class: 'temperature',
+        temperature: 21,
+        current_temperature: 20.5,
+        hvac_action: 'heating',
+      },
+    };
+    resolveEntity(hass({ 'climate.hall': climate }), 'climate.hall');
+    const gone = resolveEntity(hass({}), 'climate.hall');
+    expect(gone.status).toBe('missing');
+    expect(gone.stateObj).toBeUndefined();
+    expect(gone.state).toBe('missing');
+    // its description and capabilities, as Home Assistant writes them whatever the state
+    expect(gone.name).toBe('Hall');
+    expect(gone.unit).toBe('°C');
+    expect(gone.deviceClass).toBe('temperature');
+    expect(gone.supports(16)).toBe(true);
+    expect(gone.attr('hvac_modes')).toEqual(['off', 'heat']);
+    expect(gone.attr('min_temp')).toBe(7);
+    expect(gone.attr('target_temp_step')).toBe(0.5);
+    // its state's own: gone with it
+    expect(gone.attr('temperature')).toBeUndefined();
+    expect(gone.attr('current_temperature')).toBeUndefined();
+    expect(gone.attr('hvac_action')).toBeUndefined();
+    expect(gone.number).toBeNull();
+    // an entity the page never read has nothing to keep
+    const never = resolveEntity(hass({}), 'climate.never_read');
+    expect(never.name).toBe('Never read');
+    expect(never.attr('hvac_modes')).toBeUndefined();
+    expect(never.supports(1)).toBe(false);
+  });
 });
 
 describe('isActive', () => {

@@ -3,16 +3,17 @@ import { safeStorage } from '../storage.js';
 import { english, type KeyOf, type MessageKey, type Namespace, type Values } from './catalogue.js';
 import { LANGUAGE_CODES, resolveLanguage, type LanguageCode } from './languages.js';
 
-export type { Catalogue, KeyOf, MessageKey, Namespace, Values, WordCategory } from './catalogue.js';
-export { NAMESPACES, english } from './catalogue.js';
+export type { Catalogue, KeyOf, MessageKey, Namespace, Values } from './catalogue.js';
+export { english } from './catalogue.js';
 export * from './languages.js';
 
 /**
- * Fluvy's own words. English ships inline and is the fallback of every lookup; every other language is a catalogue
- * fetched the first time it is needed (a chunk of its own), so a dashboard pays for the language it speaks and no
- * other. The language is one decision, `languageOf(hass)`: the person's choice in Fluvy's settings, else Home
- * Assistant's, resolved to a language Fluvy has. Entity states and attribute values come translated from Home
- * Assistant itself.
+ * Fluvy's own words. English is the fallback of every lookup: its core part ships inline, and a lazy family's part
+ * arrives with the family's chunk (`addEnglish`), so a page that never opens the panel never carries the panel's
+ * words. Every other language is a catalogue fetched the first time it is needed (a chunk of its own), so a dashboard
+ * pays for the language it speaks and no other. The language is one decision, `languageOf(hass)`: the person's choice
+ * in Fluvy's settings, else Home Assistant's, resolved to a language Fluvy has. Entity states and attribute values
+ * come translated from Home Assistant itself.
  */
 
 type Table = Readonly<Record<string, unknown>>;
@@ -21,7 +22,9 @@ type Loaded = Readonly<Record<string, Table>>;
 /** The language chosen in Fluvy's settings, remembered here so the next page load fetches it before `hass` arrives. */
 const HINT_KEY = 'fluvy:language';
 
-const catalogues: Partial<Record<LanguageCode, Loaded>> = { en: english };
+/** English as far as it has arrived: the core part, and each family's part its chunk registered. */
+const englishTables: Record<string, Table> = { ...english };
+const catalogues: Partial<Record<LanguageCode, Loaded>> = { en: englishTables };
 const loading = new Map<LanguageCode, Promise<void>>();
 const listeners = new Set<() => void>();
 
@@ -35,6 +38,17 @@ const LOADERS: Record<Exclude<LanguageCode, 'en'>, () => Promise<{ default: Load
   'pt-BR': () => import('./locales/pt-BR.json'),
   tr: () => import('./locales/tr.json'),
 };
+
+/**
+ * A lazy family's English (`locales/en/<family>.json`): registered by the module that owns the words, as its first
+ * import, so they are here before anything in the family's chunk says them. Every other language's catalogue carries
+ * every namespace already.
+ */
+export function addEnglish(
+  tables: Readonly<Record<string, Readonly<Record<string, string>>>>,
+): void {
+  Object.assign(englishTables, tables);
+}
 
 let override: LanguageCode | undefined;
 let hinted: LanguageCode | undefined;
@@ -112,7 +126,7 @@ function word(code: LanguageCode, namespaces: readonly string[], key: string): s
     if (typeof own === 'string') return own;
   }
   for (const namespace of namespaces) {
-    const fallback = (english as Loaded)[namespace]?.[key];
+    const fallback = englishTables[namespace]?.[key];
     if (typeof fallback === 'string') return fallback;
   }
   return key;
@@ -170,7 +184,7 @@ export function plural(
   } catch {
     // an engine without the rules for this language: the plain form
   }
-  const table = catalogues[code]?.[namespace] ?? (english as Loaded)[namespace];
+  const table = catalogues[code]?.[namespace] ?? englishTables[namespace];
   const chosen = table?.[`${name}_${category}`] !== undefined ? `${name}_${category}` : name;
   return fill(word(code, [namespace], chosen), { n, ...values });
 }

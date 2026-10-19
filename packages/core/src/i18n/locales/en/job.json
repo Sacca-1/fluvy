@@ -1,0 +1,16 @@
+{
+  "job": {
+    "progress": "Progress",
+    "left": "Left",
+    "left_text": "{time} left",
+    "elapsed": "Elapsed",
+    "elapsed_text": "{time} so far",
+    "total_text": "{time} in all",
+    "ready_at": "Ready at {time}",
+    "ready_on": "Ready {day} at {time}",
+    "starts_at": "Starts at {time}",
+    "starts_on": "Starts {day} at {time}",
+    "done_at": "Finished at {time}",
+    "done_ago": "Finished {when}"
+  }
+}

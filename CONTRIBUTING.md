@@ -8,8 +8,8 @@ rules below keep every change at the same level.
 - For anything larger than a fix, open an issue first and say what you want to change and why. Design questions
   are settled against `design/language.md`, the specification every card is built and reviewed against.
 - Everything is in English: code, comments, commit messages, documentation. Every string the UI shows lives in the
-  catalogues (`packages/core/src/i18n/locales/`, one per language, English first): a new key goes into every
-  language, and `pnpm i18n` checks them (see `docs/translating.md`).
+  catalogues (`packages/core/src/i18n/locales/`, one per language; English in parts, `en/core.json` and one per
+  lazy family): a new key goes into every language, and `pnpm i18n` checks them (see `docs/translating.md`).
 - Never commit anything from your own Home Assistant: entity ids, names, areas, tokens, screenshots of your home.
   The demo home (`packages/demo-home`) is the house every example, test and screenshot lives in.
 
@@ -37,8 +37,9 @@ pnpm --filter @fluvy/playground dev
 opens the cards on a simulated `hass` at http://127.0.0.1:5183/ (`?sheet=home&mode=dark&width=360&lang=es`;
 also `palette=`, `shape=`, `compare=linen,blaze`, `panel=appearance`, `activity=1`, `history=1`). The card
 contract — base class, styles, markup, states, numbers, strings, actions, editor, layout, registration — is in
-`packages/cards/README.md`. Every card must hold from 300 to 520 px wide, in light and dark, in every language Fluvy speaks,
-with `unavailable`, `unknown` and missing entities drawn on purpose.
+`packages/cards/README.md`. Every card must hold from the floor of a narrow column — 152 px for a card that takes half
+a section, 211 px for a full one — up to a wall's 520 px, in light and dark, in every language Fluvy speaks, with
+`unavailable`, `unknown` and missing entities drawn on purpose, at the size and in the anatomy the card has live.
 
 Two tools decide whether a change is done:
 

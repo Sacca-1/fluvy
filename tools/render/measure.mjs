@@ -20,17 +20,43 @@
  *   `data-fill-row`    a row whose equal cells share its width: their widths are the row's (not the 4 grid's), and
  *                      the row is checked instead — equal cells on whole pixels, one gap between them, spanning its
  *                      content box but for a tail under a pixel per cell (what a whole-pixel division leaves over).
+ * A card in a column off the grid (the 211 floor, a third of a section) is held to the grid and the whole pixel at the
+ * widths where its column is on them: what its width decides falls off by the width's own remainder.
  * A box is placed by its parent (a flex or grid's justify, text-align for an inline-level box), never by its own
  * text-align; text centred in its own box, or in a fitted pill, has no left edge of its own.
  *
- * An ellipsis is a name's answer to a narrow column, nothing else's: text cut with one inside a button, a chip, a
- * badge, a heading, a title, a date or a state (`ellipsis`) is a defect, unless it is a name (a class that says
- * `name`, or `data-name`). A time rail's knob hides what it would cover, whole: a tick, bar or label still painted
- * within its halo (`rail-bite`) is a defect.
+ * An ellipsis is a name's answer to a narrow column, nothing else's. A name says so (`data-name`, a class that says
+ * `name`, or a `title` that holds its words — which excuses a name's words only, never a figure, and never a state or a
+ * status line's: a class that says `sub`, `line`, `state` or `status`), or is one the house gives (an entity's, a
+ * device's, an area's, a person's, what a player plays) or a card's config (its `name`, its `title`): a card writes it
+ * as it is. Text cut with an ellipsis — or a line clamp's — is read
+ * where the cut falls: a figure, a unit or a percentage cut anywhere (`cut-figure`: "Schauer · 6…"), a word inside a
+ * button, a chip, a badge, a heading, a title, a date or a state (`ellipsis`), and any other word that is no name — a
+ * sub, a caption, a label (`cut-word`: "2 événe…"). Prose clamped at three lines ends a sentence, not a word. A time
+ * rail's knob hides what it would cover, whole: a tick, bar or label still painted within its halo (`rail-bite`) is a
+ * defect.
+ *
+ * Text is read where it is laid: a run's line boxes (a range's rect is the font's content area, which overhangs a
+ * tight line height). Seven rules read it so:
+ *   `overlap`      a run drawn over a `[data-control]` it is not inside (a figure under its stepper), or over another
+ *                  run inside value rows, readouts and tile feet (a label over its value); pieces placed out of the
+ *                  flow (absolute, fixed) are exempt, as they are from containment;
+ *   `collision`    two runs drawn over each other anywhere else, where no control is involved (a week strip's weekdays
+ *                  read as one word: "LUNMARMER");
+ *   `midword`      a line that ends inside a word (`overflow-wrap`, `word-break`: "Resta/rt HA"), or between a figure
+ *                  and its unit across a no-break space; the language's own hyphenation (`hyphens: auto`, a soft
+ *                  hyphen) is not a break;
+ *   `pill-cut`     a content-sized pill (`[data-fit]`) that does not hold its content: a pill must, so a name inside
+ *                  one has no ellipsis to fall back on;
+ *   `clipped`      a run that runs past the box clipping it (an ancestor's `overflow`), with no ellipsis to say so;
+ *   `raw-key`      a catalogue key on screen (`wall.back`): a word that never arrived — a catalogue namespace, or an
+ *                  underscore, before its dotted rest (an entity id the house has is a name; "p.m." is a word);
+ *   `head-target`  a card head's button (`.fv-card__tap`, its overlay stretched over the head) that keeps no free
+ *                  44 × 44 beside the controls raised over it.
  */
-import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 import { parseArgs, launchOptions } from './lib.mjs';
 
@@ -43,6 +69,8 @@ const args = parseArgs(process.argv.slice(2), {
   dpr: '1,2,3',
   out: '',
   md: '',
+  // `pass`: a page with no frame to measure (a card probe over a sheet without such frames) is an empty report
+  empty: 'fail',
 });
 
 const CONTROL_HEIGHTS = [28, 36, 44, 48, 56];
@@ -51,6 +79,22 @@ const TOUCH_MIN = 44;
 const TOL = 0.02;
 const BASELINE_TOL = 0.5;
 const TEXT_COLUMN_TOL = 0.5; // left edges closer than this are the same column
+const OVERLAP_TOL = 0.5; // two boxes that share less than this, either way, only touch
+// a catalogue key: `wall.back`, `energy-flow.title`, `panel.palette.custom_sub`; no segment is empty ("p.m." is none)
+const RAW_KEY = '^[a-z][a-z0-9_-]*(?:\\.[a-z0-9_-]+)+$';
+/** The catalogue's namespaces (`wall`, `energy-flow`): a dotted word that starts with one, or has an underscore, is a key */
+const NAMESPACES = await (async () => {
+  const dir = join(
+    dirname(fileURLToPath(import.meta.url)),
+    '../../packages/core/src/i18n/locales/en',
+  );
+  const files = await readdir(dir).catch(() => []);
+  const names = new Set();
+  for (const file of files.filter((name) => name.endsWith('.json')))
+    for (const key of Object.keys(JSON.parse(await readFile(join(dir, file), 'utf8'))))
+      names.add(key);
+  return [...names];
+})();
 const MAX_LISTED = 60;
 
 /**
@@ -58,7 +102,20 @@ const MAX_LISTED = 60;
  * function as source, so it closes over nothing from the module above.
  */
 function audit(opts) {
-  const { frameSel, grid, dprs, tol, baselineTol, columnTol, controls, icons, touchMin } = opts;
+  const {
+    frameSel,
+    grid,
+    dprs,
+    tol,
+    baselineTol,
+    columnTol,
+    overlapTol,
+    controls,
+    icons,
+    touchMin,
+    rawKey,
+    namespaces,
+  } = opts;
 
   /* Shadow DOM aware walking: the production cards render into shadow roots, the design sheets do not. */
   const up = (node) => node.parentElement || (node.getRootNode && node.getRootNode().host) || null;
@@ -97,6 +154,22 @@ function audit(opts) {
     return cls ? '.' + cls.split(/\s+/)[0] : '';
   };
 
+  /**
+   * The card a node belongs to: the outermost of Fluvy's elements holding it below the frame (a ruler's card, not the
+   * ruler), else the outermost element of any kind (a page's own), else the frame's own (the settings panel).
+   */
+  const hostOf = (el, frame) => {
+    let fluvy = '';
+    let any = '';
+    for (let node = el; node && node !== frame; node = up(node)) {
+      const tag = node.tagName.toLowerCase();
+      if (!tag.includes('-')) continue;
+      any = tag;
+      if (tag.startsWith('fluvy-')) fluvy = tag;
+    }
+    return fluvy || any || frame.tagName.toLowerCase();
+  };
+
   /** Last four levels below the frame — enough to find the node, short enough to read. */
   const shortPath = (el, frame) => {
     const parts = [];
@@ -104,6 +177,22 @@ function audit(opts) {
       parts.unshift(node.tagName.toLowerCase() + firstClass(node));
     }
     return parts.join(' > ');
+  };
+
+  /**
+   * Whether an element sits in a column off the grid: the frame's child that holds it (a card in its grid cell) is not a
+   * whole multiple of the grid — the 211 floor, a 266 card, a third of a section. Every box its width decides (a bar's
+   * remainder, a block inset from one side, a picture's height) then falls off the grid by that remainder, so the grid
+   * and the whole pixel are judged where the card's width is on the grid, and nothing else is spared.
+   */
+  const offGridColumns = new Map();
+  const inOffGridColumn = (el, frame) => {
+    let column = el;
+    while (column && up(column) && up(column) !== frame) column = up(column);
+    if (!column || up(column) !== frame) return false;
+    if (!offGridColumns.has(column))
+      offGridColumns.set(column, offGrid(column.getBoundingClientRect().width));
+    return offGridColumns.get(column);
   };
 
   /** The card an element sits on; a floating surface (a menu fixed over the page) is the card of what it holds. */
@@ -262,21 +351,461 @@ function audit(opts) {
     );
   };
 
+  /** Painted at all: shown, and not faded out to nothing (a cross-fade's outgoing words). */
+  const seen = (el) =>
+    el.checkVisibility
+      ? el.checkVisibility({ opacityProperty: true, visibilityProperty: true })
+      : true;
+
+  /**
+   * Where a text node is laid: one box per line. A range's rect is the font's content area (ascent to descent), which
+   * overhangs a line height tighter than the font's own — a 48 px figure on a 48 px line reaches 5 px past it either
+   * way, onto nothing it touches. The line box is what the design places, so the overhang is taken off.
+   */
+  const lineBoxes = (node, el) => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const line = parseFloat(globalThis.getComputedStyle(el).lineHeight); // NaN for `normal`: no overhang to take off
+    return Array.from(range.getClientRects())
+      .filter((r) => r.width > 0 && r.height > 0)
+      .map((r) => {
+        const over = Number.isFinite(line) && r.height > line ? (r.height - line) / 2 : 0;
+        return { left: r.left, right: r.right, top: r.top + over, bottom: r.bottom - over };
+      });
+  };
+
+  /** Two boxes share more than the tolerance both ways. */
+  const overlaps = (a, b) =>
+    Math.min(a.right, b.right) - Math.max(a.left, b.left) > overlapTol &&
+    Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > overlapTol;
+
+  /** Whether `ancestor` holds `node`, across shadow roots (a control's own words live in its shadow). */
+  const holds = (ancestor, node) => {
+    for (let n = node; n; n = up(n)) if (n === ancestor) return true;
+    return false;
+  };
+
+  /**
+   * A piece placed out of the flow — absolute or fixed itself, or inside such a piece before the padded box that would
+   * hold it (a knob, a bubble, a label laid over a track, a menu): containment's own exemption, shared by `overlap`.
+   */
+  const placedOut = (el, frame) => {
+    for (let node = el; node && node !== frame; node = up(node)) {
+      const ncs = globalThis.getComputedStyle(node);
+      if (ncs.position === 'absolute' || ncs.position === 'fixed') return true;
+      if (
+        node !== el &&
+        (parseFloat(ncs.paddingLeft) > 0 ||
+          parseFloat(ncs.paddingRight) > 0 ||
+          parseFloat(ncs.paddingBottom) > 0)
+      )
+        return false;
+    }
+    return false;
+  };
+
+  /**
+   * The surface a box is drawn on: the nearest one laid over the page (fixed, or in the top layer: an open popover or
+   * dialog — a menu, a sheet), or the page itself (null). Words and controls on different surfaces do not overlap: the
+   * upper one covers the lower by design.
+   */
+  const surfaceOf = (el, frame) => {
+    for (let node = el; node && node !== frame; node = up(node)) {
+      if (globalThis.getComputedStyle(node).position === 'fixed') return node;
+      if (node.matches?.(':popover-open, dialog[open]')) return node;
+    }
+    return null;
+  };
+
+  /** SVG's drawing elements: what a drawn control paints, piece by piece. */
+  const SHAPES = new Set([
+    'line',
+    'path',
+    'rect',
+    'circle',
+    'ellipse',
+    'polygon',
+    'polyline',
+    'text',
+  ]);
+
+  /**
+   * What a control paints, where a word could hide under it: its own box when it paints (a stepper's pill, a switch's
+   * track), else the bounds of its painted parts — a ruler's 44 box keeps air over its ticks and knob, and a word in
+   * that air is not under anything.
+   */
+  const drawnBox = (el) => {
+    if (el.tagName.toLowerCase() !== 'svg' && paints(el, globalThis.getComputedStyle(el)))
+      return el.getBoundingClientRect();
+    const parts = [];
+    const walk = (node) => {
+      for (const child of node.shadowRoot ? node.shadowRoot.children : node.children) {
+        const tag = child.tagName.toLowerCase();
+        if (tag === 'style') continue;
+        const ccs = globalThis.getComputedStyle(child);
+        // a part faded out (a value bubble at rest) paints nothing
+        if (ccs.display === 'none' || !seen(child)) continue;
+        if (SHAPES.has(tag)) parts.push(child.getBoundingClientRect());
+        else if (tag !== 'svg' && tag !== 'defs' && paints(child, ccs))
+          parts.push(child.getBoundingClientRect());
+        else walk(child);
+      }
+    };
+    walk(el);
+    if (!parts.length) return null;
+    return {
+      left: Math.min(...parts.map((b) => b.left)),
+      right: Math.max(...parts.map((b) => b.right)),
+      top: Math.min(...parts.map((b) => b.top)),
+      bottom: Math.max(...parts.map((b) => b.bottom)),
+    };
+  };
+
+  /** A box's padding box: where its `overflow` clips. */
+  const paddingBox = (el) => {
+    const b = el.getBoundingClientRect();
+    const ecs = globalThis.getComputedStyle(el);
+    return {
+      left: b.left + parseFloat(ecs.borderLeftWidth),
+      right: b.right - parseFloat(ecs.borderRightWidth),
+      top: b.top + parseFloat(ecs.borderTopWidth),
+      bottom: b.bottom - parseFloat(ecs.borderBottomWidth),
+    };
+  };
+
+  /** A box's content width: what its content has between its padding. */
+  const contentWidth = (el) => {
+    const ecs = globalThis.getComputedStyle(el);
+    const box = paddingBox(el);
+    return box.right - box.left - parseFloat(ecs.paddingLeft) - parseFloat(ecs.paddingRight);
+  };
+
+  /** The width a box's content takes laid out whole: a clipped name still measures its every letter. */
+  const contentTaken = (el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    return range.getBoundingClientRect().width;
+  };
+
+  const clips = (ecs) => /hidden|clip/.test(ecs.overflowX) || /hidden|clip/.test(ecs.overflowY);
+
+  /** What of a run's boxes is painted: each box cut to every box that clips or scrolls it (an ellipsis's own box). */
+  const shownBoxes = (boxes, el, frame) => {
+    let shown = boxes;
+    for (let node = el; node && node !== frame && shown.length; node = up(node)) {
+      const ncs = globalThis.getComputedStyle(node);
+      if (ncs.display === 'contents' || ncs.display === 'inline') continue;
+      const cutX = ncs.overflowX !== 'visible';
+      const cutY = ncs.overflowY !== 'visible';
+      if (!cutX && !cutY) continue;
+      const box = paddingBox(node);
+      shown = shown
+        .map((b) => ({
+          left: cutX ? Math.max(b.left, box.left) : b.left,
+          right: cutX ? Math.min(b.right, box.right) : b.right,
+          top: cutY ? Math.max(b.top, box.top) : b.top,
+          bottom: cutY ? Math.min(b.bottom, box.bottom) : b.bottom,
+        }))
+        .filter((b) => b.right - b.left > overlapTol && b.bottom - b.top > overlapTol);
+    }
+    return shown;
+  };
+
+  /** Where value rows, readouts and tile feet keep their words: no two of them may be laid over each other. */
+  const WORDS = '.fv-value-row, .fv-readout, .fv-tile__foot';
+  /** What a finger presses: what a card head's overlay has to keep clear of. */
+  const PRESSABLE =
+    '[data-target], [data-control], button, a[href], input, select, textarea, [role="button"], [role="switch"], [role="slider"], [role="checkbox"]';
+  const keyLike = new RegExp(rawKey);
+  const namespaceSet = new Set(namespaces);
+  // the house's own entity ids are names, not keys (the playground's mock is on the page; a design sheet has none)
+  const house = globalThis.fluvyMock?.hass?.();
+  const entityIds = new Set(Object.keys(house?.states ?? {}));
+  /**
+   * What the house names: its entities, devices, areas, floors and people, and what a player or a calendar says it
+   * plays or where (an artist, a source, a place); and what a card's config names. A card shows them as they are, so
+   * one cut inside such a name is a name ending in its ellipsis, whether the card declared it or not.
+   */
+  const NAMING = [
+    'friendly_name',
+    'media_title',
+    'media_artist',
+    'media_album_name',
+    'media_series_title',
+    'media_channel',
+    'app_name',
+    'source',
+    'message',
+    'location',
+  ];
+  // and what a card's config names, as typed (`name`, `title`), on the sheet the page shows (every one without)
+  const sheet = new URLSearchParams(globalThis.location.search).get('sheet');
+  const typed = [];
+  const typedIn = (value) => {
+    if (Array.isArray(value)) value.forEach(typedIn);
+    else if (value && typeof value === 'object')
+      for (const [key, inner] of Object.entries(value))
+        if ((key === 'name' || key === 'title') && typeof inner === 'string') typed.push(inner);
+        else typedIn(inner);
+  };
+  for (const [name, spec] of Object.entries(globalThis.fluvySheets ?? {}))
+    if (!sheet || name === sheet) for (const frame of spec.frames ?? []) typedIn(frame.cards);
+  const houseNames = [
+    ...typed,
+    ...Object.values(house?.states ?? {}).flatMap((s) => NAMING.map((key) => s.attributes?.[key])),
+    ...Object.values(house?.entities ?? {}).map((e) => e.name),
+    ...Object.values(house?.devices ?? {}).flatMap((d) => [d.name_by_user, d.name]),
+    ...Object.values(house?.areas ?? {}).map((a) => a.name),
+    ...Object.values(house?.floors ?? {}).map((f) => f.name),
+  ].filter(
+    (name, i, all) => typeof name === 'string' && name.trim().length > 1 && all.indexOf(name) === i,
+  );
+  /** Whether the character at `at` lies inside one of the house's names written in `text`. */
+  const inHouseName = (text, at) =>
+    houseNames.some((name) => {
+      for (let from = text.indexOf(name); from >= 0; from = text.indexOf(name, from + 1))
+        if (from <= at && at < from + name.length) return true;
+      return false;
+    });
+
+  /**
+   * A head's tap target (`.fv-card__tap`): the box its stretched overlay covers — the overlay's containing block (the
+   * head row) inset as the `::after` says — or the button itself when it has no overlay.
+   */
+  const tapArea = (tap, frame) => {
+    const after = globalThis.getComputedStyle(tap, '::after');
+    if (after.position !== 'absolute') return tap.getBoundingClientRect();
+    let block = tap;
+    while (block && block !== frame && globalThis.getComputedStyle(block).position === 'static')
+      block = up(block);
+    const box = paddingBox(block && block !== frame ? block : tap);
+    const inset = (value, size) =>
+      value.endsWith('%') ? (parseFloat(value) / 100) * size : parseFloat(value) || 0;
+    const w = box.right - box.left;
+    const h = box.bottom - box.top;
+    return {
+      left: box.left + inset(after.left, w),
+      right: box.right - inset(after.right, w),
+      top: box.top + inset(after.top, h),
+      bottom: box.bottom - inset(after.bottom, h),
+    };
+  };
+
+  /**
+   * Whether `area` keeps a free square of `side` clear of `blocks`. A square that fits can slide left and up until it
+   * meets the area's edge or a block's right or bottom side, so those edges are the only places to try.
+   */
+  const keepsSquare = (area, blocks, side) => {
+    const xs = [area.left, ...blocks.map((b) => b.right)];
+    const ys = [area.top, ...blocks.map((b) => b.bottom)];
+    return xs.some((x) =>
+      ys.some(
+        (y) =>
+          x + side <= area.right + tol &&
+          y + side <= area.bottom + tol &&
+          blocks.every(
+            (b) =>
+              !(
+                x < b.right - tol &&
+                x + side > b.left + tol &&
+                y < b.bottom - tol &&
+                y + side > b.top + tol
+              ),
+          ),
+      ),
+    );
+  };
+
+  /**
+   * Whether a box holds a name (the one text an ellipsis may end): it says so (`data-name`, or a class that says
+   * `name`: `'declared'`), or it carries its words whole in a `title`, as a name read on hover does (`'title'`). A
+   * title excuses a name's words only: a figure it cuts is still `cut-figure`, and a state or a status line (a class
+   * that says `sub`, `line`, `state` or `status`: what a thing is doing, "Préchauffage 7…") is never a name, whatever
+   * its tooltip says.
+   */
+  const cls = (node) => (typeof node.className === 'string' ? node.className : '');
+  const STATUS_WORD = /^(?:sub|line|state|status)$/i;
+  const statusLine = (node) =>
+    cls(node)
+      .split(/[\s_-]+/)
+      .some((word) => STATUS_WORD.test(word));
+  const namedBox = (el, frame) => {
+    const words = (el.textContent || '').replace(/\s+/g, ' ').trim();
+    for (let node = el; node && node !== frame; node = up(node)) {
+      if (node.hasAttribute?.('data-name') || /name/i.test(cls(node))) return 'declared';
+      if (statusLine(node)) return false;
+      if (words && (node.getAttribute?.('title') || '').replace(/\s+/g, ' ').includes(words))
+        return 'title';
+      if (node.tagName === 'BUTTON' || node.getAttribute?.('role') === 'button') return false;
+    }
+    return false;
+  };
+
+  /** Whether a text's colour paints (a ruler's transparent copy draws nothing). */
+  const inked = (el) => alphaOf(globalThis.getComputedStyle(el).color) > 0;
+
+  /** Whether a box is a control or sits inside one, across shadow roots: what `overlap` reads, not `collision`. */
+  const inControl = (el, frame) => {
+    for (let node = el; node && node !== frame; node = up(node))
+      if (node.hasAttribute?.('data-control')) return true;
+    return false;
+  };
+
+  /** Where one character is laid: its first box that takes room (a collapsed space has none: null). */
+  const charRange = document.createRange();
+  const charBox = (node, i) => {
+    charRange.setStart(node, i);
+    charRange.setEnd(node, i + 1);
+    for (const rect of charRange.getClientRects()) if (rect.width > 0) return rect;
+    return null;
+  };
+
+  /** Every character a box holds in its own tree, in order, with where it is laid. */
+  const charsOf = (el) => {
+    const out = [];
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode())
+      for (let i = 0; i < node.textContent.length; i += 1)
+        out.push({ ch: node.textContent[i], rect: charBox(node, i) });
+    return out;
+  };
+
+  /** How wide the box's font draws an ellipsis: what the cut leaves room for at the end of its line. */
+  const ellipsisCanvas = document.createElement('canvas').getContext('2d');
+  const ellipsisWidth = (ecs) => {
+    ellipsisCanvas.font = `${ecs.fontStyle} ${ecs.fontWeight} ${ecs.fontSize} ${ecs.fontFamily}`;
+    return ellipsisCanvas.measureText('\u2026').width;
+  };
+
+  /**
+   * A figure is a token with a digit, a percentage or a degree in it ("60", "21,5°", "08:15", "36 %"), a unit after one
+   * ("kWh", "km/h", "min") or a currency before one: what `cut-figure` holds whole.
+   */
+  const UNIT = new RegExp(
+    [
+      '^(?:[kMGmµu]?(?:Wh|W|VA|var|V|A|Hz|g|L|l|m|Pa|bar|s|J)', // power, energy, volume, length, pressure, time
+      '°[CF]?|K|lx|lm|ppm|ppb|dBm?|mph|kn|inHg|psi|in|ft|mi|gal|min|h|d|m[²³]|ft[²³]',
+      '[^\\s\\d]{1,3}/[^\\s\\d]{1,4}', // a rate: km/h, L/min, m³/h
+      '[€$£¥₺])$',
+    ].join('|'),
+    'u',
+  );
+  const FIGURE = /[\p{Nd}%‰°]/u;
+  const figureAt = (text, at) => {
+    const tokens = [];
+    for (const match of text.matchAll(/\S+/gu))
+      tokens.push({ start: match.index, end: match.index + match[0].length, word: match[0] });
+    const index = tokens.findIndex((token) => at < token.end);
+    if (index < 0) return false;
+    const { word } = tokens[index];
+    if (FIGURE.test(word)) return true;
+    if (UNIT.test(word) && index > 0 && FIGURE.test(tokens[index - 1].word)) return true;
+    return (
+      /^[€$£¥₺]$/u.test(word) && index + 1 < tokens.length && FIGURE.test(tokens[index + 1].word)
+    );
+  };
+
+  /**
+   * What an ellipsis (or a line clamp's) cuts of a box's text: the words seen, and whether the cut falls on a figure —
+   * the first character it hides, or the token that character belongs to. Null when the box cuts nothing: a box whose
+   * text fits, or whose overflow is not text.
+   */
+  const cutOf = (el, ecs) => {
+    if (!/hidden|clip/.test(ecs.overflowX) && !/hidden|clip/.test(ecs.overflowY)) return null;
+    const clamp = ecs.getPropertyValue('-webkit-line-clamp');
+    const clamped = clamp && clamp !== 'none' && el.scrollHeight > el.clientHeight + 1;
+    const ellipsis =
+      ecs.textOverflow === 'ellipsis' &&
+      /hidden|clip/.test(ecs.overflowX) &&
+      el.scrollWidth > el.clientWidth + 1;
+    if (!clamped && !ellipsis) return null;
+    const box = paddingBox(el);
+    const right = box.right - parseFloat(ecs.paddingRight);
+    const bottom = box.bottom - parseFloat(ecs.paddingBottom);
+    // a flex or grid box draws no ellipsis: it clips its text silently, at its edge
+    const mark = /flex|grid/.test(ecs.display) ? 0 : ellipsisWidth(ecs);
+    const chars = charsOf(el);
+    const laid = chars.filter((c) => c.rect && c.rect.bottom <= bottom + overlapTol);
+    const lastTop = laid.length ? Math.max(...laid.map((c) => c.rect.top)) : -Infinity;
+    const hidden = (c) =>
+      c.rect !== null &&
+      (c.rect.bottom > bottom + overlapTol ||
+        (c.rect.top >= lastTop - overlapTol && c.rect.right > right - mark + overlapTol));
+    const at = chars.findIndex((c) => hidden(c) && c.ch.trim());
+    if (at < 0) return null;
+    const text = chars.map((c) => c.ch).join('');
+    return {
+      seen: text.slice(0, at).replace(/\s+/g, ' ').trim(),
+      text: text.replace(/\s+/g, ' ').trim(),
+      name: inHouseName(text, at),
+      figure: figureAt(text, at),
+      silent: mark === 0,
+      // prose is clamped at three lines (§ Readouts and text): a clamp that deep ends a sentence, not a word
+      prose: clamped && !ellipsis && Number(clamp) >= 3,
+    };
+  };
+
+  /** Words, for the mid-word rule: a line may end between two of them, never inside one. */
+  const segmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
+  const NO_BREAK = /[\u00a0\u2007\u202f\u2060]/u;
+
+  /**
+   * Where a run's lines end inside a word: each index whose character starts a new line while the one before it is in
+   * the same word, or is a no-break space (a figure parted from its unit). Hyphenation the language does is no break.
+   */
+  const brokenWords = (run) => {
+    const text = run.node.textContent;
+    const ecs = globalThis.getComputedStyle(run.el);
+    if (ecs.hyphens === 'auto') return [];
+    const words = Array.from(segmenter.segment(text)).filter((s) => s.isWordLike);
+    const inside = (i) => words.some((w) => w.index < i && i < w.index + w.segment.length);
+    const shown = (rect) =>
+      run.shown.some(
+        (b) =>
+          rect.left + rect.width / 2 >= b.left &&
+          rect.left + rect.width / 2 <= b.right &&
+          rect.top + rect.height / 2 >= b.top &&
+          rect.top + rect.height / 2 <= b.bottom,
+      );
+    const breaks = [];
+    let last = null;
+    for (let i = 0; i < text.length; i += 1) {
+      const rect = charBox(run.node, i);
+      if (!rect) continue;
+      if (last && rect.top > last.top + last.height / 2 && shown(rect) && shown(last)) {
+        const before = text[i - 1];
+        if (before !== '\u00ad' && (inside(i) || NO_BREAK.test(before) || NO_BREAK.test(text[i])))
+          breaks.push(i);
+      }
+      last = rect;
+    }
+    return breaks;
+  };
+
   return frames.map((frame, index) => {
     const origin = frame.getBoundingClientRect();
     const violations = [];
     const columns = new Map(); // card element → left edges of its text runs
     const baselines = new Map(); // data-baseline value → [{ path, y }]
+    const runs = []; // every text node shown: { node, el, boxes, shown, out, surface, words, card, sideways }
+    const pressed = []; // every [data-control] shown: { el, box (what it paints), out, surface }
 
     const add = (rule, el, rect, detail) => {
-      violations.push({ rule, selector: shortPath(el, frame), rect, detail });
+      violations.push({
+        rule,
+        card: hostOf(el, frame),
+        selector: shortPath(el, frame),
+        rect,
+        detail,
+      });
     };
     const relative = (rect) => ({
       x: r3(rect.left - origin.left),
       y: r3(rect.top - origin.top),
-      w: r3(rect.width),
-      h: r3(rect.height),
+      w: r3(rect.width ?? rect.right - rect.left),
+      h: r3(rect.height ?? rect.bottom - rect.top),
     });
+    const quote = (node) => `"${node.textContent.trim().slice(0, 40)}"`;
 
     const queue = kids(frame);
     while (queue.length) {
@@ -299,7 +828,7 @@ function audit(opts) {
       const isValue = continuous(el, frame);
       const away = alignedAway(el, cs, frame) || (sized && continuesLine(el, box));
 
-      if (sized && paints(el, cs) && !isValue && !drawn) {
+      if (sized && paints(el, cs) && !isValue && !drawn && !inOffGridColumn(el, frame)) {
         // A box the container sizes (a card filling its dashboard column, an svg filling its control)
         // cannot choose a multiple of the grid: the column decides. Its own padding and children still must.
         const stretched = (() => {
@@ -584,24 +1113,31 @@ function audit(opts) {
           `scrollWidth ${el.scrollWidth} > clientWidth ${el.clientWidth}`,
         );
       }
-      // An ellipsis on what is not a name: a button's label, a title, a date, a state's word
-      if (
-        cs.textOverflow === 'ellipsis' &&
-        cs.overflow !== 'visible' &&
-        !scrollRow(el) &&
-        el.scrollWidth > el.clientWidth + 1
-      ) {
-        const cls = (node) => (typeof node.className === 'string' ? node.className : '');
-        const named = (() => {
-          for (let node = el; node && node !== frame; node = up(node)) {
-            if (node.hasAttribute?.('data-name') || /name/i.test(cls(node))) return true;
-            if (node.tagName === 'BUTTON' || node.getAttribute?.('role') === 'button') return false;
-          }
-          return false;
-        })();
-        const inControl = !!el.closest?.('button, .fv-btn, .fv-chip, .fv-badge, h1, h2, h3');
+      // Text cut with an ellipsis or a line clamp: a name's answer to a narrow column, nothing else's. A figure cut
+      // anywhere is `cut-figure`; a word in a control, a heading, a title, a date or a state `ellipsis`; any other
+      // word that is no name (a sub, a caption, a label) `cut-word`. A name read on hover (its title) may lose its
+      // words to an ellipsis, never a figure
+      const named = namedBox(el, frame);
+      if (!scrollRow(el) && seen(el) && named !== 'declared') {
+        const inButton = !!el.closest?.('button, .fv-btn, .fv-chip, .fv-badge, h1, h2, h3');
         const meaning = /state|title|date|label|value|count/i.test(cls(el));
-        if (!named && (inControl || meaning))
+        const cut = cutOf(el, cs);
+        if (cut) {
+          const seenText = cut.seen.slice(-40);
+          if (!cut.name && (cut.figure || (!named && !cut.prose)))
+            add(
+              cut.figure ? 'cut-figure' : inButton || meaning ? 'ellipsis' : 'cut-word',
+              el,
+              rect,
+              `"${cut.text.slice(0, 60)}" ${cut.silent ? `clipped after "${seenText}"` : `reads "${seenText}…"`}`,
+            );
+        } else if (
+          !named &&
+          (inButton || meaning) &&
+          cs.textOverflow === 'ellipsis' &&
+          cs.overflow !== 'visible' &&
+          el.scrollWidth > el.clientWidth + 1
+        )
           add(
             'ellipsis',
             el,
@@ -670,6 +1206,187 @@ function audit(opts) {
           columns.get(card).push(left);
         }
       }
+
+      // the words this box holds itself, where they are laid: what overlap, clipped and raw-key read
+      if (seen(el)) {
+        for (const node of el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes) {
+          if (node.nodeType !== 3 || !node.textContent.trim()) continue;
+          const boxes = lineBoxes(node, el);
+          if (!boxes.length) continue;
+          runs.push({
+            node,
+            el,
+            boxes,
+            shown: shownBoxes(boxes, el, frame),
+            out: placedOut(el, frame),
+            surface: surfaceOf(el, frame),
+            words: !!el.closest?.(WORDS),
+            card: cardOf(el, frame),
+            sideways,
+            inked: inked(el),
+            control: inControl(el, frame),
+          });
+        }
+        const painted = sized && el.hasAttribute('data-control') ? drawnBox(el) : null;
+        if (painted)
+          pressed.push({
+            el,
+            box: painted,
+            out: placedOut(el, frame),
+            surface: surfaceOf(el, frame),
+          });
+      }
+
+      // a content-sized pill holds its content: what clips inside it (a chip's name) or, with nothing clipping, the pill
+      if (sized && el.hasAttribute('data-fit') && seen(el)) {
+        const inner = Array.from(el.querySelectorAll('*')).filter(
+          (node) =>
+            clips(globalThis.getComputedStyle(node)) && node.getBoundingClientRect().width > 0,
+        );
+        for (const piece of inner.length ? inner : [el]) {
+          const room = contentWidth(piece);
+          const taken = contentTaken(piece);
+          if (taken > room + overlapTol)
+            add(
+              'pill-cut',
+              piece,
+              relative(piece.getBoundingClientRect()),
+              `${quote(piece)} takes ${r3(taken)} of ${r3(room)}`,
+            );
+        }
+      }
+
+      // a head's button: its overlay keeps a free 44 × 44 beside the controls raised over the head
+      if (el.classList.contains('fv-card__tap') && seen(el)) {
+        const area = tapArea(el, frame);
+        const blocks = Array.from(el.getRootNode().querySelectorAll(PRESSABLE))
+          .filter((node) => node !== el && !holds(el, node) && !holds(node, el) && seen(node))
+          .map((node) => node.getBoundingClientRect())
+          .map((b) => ({
+            left: Math.max(b.left, area.left),
+            right: Math.min(b.right, area.right),
+            top: Math.max(b.top, area.top),
+            bottom: Math.min(b.bottom, area.bottom),
+          }))
+          .filter((b) => b.right - b.left > tol && b.bottom - b.top > tol);
+        if (!keepsSquare(area, blocks, touchMin))
+          add(
+            'head-target',
+            el,
+            relative(area),
+            `no free ${touchMin} × ${touchMin} in a ${r3(area.right - area.left)} × ${r3(area.bottom - area.top)} head beside ${blocks.length} raised control(s)`,
+          );
+      }
+    }
+
+    // words laid over a control they are not inside, or over each other where values are read
+    const laid = runs.filter((run) => !run.out && !run.sideways && run.shown.length);
+    const raised = pressed.filter((control) => !control.out);
+    for (const run of laid)
+      for (const control of raised) {
+        if (control.surface !== run.surface || holds(control.el, run.el)) continue;
+        const hit = run.shown.find((b) => overlaps(b, control.box));
+        if (hit)
+          add(
+            'overlap',
+            run.el,
+            relative(hit),
+            `${quote(run.node)} under ${shortPath(control.el, frame)}`,
+          );
+      }
+    const worded = laid.filter((run) => run.words);
+    for (let i = 0; i < worded.length; i += 1)
+      for (let j = i + 1; j < worded.length; j += 1) {
+        const [a, b] = [worded[i], worded[j]];
+        if (a.card !== b.card) continue;
+        const hit = b.shown.find((box) => a.shown.some((other) => overlaps(box, other)));
+        if (hit) add('overlap', b.el, relative(hit), `${quote(b.node)} over ${quote(a.node)}`);
+      }
+
+    // two runs laid over each other where no control is involved: what overlap does not read (a control's words, or
+    // two in a value row, are its own)
+    const free = runs.filter(
+      (run) => !run.sideways && run.inked && !run.control && run.shown.length,
+    );
+    for (let i = 0; i < free.length; i += 1)
+      for (let j = i + 1; j < free.length; j += 1) {
+        const [a, b] = [free[i], free[j]];
+        if (
+          a.card !== b.card ||
+          a.surface !== b.surface ||
+          (a.words && b.words && !a.out && !b.out)
+        )
+          continue;
+        const hit = b.shown.find((box) => a.shown.some((other) => overlaps(box, other)));
+        if (hit) add('collision', b.el, relative(hit), `${quote(b.node)} over ${quote(a.node)}`);
+      }
+
+    // a word broken across two lines (a line that ends inside it), wherever it is drawn
+    for (const run of runs) {
+      if (run.sideways || !run.inked || run.boxes.length < 2) continue;
+      const text = run.node.textContent;
+      const breaks = brokenWords(run);
+      if (breaks.length)
+        add(
+          'midword',
+          run.el,
+          relative(run.boxes[0]),
+          `"${text.trim().slice(0, 60)}" broken at ${breaks
+            .map((at) => `"${text.slice(Math.max(0, at - 8), at)}|${text.slice(at, at + 8)}"`)
+            .join(', ')}`,
+        );
+    }
+
+    // words that run past the box clipping them. An axis stops being checked past a box that scrolls it (what lies
+    // beyond is scrolled, not cut) or ends it with an ellipsis or a line clamp (that says so: the ellipsis rule's); a
+    // box's own width is text-clipped's, and a 1 × 1 box is read out, not shown. A line is cut across when a quarter of
+    // it is past the box: a font's content area overhangs a box as tight as its letters (a timeline's 12 px block holds
+    // a 12 px title whole) without cutting a letter
+    for (const run of runs) {
+      if (run.sideways) continue;
+      let x = true;
+      let y = true;
+      for (let node = run.el; node && node !== frame && (x || y); node = up(node)) {
+        const ncs = globalThis.getComputedStyle(node);
+        // a box that has none (`contents`) or that overflow does not apply to (an inline box) clips nothing
+        if (ncs.display === 'contents' || ncs.display === 'inline') continue;
+        const box = paddingBox(node);
+        if (box.right - box.left <= 1 || box.bottom - box.top <= 1) break;
+        const ellipsis = ncs.textOverflow === 'ellipsis';
+        const clamp = ncs.getPropertyValue('-webkit-line-clamp') !== 'none';
+        const cutX = x && !ellipsis && node !== run.el && /hidden|clip/.test(ncs.overflowX);
+        const cutY = y && !clamp && /hidden|clip/.test(ncs.overflowY);
+        const past = run.boxes.find(
+          (b) =>
+            (cutX && (b.left < box.left - overlapTol || b.right > box.right + overlapTol)) ||
+            (cutY &&
+              Math.max(box.top - b.top, b.bottom - box.bottom) >
+                Math.max(overlapTol, (b.bottom - b.top) / 4)),
+        );
+        if (past) {
+          add(
+            'clipped',
+            run.el,
+            relative(past),
+            `${quote(run.node)} cut by ${node === run.el ? 'its own box' : shortPath(node, frame)}`,
+          );
+          break;
+        }
+        if (/auto|scroll/.test(ncs.overflowX) || ellipsis || node.hasAttribute('data-scroll-row'))
+          x = false;
+        if (/auto|scroll/.test(ncs.overflowY) || clamp) y = false;
+      }
+    }
+
+    // a catalogue key on screen: a word that never arrived
+    for (const run of runs) {
+      const text = run.node.textContent.trim();
+      if (
+        keyLike.test(text) &&
+        (namespaceSet.has(text.split('.')[0]) || text.includes('_')) &&
+        !entityIds.has(text)
+      )
+        add('raw-key', run.el, relative(run.boxes[0]), `"${text}"`);
     }
 
     for (const [card, lefts] of columns) {
@@ -786,14 +1503,17 @@ const frames = await page.evaluate(audit, {
   tol: TOL,
   baselineTol: BASELINE_TOL,
   columnTol: TEXT_COLUMN_TOL,
+  overlapTol: OVERLAP_TOL,
   controls: CONTROL_HEIGHTS,
   icons: ICON_SIZES,
   touchMin: TOUCH_MIN,
+  rawKey: RAW_KEY,
+  namespaces: NAMESPACES,
 });
 
 await browser.close();
 
-if (frames.length === 0) {
+if (frames.length === 0 && args.empty !== 'pass') {
   console.error(`No frame matched "${args.frame}" in ${pagePath}`);
   process.exit(1);
 }

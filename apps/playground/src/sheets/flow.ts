@@ -4,11 +4,13 @@ import { FluvyEnergyFlowCard } from '../../../../packages/cards/src/energy-flow/
 import {
   HYBRID_LEVELS,
   HYBRID_STATES,
+  hybridIssue49,
   hybridMetersOnly,
   hybridHeavyExport,
   hybridNoBattery,
   hybridTwoBatteries,
   hybridWithPower,
+  ISSUE_49_STATES,
 } from '../hybrid.js';
 import type { SheetSpec } from '../scenes.js';
 
@@ -222,7 +224,7 @@ export const sheet: SheetSpec = {
     ['sensor.fl_solar_energy', '11.2', energy('Solar')],
     ['sensor.fl_battery_out_energy', '2.4', energy('Battery out')],
     ['sensor.fl_battery_in_energy', '3.0', energy('Battery in')],
-    ...HYBRID_STATES.map(
+    ...[...HYBRID_STATES, ...ISSUE_49_STATES].map(
       ([id, state, name]) => [id, state, power(name, 'kW')] as [string, string, Attributes],
     ),
     ...HYBRID_LEVELS.map(
@@ -587,6 +589,150 @@ export const sheet: SheetSpec = {
           ...house19,
           title: 'Energy',
           variant: 'list',
+          cols: 6,
+        },
+      ],
+    },
+    /* issue #49: the whole house with its scales and gridlines, at the width of the reporter's screenshot */
+    {
+      title: 'Issue #49 · the whole house, scaled',
+      width: 887,
+      hass: hybridIssue49,
+      cards: [
+        {
+          type: 'custom:fluvy-energy-card',
+          entity: 'sensor.i49_house',
+          variant: 'overview',
+          _now: NOW,
+        },
+      ],
+    },
+    {
+      title: 'Issue #49 · a phone',
+      hass: hybridIssue49,
+      cards: [
+        {
+          type: 'custom:fluvy-energy-card',
+          entity: 'sensor.i49_house',
+          variant: 'overview',
+          _now: NOW,
+        },
+      ],
+    },
+    {
+      title: 'Issue #49 · each source from zero, thin lines',
+      width: 887,
+      hass: hybridIssue49,
+      cards: [
+        {
+          type: 'custom:fluvy-energy-card',
+          entity: 'sensor.i49_house',
+          variant: 'overview',
+          stack: false,
+          line_width: 'thin',
+          _now: NOW,
+        },
+      ],
+    },
+    {
+      title: 'Issue #49 · each source from zero · a phone',
+      hass: hybridIssue49,
+      cards: [
+        {
+          type: 'custom:fluvy-energy-card',
+          entity: 'sensor.i49_house',
+          variant: 'overview',
+          stack: false,
+          _now: NOW,
+        },
+      ],
+    },
+    {
+      title: 'Issue #49 · thin lines · a phone',
+      hass: hybridIssue49,
+      cards: [
+        {
+          type: 'custom:fluvy-energy-card',
+          entity: 'sensor.i49_house',
+          variant: 'overview',
+          line_width: 'thin',
+          _now: NOW,
+        },
+      ],
+    },
+    {
+      title: 'Issue #49 · half a column',
+      width: 532,
+      hass: hybridIssue49,
+      cards: [
+        {
+          type: 'custom:fluvy-energy-card',
+          entity: 'sensor.i49_house',
+          variant: 'overview',
+          _now: NOW,
+          cols: 6,
+        },
+      ],
+    },
+    {
+      title: 'Issue #49 · by source',
+      hass: hybridIssue49,
+      cards: [
+        {
+          type: 'custom:fluvy-energy-card',
+          entity: 'sensor.i49_house',
+          variant: 'sources',
+          _now: NOW,
+        },
+      ],
+    },
+    {
+      title: 'Issue #49 · no scale, no gridlines',
+      hass: hybridIssue49,
+      cards: [
+        {
+          type: 'custom:fluvy-energy-card',
+          entity: 'sensor.i49_house',
+          variant: 'overview',
+          show_axis: false,
+          show_grid: false,
+          _now: NOW,
+        },
+      ],
+    },
+    /* an unavailable or missing sensor keeps the card's size (A7) */
+    {
+      title: 'Energy · live and unavailable',
+      width: 776,
+      cards: [
+        { type: 'custom:fluvy-energy-card', entity: 'sensor.fl_house', _now: NOW, cols: 6 },
+        { type: 'custom:fluvy-energy-card', entity: 'sensor.fl_down_grid', _now: NOW, cols: 6 },
+      ],
+    },
+    {
+      title: 'Energy · live and not found',
+      width: 776,
+      cards: [
+        { type: 'custom:fluvy-energy-card', entity: 'sensor.fl_house', _now: NOW, cols: 6 },
+        { type: 'custom:fluvy-energy-card', entity: 'sensor.fl_nowhere', _now: NOW, cols: 6 },
+      ],
+    },
+    {
+      title: 'The whole house · live and unavailable',
+      width: 776,
+      cards: [
+        {
+          type: 'custom:fluvy-energy-card',
+          variant: 'overview',
+          entity: 'sensor.fl_house',
+          _now: NOW,
+          cols: 6,
+        },
+        {
+          type: 'custom:fluvy-energy-card',
+          variant: 'overview',
+          entity: 'sensor.fl_down_grid',
+          _now: NOW,
           cols: 6,
         },
       ],

@@ -25,7 +25,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./activity": "./src/activity/index.ts",
-    "./history": "./src/history/index.ts"
+    "./history": "./src/history/index.ts",
+    "./locales/en/*.json": "./src/i18n/locales/en/*.json"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",

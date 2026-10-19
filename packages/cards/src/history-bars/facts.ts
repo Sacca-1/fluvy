@@ -94,9 +94,12 @@ export function factsOf(raw: unknown): FactItem[] {
   });
 }
 
-/** The head's readouts by default: a meter's total and average; a measurement's average and highest. */
-export const defaultHead = (stat: Stat): FactKind[] =>
-  stat === 'change' ? ['total', 'average'] : ['average', 'highest'];
+/**
+ * The head's readouts by default: bars that add up (a meter's change, a reading at each cycle's end) say their total
+ * and average; any other (a mean, an extreme, a reading) its average and highest.
+ */
+export const defaultHead = (stat: Stat, additive = stat === 'change'): FactKind[] =>
+  additive ? ['total', 'average'] : ['average', 'highest'];
 
 /** The strip by default: the honest numbers of the bars; the equivalents only when asked for. */
 export const DEFAULT_FACTS: readonly FactKind[] = ['highest', 'lowest', 'average'];
@@ -122,34 +125,43 @@ export const FACT_ICONS: Readonly<Record<FactKind, GlyphName>> = {
 export interface Summary {
   /** How many buckets are drawn. */
   readonly count: number;
-  /** The sum of the buckets that have a value; null when none has. */
+  /** The sum of the buckets that have a value (the one in progress with them when drawn); null when none has, or when the bars do not add up. */
   readonly total: number | null;
-  /** The total over the buckets that have a value. */
+  /** The finished buckets' mean, over those that have a value. */
   readonly average: number | null;
+  /** The finished buckets' highest and lowest. */
   readonly highest: number | null;
   readonly lowest: number | null;
-  /** The bucket in progress (today, this week, this month). */
+  /** The bucket in progress (today, this week, this month), live. */
   readonly current: number | null;
 }
 
-export function summarise(values: ReadonlyArray<number | null>, current: number | null): Summary {
-  const known = values.filter((v): v is number => v !== null && Number.isFinite(v));
-  if (!known.length)
-    return {
-      count: values.length,
-      total: null,
-      average: null,
-      highest: null,
-      lowest: null,
-      current,
-    };
-  const total = known.reduce((sum, v) => sum + v, 0);
+/** How the bars are summed up: whether the bucket in progress is drawn, and whether the bars add up at all. */
+export interface SummaryOptions {
+  readonly drawn?: boolean;
+  readonly additive?: boolean;
+}
+
+/**
+ * The honest figures of the bars. The average, the highest and the lowest are the finished buckets' — a day still
+ * running is not a low day — over the buckets that have a value (a day before the sensor was there has none). The
+ * total adds the bucket in progress where it is drawn; bars that do not add up (means, extremes, readings) have none,
+ * and neither have what is worked out from it (money, CO₂, a share).
+ */
+export function summarise(
+  finished: ReadonlyArray<number | null>,
+  current: number | null,
+  { drawn = false, additive = true }: SummaryOptions = {},
+): Summary {
+  const known = finished.filter((v): v is number => v !== null && Number.isFinite(v));
+  const running = drawn && current !== null && Number.isFinite(current) ? current : null;
+  const sum = known.reduce((total, v) => total + v, 0);
   return {
-    count: values.length,
-    total,
-    average: total / known.length,
-    highest: Math.max(...known),
-    lowest: Math.min(...known),
+    count: finished.length + (drawn ? 1 : 0),
+    total: !additive || (!known.length && running === null) ? null : sum + (running ?? 0),
+    average: known.length ? sum / known.length : null,
+    highest: known.length ? Math.max(...known) : null,
+    lowest: known.length ? Math.min(...known) : null,
     current,
   };
 }

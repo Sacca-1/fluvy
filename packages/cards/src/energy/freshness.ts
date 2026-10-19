@@ -1,5 +1,4 @@
 import { localize, relativeTime, strings, type HomeAssistant } from '@fluvy/core';
-import type { ReactiveController, ReactiveControllerHost } from 'lit';
 
 const s = strings('energy-flow');
 
@@ -25,6 +24,9 @@ export const bucketOf = (now: number): number => Math.floor(now / 300_000);
 export const isStale = (newest: number, now: number): boolean =>
   newest > 0 && now - newest > STALE_MS;
 
+/** The live words' step: a live card's clock ticks at their pace. */
+export const LIVE_TICK = 5000;
+
 /**
  * How fresh a live card's figures are, in the flow's words: "Live · now", "Live · 15 s ago", "3 min ago", and once
  * they are stale "Updated 12 min ago". Five-second steps, so the words change only when they must.
@@ -32,38 +34,25 @@ export const isStale = (newest: number, now: number): boolean =>
 export function liveWords(hass: HomeAssistant | undefined, newest: number, now: number): string {
   const live = s(hass, 'live');
   if (!newest) return live;
-  const age = Math.max(0, Math.floor((now - newest) / 5000) * 5);
+  const age = Math.max(0, Math.floor((now - newest) / LIVE_TICK) * (LIVE_TICK / 1000));
   if (age < 5) return `${live} · ${localize(hass, 'common.now').toLowerCase()}`;
   if (age < 60) return `${live} · ${s(hass, 'seconds_ago', { count: age })}`;
   const text = relativeTime(hass, new Date(newest), new Date(now));
-  return age * 1000 > STALE_MS
-    ? s(hass, 'updated', { when: text })
-    : text.charAt(0).toUpperCase() + text.slice(1);
+  return age * 1000 > STALE_MS ? s(hass, 'updated', { when: text }) : capitalised(text);
 }
 
+const capitalised = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
+
 /**
- * A live card's clock: every 5 s it asks `due()` whether the card must be drawn again ("Live · 5 s ago" is a claim
- * about the clock; a period's totals are asked for again when their cache runs out), and nothing runs while the
- * card is not on the page.
+ * The stale words' shorter form, for a head too narrow for "Updated 32 days ago": the age alone ("32 days ago"),
+ * so the figure is never cut. None while the figures are live (`HeadFit`'s `shorter`).
  */
-export class Ticker implements ReactiveController {
-  private timer: number | undefined;
-
-  constructor(
-    private readonly host: ReactiveControllerHost,
-    private readonly due: () => boolean,
-  ) {
-    host.addController(this);
-  }
-
-  hostConnected(): void {
-    this.timer = window.setInterval(() => {
-      if (this.due()) this.host.requestUpdate();
-    }, 5000);
-  }
-
-  hostDisconnected(): void {
-    window.clearInterval(this.timer);
-    this.timer = undefined;
-  }
+export function staleShorter(
+  hass: HomeAssistant | undefined,
+  newest: number,
+  now: number,
+): string[] {
+  return isStale(newest, now)
+    ? [capitalised(relativeTime(hass, new Date(newest), new Date(now)))]
+    : [];
 }

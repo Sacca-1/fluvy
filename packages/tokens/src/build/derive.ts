@@ -38,7 +38,7 @@ function deriveMode(
   p: ModeProfile,
   anchor: PaletteSeed | undefined,
   fillStyle: FillStyle,
-): PaletteModeColors {
+): Omit<PaletteModeColors, 'notice'> {
   // Direction an ink has to move to gain contrast: darker on light grounds, lighter on dark.
   const inkDirection: FitDirection = mode === 'light' ? 'darker' : 'lighter';
   const neutralPeak = identity.neutralPeakChroma * p.neutralChromaScale;
@@ -396,6 +396,21 @@ export function roleHues(seed: PaletteSeed): {
  */
 export function derivePalette(seed: PaletteSeed): Palette {
   const identity = readIdentity(seed);
+  const [light, dark] = (['light', 'dark'] as const).map((mode) =>
+    deriveMode(
+      identity,
+      mode,
+      profileOf(seed, mode),
+      seed.baseMode === mode ? seed : undefined,
+      seed.fill ?? 'tint',
+    ),
+  ) as [ModeColors, ModeColors];
+  // information is the accent only where it can never be read as a warning or a danger, in either mode
+  const accent = apart(light) && apart(dark);
+  const noticed = (colors: ModeColors): PaletteModeColors => ({
+    ...colors,
+    notice: accent ? accentNotice(colors) : colors.semantic.info,
+  });
   return {
     name: seed.name,
     key: seed.key ?? seed.name,
@@ -403,19 +418,31 @@ export function derivePalette(seed: PaletteSeed): Palette {
     description: seed.description,
     character: seed.character ?? 'soft',
     twins: identity.twins,
-    light: deriveMode(
-      identity,
-      'light',
-      profileOf(seed, 'light'),
-      seed.baseMode === 'light' ? seed : undefined,
-      seed.fill ?? 'tint',
-    ),
-    dark: deriveMode(
-      identity,
-      'dark',
-      profileOf(seed, 'dark'),
-      seed.baseMode === 'dark' ? seed : undefined,
-      seed.fill ?? 'tint',
-    ),
+    light: noticed(light),
+    dark: noticed(dark),
   };
 }
+
+type ModeColors = Omit<PaletteModeColors, 'notice'>;
+
+/** The accent as information: its fill and on-fill, and its text colour as the ink (a count is read, at 4.5). */
+const accentNotice = ({ accent }: ModeColors): RoleColors => ({
+  ink: accent.text,
+  fill: accent.fill,
+  fillBorder: accent.fillBorder,
+  onFill: accent.onFill,
+});
+
+/**
+ * Whether the accent can carry information (`notice`, an alert of severity info): its fill and its ink stand
+ * `fillSeparation` from the warning's and the danger's. A warm accent does not (Ember's peach is the warning's, Clay's
+ * and Flamingo's sit on the danger's), and an update would read as urgent as a leak: there it is the status `info`.
+ */
+const apart = (colors: ModeColors): boolean => {
+  const notice = accentNotice(colors);
+  return [colors.semantic.warning, colors.semantic.danger].every(
+    (alarm) =>
+      deltaE(notice.fill, alarm.fill) >= GATES.fillSeparation &&
+      deltaE(notice.ink, alarm.ink) >= GATES.fillSeparation,
+  );
+};

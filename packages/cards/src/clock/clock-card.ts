@@ -7,6 +7,7 @@ import {
   type HaFormSchemaItem,
   type LovelaceConfigForm,
   type LovelaceGridOptions,
+  type HomeAssistant,
 } from '@fluvy/core';
 import { isoWeek, sheetStyles, type Tone } from '@fluvy/ui';
 import {
@@ -30,7 +31,7 @@ import {
 } from '../shared/form.js';
 import { TextRuler } from '../shared/fit.js';
 import { heroAnalog, heroDigital, side, tile, type ClockModel } from './layouts.js';
-import { ForecastFeed, readSky } from './sky.js';
+import { ForecastFeed, offersDaily, readSky, type Forecast, type Sky } from './sky.js';
 import {
   calendarDate,
   clockParts,
@@ -86,6 +87,9 @@ const OWN_LABELS = {
 
 const isOwnLabel = (name: string): name is keyof typeof OWN_LABELS => name in OWN_LABELS;
 
+/** A time that cannot be read: its slot, a dash. */
+const NO_TIME: ClockParts = { time: '—', seconds: '', period: '' };
+
 /**
  * One clock, every look of the sheet: the analog face (plain, quarters, all numerals) or the digital
  * digits, as a hero card, a compact side card or a tile, each with or without its weather.
@@ -96,12 +100,18 @@ const isOwnLabel = (name: string): name is keyof typeof OWN_LABELS => name in OW
  */
 export class FluvyClockCard extends Card<ClockCardConfig> {
   /** The card's height at a 360 column, for the automatic dashboard's columns. */
-  static override layoutHeight(config: ClockCardConfig): number {
+  static override layoutHeight(config: ClockCardConfig, hass?: HomeAssistant): number {
     const weather = Boolean(config.weather);
+    // the Outside · Tonight · Tomorrow row (16 + 44): asked for, and offered by the weather (its daily forecast)
+    const forecast =
+      weather &&
+      config.show_forecast !== false &&
+      (!hass || !config.weather || offersDaily(hass.states[config.weather]));
     if (config.variant === 'tile') return 168;
-    if (config.variant === 'side') return weather ? 268 : 208;
-    if (config.face === 'digital') return weather && config.show_forecast !== false ? 196 : 136;
-    return weather ? 352 : 340;
+    if (config.variant === 'side')
+      return (config.face === 'digital' ? 132 : 208) + (forecast ? 60 : 0);
+    if (config.face === 'digital') return forecast ? 196 : 136;
+    return forecast ? 352 : weather ? 292 : 340;
   }
 
   static override styles: CSSResultGroup = [
@@ -116,7 +126,7 @@ export class FluvyClockCard extends Card<ClockCardConfig> {
         cursor: pointer;
       }
       .ck-cols {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(var(--ck-cols, 3), minmax(0, 1fr));
       }
       /* the sheet's 64 + 76 foot while there is room; a narrower tile closes the gap, never the labels */
       .ck-tile .fv-tile__foot {
@@ -373,6 +383,17 @@ export class FluvyClockCard extends Card<ClockCardConfig> {
 
   /* ---------- render ---------- */
 
+  /**
+   * The Outside · Tonight · Tomorrow row: the feed's answer while the weather can be read; while it cannot, the row
+   * keeps its place where it was asked for and the weather offers it, its figures a dash (1.9: a card keeps its size).
+   */
+  private forecast(sky: Sky | null): Forecast {
+    const id = this.forecastEntity;
+    if (!sky || !id) return { status: 'none' };
+    if (sky.ok) return this.feed.forecast;
+    return offersDaily(this.hass?.states[id]) ? { status: 'pending' } : { status: 'none' };
+  }
+
   /** `sun.sun` is the sun over the house: a clock set to another city's zone does not borrow its sunrise. */
   private sun(format: ClockFormat): ClockModel['sun'] {
     const home = this.hass?.config?.time_zone;
@@ -385,6 +406,9 @@ export class FluvyClockCard extends Card<ClockCardConfig> {
     };
     const rising = read('next_rising');
     const setting = read('next_setting');
+    // the house's sun out of reach keeps its place, its times a dash: "Sunrise —" (1.9: a card keeps its size)
+    if (!abroad && (rising === null || setting === null))
+      return { next: { kind: 'sunrise', at: NO_TIME }, rising: NO_TIME, setting: NO_TIME };
     const parts = (date: Date | null): ClockParts | null =>
       date ? clockParts(date, format) : null;
     // the next event is the one that has not happened yet — whichever comes first
@@ -428,10 +452,14 @@ export class FluvyClockCard extends Card<ClockCardConfig> {
       date:
         config.show_date === false
           ? null
-          : { full: dateText(now, dates, 'full'), short: dateText(now, dates, 'short') },
+          : {
+              full: dateText(now, dates, 'full'),
+              short: dateText(now, dates, 'short'),
+              tiny: dateText(now, dates, 'tiny'),
+            },
       week: config.show_week && config.show_date !== false ? isoWeek(calendarDate(wall)) : null,
       sky,
-      forecast: sky?.ok && this.forecastEntity ? this.feed.forecast : { status: 'none' },
+      forecast: this.forecast(sky),
       sun: this.sun(format),
       width: this.look === 'tile' ? Math.max(72, this.width - 32) : this.contentWidth,
       ruler: this.ruler,

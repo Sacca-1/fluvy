@@ -1,3 +1,5 @@
+// the family's words first: they are here before anything in its chunk says them
+import './energy/english.js';
 import { registerCard } from '@fluvy/core';
 import { FluvyEnergyBalanceCard } from './balance/balance-card.js';
 import { FluvyEnergyCard } from './energy/energy-card.js';
@@ -32,10 +34,10 @@ const ELEMENTS: Readonly<Record<string, CustomElementConstructor>> = {
   'fluvy-energy-score-card': FluvyEnergyScoreCard,
 };
 
-export const ENERGY_CATALOGUE = ENERGY_FAMILY.map(
+export const CARDS = ENERGY_FAMILY.map(
   ([tag, name, description]) =>
     [tag, ELEMENTS[tag] as CustomElementConstructor, name, description] as const,
 );
 
-for (const [tag, element, name, description] of ENERGY_CATALOGUE)
+for (const [tag, element, name, description] of CARDS)
   registerCard({ tag, name, description }, element);

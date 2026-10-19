@@ -1,7 +1,5 @@
 import { flowHeight } from '../energy-family.js';
 import {
-  formatTime,
-  relativeTime,
   strings,
   type FluvyCardConfig,
   type HaFormSchemaItem,
@@ -22,6 +20,7 @@ import {
 
 import { allocate, type Allocation, type Totals } from '../energy-model/allocate.js';
 import { fetchPrefs } from '../energy-model/house.js';
+import { downLine } from '../energy-model/outage.js';
 import { fetchPeriod, PERIODS, type Period, type PeriodEnergy } from '../energy-model/period.js';
 import {
   readPrefs,
@@ -45,9 +44,11 @@ import {
   type LegacyFlowKeys,
   type SourceConfig,
 } from '../energy-model/sources.js';
+import { isStale, liveWords, newestReport, staleShorter } from '../energy/freshness.js';
 import { HeadFit } from '../energy/head.js';
-import { legendReadouts } from '../energy/legend.js';
+import { legendStats } from '../energy/legend.js';
 import { scaled, scaleOf, shortName, watts, type Scale } from '../energy/power.js';
+import { statsCols, statsStyles } from '../energy/stats.js';
 import { Card, type BaseKey } from '../shared/base.js';
 import { chipRow } from '../shared/chips.js';
 import { fitLine } from '../shared/fit.js';
@@ -67,6 +68,7 @@ import {
   numberField,
   pickFields,
   selectField,
+  showIconField,
   textField,
   titleFields,
 } from '../shared/form.js';
@@ -102,6 +104,7 @@ import {
 } from './scene.js';
 
 const s = strings('energy-flow');
+const devices = strings('energy-devices');
 
 export type FlowVariant = 'rows' | 'cross' | 'list';
 export const FLOW_VARIANTS: readonly FlowVariant[] = ['rows', 'cross', 'list'];
@@ -152,8 +155,6 @@ export interface EnergyFlowCardConfig extends FluvyCardConfig {
 }
 
 const DEFAULT_PEAK = 6000;
-/** A reading older than this and the diagram says so: everything rests. */
-const STALE_MS = 10 * 60_000;
 /** Consumers drawn beside the house need this much room; below it they are listed under the diagram. */
 const CONSUMERS_WIDE = 560;
 /** Over a period, a figure under 50 Wh rests. */
@@ -300,30 +301,17 @@ function upgrade(config: Readonly<Record<string, unknown>>): Readonly<Record<str
  * the lane, and pulses of light travel it at a pace set by its share of the house's peak.
  */
 export class FluvyEnergyFlowCard extends Card<EnergyFlowCardConfig> {
-  static override layoutHeight(config: EnergyFlowCardConfig): number {
-    return flowHeight(config);
+  static override layoutHeight(config: EnergyFlowCardConfig, hass?: HomeAssistant): number {
+    return flowHeight(config, hass);
   }
 
   static override styles: CSSResultGroup = [
     ...(Card.styles as CSSResultGroup[]),
     sheetStyles.energy,
+    statsStyles,
     css`
       .ef-card {
         width: 100%;
-      }
-      .ef-cols {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-      }
-      .ef-cols .fv-readout {
-        min-width: 0;
-      }
-      .ef-cols .fv-readout__label {
-        overflow: hidden;
-        white-space: nowrap;
-        text-overflow: ellipsis;
-      }
-      .ef-cols--stack {
-        grid-template-columns: minmax(0, 1fr);
       }
       .en-list__row .en-words__label {
         overflow: hidden;
@@ -340,6 +328,7 @@ export class FluvyEnergyFlowCard extends Card<EnergyFlowCardConfig> {
     'card_color',
     'tap_action',
     'hold_action',
+    'show_icon',
   ];
   static override keys = configKeys<EnergyFlowCardConfig>()([
     'title',
@@ -418,6 +407,7 @@ export class FluvyEnergyFlowCard extends Card<EnergyFlowCardConfig> {
       schema: [
         titleFields(),
         fieldRow(iconField(), entityField(['sensor'], 'home', false)),
+        showIconField(),
         fieldRow(selectField('variant', FLOW_VARIANTS), selectField('flow_style', FLOW_STYLES)),
         fieldRow(selectField('motion', MOTION_MODES), numberField('max_power', 100, 100000, 100)),
         fieldRow(
@@ -648,7 +638,7 @@ export class FluvyEnergyFlowCard extends Card<EnergyFlowCardConfig> {
       grid: nodes.find((n) => n.kind === 'grid')?.ink,
       battery: nodes.find((n) => n.kind === 'battery')?.ink,
     };
-    const stale = !period && this.isStale();
+    const stale = !period && isStale(this.newest(), this.now());
     const shown = nodes
       .map((n) => ({ ...n, lanes: lanesOf(n, origins) }))
       .filter((n) => {
@@ -831,17 +821,10 @@ export class FluvyEnergyFlowCard extends Card<EnergyFlowCardConfig> {
 
   /** The newest reading of every source: "live" is only said when it is true. */
   private newest(): number {
-    let newest = 0;
-    for (const id of [...this.sourceList().flatMap(sourceIds), this.config?.home]) {
-      const state = id ? this.hass?.states[id] : undefined;
-      const at = Date.parse(
-        (state as { last_reported?: string } | undefined)?.last_reported ??
-          state?.last_updated ??
-          '',
-      );
-      if (at > newest) newest = at;
-    }
-    return newest;
+    return newestReport(this.hass, [
+      ...this.sourceList().flatMap(sourceIds),
+      ...(this.config?.home ? [this.config.home] : []),
+    ]);
   }
 
   private now(): number {
@@ -849,24 +832,11 @@ export class FluvyEnergyFlowCard extends Card<EnergyFlowCardConfig> {
     return Number.isFinite(pinned) ? pinned : Date.now();
   }
 
-  private isStale(): boolean {
-    const newest = this.newest();
-    return newest > 0 && this.now() - newest > STALE_MS;
-  }
-
   private freshness(): string {
     const period = this.periodOf();
-    if (period) return s(this.hass, `period_${period}`);
-    const newest = this.newest();
-    const live = s(this.hass, 'live');
-    if (!newest) return live;
-    const age = Math.max(0, Math.floor((this.now() - newest) / 5000) * 5);
-    if (age < 5) return `${live} · ${this.t('common.now').toLowerCase()}`;
-    if (age < 60) return `${live} · ${s(this.hass, 'seconds_ago', { count: age })}`;
-    const text = relativeTime(this.hass, new Date(newest), new Date(this.now()));
-    return age * 1000 > STALE_MS
-      ? s(this.hass, 'updated', { when: text })
-      : text.charAt(0).toUpperCase() + text.slice(1);
+    return period
+      ? s(this.hass, `period_${period}`)
+      : liveWords(this.hass, this.newest(), this.now());
   }
 
   /** The head's badge: how much of the house runs on sun (or its self-sufficiency, or the grid's way). */
@@ -936,16 +906,9 @@ export class FluvyEnergyFlowCard extends Card<EnergyFlowCardConfig> {
   /** The head's second line: the freshness, or which source cannot be read and since when. */
   private sub(scene: Scene): string {
     if (this.config?.subtitle !== undefined) return this.config.subtitle;
+    // "Solar · unavailable · since 19:47", in segments the head drops from the end where the line would not hold
     const dead = scene.nodes.find((n) => n.dead);
-    if (dead && dead.entity) {
-      // "Solar · unavailable · since 19:47", in segments the head drops from the end where the line would not hold
-      const changed = Date.parse(this.hass?.states[dead.entity]?.last_changed ?? '');
-      const unavailable = this.t('state.unavailable').toLocaleLowerCase(this.hass?.language);
-      return Number.isFinite(changed)
-        ? `${dead.label} · ${unavailable} · ${s(this.hass, 'since_time', { time: formatTime(this.hass, new Date(changed)) })}`
-        : `${dead.label} · ${unavailable}`;
-    }
-    return this.shownFreshness;
+    return dead?.entity ? downLine(this.hass, dead.label, dead.entity) : this.shownFreshness;
   }
 
   /* ---------- measuring ---------- */
@@ -990,7 +953,13 @@ export class FluvyEnergyFlowCard extends Card<EnergyFlowCardConfig> {
     const w = this.contentWidth;
     const title = this.config?.title ?? s(this.hass, 'title');
     const badge = this.badge(scene);
-    const fitted = this.head.fit({ width: w, title, sub: this.sub(scene), badge });
+    const sub = this.sub(scene);
+    // stale, "Updated 32 days ago" says its age alone where the column cannot hold it ("32 days ago")
+    const shorter =
+      sub === this.shownFreshness && !scene.period
+        ? staleShorter(this.hass, this.newest(), this.now())
+        : [];
+    const fitted = this.head.fit({ width: w, title, sub, badge, shorter });
     const period = scene.period;
     const body =
       scene.empty === 'sources'
@@ -1017,8 +986,8 @@ export class FluvyEnergyFlowCard extends Card<EnergyFlowCardConfig> {
         sub: fitted.sub,
         trailing: fitted.badge,
         name: Boolean(this.config?.title),
-        onIconTap: () => this.tap(),
-        onHold: () => this.hold(),
+        cut: fitted.cut,
+        ...this.headActions(),
       })}
       ${
         period && this.config?.show_period !== false
@@ -1043,9 +1012,11 @@ export class FluvyEnergyFlowCard extends Card<EnergyFlowCardConfig> {
       ${body}
       ${
         totals.length
-          ? html`<div class="ef-cols fv-cols ${w < 240 ? 'ef-cols--stack' : ''}">
-              ${legendReadouts(this.hass, totals, (id) => this.entity(id))}
-            </div>`
+          ? statsCols(
+              this.head.ruler,
+              w,
+              legendStats(this.hass, totals, (id) => this.entity(id)),
+            )
           : nothing
       }
     </article>`;
@@ -1452,29 +1423,51 @@ export class FluvyEnergyFlowCard extends Card<EnergyFlowCardConfig> {
   private renderConsumerRows(scene: Scene): TemplateResult | typeof nothing {
     if (!scene.consumers.length) return nothing;
     const house = scene.houseValue;
+    const w = this.contentWidth;
+    // "64 % of the house", or the share alone ("64 %", tr "%64") where the words would be cut beside the figure
+    const rows = scene.consumers.map((c, i) => {
+      const words = scene.consumerWords[i] as Words;
+      const value = words.value === '—' ? '—' : `${words.value} ${words.unit}`;
+      if (!house || c.watts === null) return { c, value, share: 0, segment: null };
+      const share = c.watts / house;
+      const percent = Math.round(Math.min(1, share) * 100);
+      const segment = {
+        text: s(this.hass, 'share_of_house', { percent }),
+        short: devices(this.hass, 'share', { percent }),
+      };
+      return { c, value, share, segment };
+    });
+    // the circles give way together where a share would not hold whole beside its figure, as every list's do
+    const keep = this.head.rowsKeepIcon(
+      w,
+      rows.map(({ c, value, segment }) => ({
+        title: c.label,
+        value,
+        ...(segment ? { sub: segment.short } : {}),
+      })),
+    );
     return html`<div class="ef-rows">
-      ${scene.consumers.map((c, i) => {
-        const words = scene.consumerWords[i] as Words;
-        const share = house && c.watts !== null ? c.watts / house : 0;
-        return barRow({
-          icon: c.glyph,
+      ${rows.map(({ c, value, share, segment }) =>
+        barRow({
+          icon: keep ? c.glyph : null,
           tone: 'neutral',
           title: c.label,
           name: true,
           accent: c.accent,
-          ...(house && c.watts !== null
+          ...(segment
             ? {
-                sub: s(this.hass, 'share_of_house', {
-                  percent: Math.round(Math.min(1, share) * 100),
-                }),
+                sub: this.head.fitRowSegments(
+                  [segment],
+                  this.head.rowRoom(w, value, { icon: keep }),
+                ),
               }
             : {}),
-          value: words.value === '—' ? '—' : `${words.value} ${words.unit}`,
+          value,
           fraction: share,
           barTone: c.accent ? 'accent' : 'ink',
           ...(c.entity ? { onTap: () => this.tap(c.entity, { action: 'more-info' }) } : {}),
-        });
-      })}
+        }),
+      )}
     </div>`;
   }
 

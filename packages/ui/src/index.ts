@@ -14,6 +14,7 @@ export {
   clamp,
   clickPress,
   decimalsOf,
+  holdKey,
   precisionGain,
   preventMenu,
   saneRange,

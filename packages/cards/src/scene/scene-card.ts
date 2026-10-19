@@ -83,15 +83,14 @@ export class FluvySceneCard extends Card<SceneCardConfig> {
         animation: fv-enter 420ms var(--fv-ease-out) both;
         animation-delay: var(--fv-enter-delay, 0ms);
       }
-      /* as a button the unavailable tile needs what an <article> has for free */
-      button.fv-tile--off {
-        width: 100%;
-        text-align: left;
+      /* out of reach, the scene's own tile wears the off tile's skin: the page fill and the dashed hairline */
+      .fv-scene.fv-tile--off {
+        background: var(--fluvy-page);
+        box-shadow: none;
       }
       /* two-up in a narrow column the tile is ~148 wide: it gives its padding to the words (10 sides, 8 gap — "Unavailable"
          is 74 px at 13/500), and a name takes a second line before it loses its end ("Good night" is 83 px at 15/600; 2 × 20 + 16 sits in the 76) */
-      .is-tight.fv-scene,
-      .is-tight.fv-tile--off {
+      .is-tight.fv-scene {
         gap: 8px;
         padding-left: 10px;
         padding-right: 10px;
@@ -239,7 +238,7 @@ export class FluvySceneCard extends Card<SceneCardConfig> {
         isTight,
       );
       return html`<button
-        class="fv-tile fv-tile--off fv-tile--tap ${tight}"
+        class="fv-scene fv-tile--off fv-tile--tap ${tight}"
         data-card
         data-target
         @click=${() => this.tap(view.id, { action: 'more-info' })}

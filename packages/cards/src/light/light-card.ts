@@ -1,13 +1,18 @@
 import {
   formatNumber,
   isUsable,
+  lightDefaults,
+  PALETTE_ACCENT,
   stateText,
   type FluvyCardConfig,
   type HaFormSchemaItem,
+  type LightTint,
   type LovelaceConfigForm,
   type LovelaceGridOptions,
   type MessageKey,
+  type HomeAssistant,
 } from '@fluvy/core';
+import { LIT_FLOOR } from '@fluvy/tokens/runtime';
 
 import {
   head,
@@ -24,11 +29,11 @@ import {
 
 import { css, html, nothing, type CSSResultGroup, type TemplateResult } from 'lit';
 
-import { Card } from '../shared/base.js';
+import { Card, HEAD_BASE } from '../shared/base.js';
 import { HeadFit, SWITCH_SLOT } from '../energy/head.js';
 import { configKeys } from '../shared/config.js';
 
-import { glyphFor } from '../shared/domain.js';
+import { glyphFor, stateWord } from '../shared/domain.js';
 
 import {
   actionFields,
@@ -41,11 +46,14 @@ import {
   formLabels,
   nameIconFields,
   selectField,
+  showIconField,
   textField,
+  tintField,
 } from '../shared/form.js';
-import { rowsOf } from '../shared/heights.js';
-import { bulbHex, COLOURED, DIMMABLE, hexOf } from '../shared/light.js';
+import { listAttr, rowsOf } from '../shared/heights.js';
+import { COLOURED, DIMMABLE, glowOf, hexOf, type LightWhites } from '../shared/light.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
+import { fitValueRow, STEPPER, STEPPER_HALVES, valueRowClass } from '../shared/value-row.js';
 import type { HeldColour } from './colour.js';
 import {
   CUSTOM,
@@ -59,8 +67,14 @@ import {
 /** How the card is drawn: the full dimmer, or the compact one (its level in the head, the ruler alone); `auto` picks by width. */
 export type LightVariant = 'auto' | 'full' | 'compact';
 
+/** How much of its colour a lit card shows: a lit tile's whole fill, a gentle wash, or as much as the lamp is bright. */
+export type TintStrength = 'soft' | 'brightness' | 'full';
+const STRENGTHS: readonly TintStrength[] = ['soft', 'brightness', 'full'];
+
 export interface LightCardConfig extends FluvyCardConfig {
   variant?: LightVariant;
+  /** The − and + beside the full card's level (default). Off: the level is set on its ruler, and the readout is the card's tap. */
+  show_stepper?: boolean;
   /** Send brightness while dragging (throttled) instead of only on release. */
   live_update?: boolean;
   show_temperature?: boolean;
@@ -73,6 +87,15 @@ export interface LightCardConfig extends FluvyCardConfig {
    * `picker`, or any of those with a name (`{ color, name }`).
    */
   colors?: readonly SwatchEntry[];
+  /**
+   * The card shows its light's colour on its surface (1.9): never (`off`), while the light is on (`on`), or at rest
+   * too (`always`: a quiet wash) — the house's choice (fluvy's settings) where the card says none.
+   */
+  tint?: LightTint;
+  /** How much: a lit tile's whole fill (`full`, the default), a gentle wash (`soft`), or as the lamp is bright. */
+  tint_strength?: TintStrength;
+  /** A lit white: as the palette's lit light (`palette`, the default), or by its temperature (`temperature`). */
+  light_whites?: LightWhites;
 }
 
 /** The colour controls' module: fetched the first time a colour bulb is drawn, once for every light card. */
@@ -166,10 +189,18 @@ export class FluvyLightCard extends Card<LightCardConfig> {
    * (16 above, 44 rounds, six a row, as many rows as the count takes; a named entry counts one) when they may; a
    * white bulb under the same config draws less, and a list of none draws no row.
    */
-  static override layoutHeight(config: LightCardConfig): number {
+  static override layoutHeight(config: LightCardConfig, hass?: HomeAssistant): number {
     if (config.variant === 'compact') return 188;
-    const slot = config.show_temperature !== false || config.show_color !== false ? 100 : 0;
-    const rows = config.show_color !== false ? rowsOf(config.colors?.length ?? 6, 6) : 0;
+    // the house says what the bulb does: a colour bulb its ruler and swatches, a white one its temperature ruler, a
+    // dimmer neither (and a bulb the house has not described draws as a dimmer); without the house, a colour bulb
+    const modes = listAttr(hass, config.entity, 'supported_color_modes');
+    const colour = !hass || modes.some((m) => COLOURED.has(m));
+    const temperature = colour || modes.includes('color_temp');
+    const slot =
+      (config.show_temperature !== false && temperature) || (config.show_color !== false && colour)
+        ? 100
+        : 0;
+    const rows = config.show_color !== false && colour ? rowsOf(config.colors?.length ?? 6, 6) : 0;
     const swatches = rows ? 8 + rows * 52 : 0;
     return 268 + slot + swatches;
   }
@@ -221,13 +252,18 @@ export class FluvyLightCard extends Card<LightCardConfig> {
     this.window_ = null;
   }
 
+  static override base = HEAD_BASE;
   static override keys = configKeys<LightCardConfig>()([
     'variant',
+    'show_stepper',
     'live_update',
     'show_temperature',
     'temperature_tint',
     'show_color',
     'colors',
+    'tint',
+    'tint_strength',
+    'light_whites',
   ]);
   /**
    * The quick colours, edited row by row in their order, any number of them: each a colour (a word, the picker,
@@ -265,23 +301,34 @@ export class FluvyLightCard extends Card<LightCardConfig> {
   static override defaults: EditorDefaults = (config, hass) => ({
     live_update: false,
     variant: 'auto',
+    show_stepper: true,
     show_temperature: true,
     show_color: true,
     temperature_tint: true,
     colors: defaultSwatches(modesOf(config, hass)),
+    tint: lightDefaults().tint,
+    tint_strength: 'full',
+    light_whites: 'palette',
   });
   static override getConfigForm(): LovelaceConfigForm {
     return {
       schema: [
         entityField(['light']),
         nameIconFields(),
-        selectField('variant', ['auto', 'full', 'compact']),
+        showIconField(),
+        fieldRow(selectField('variant', ['auto', 'full', 'compact']), boolField('show_stepper')),
         fieldRow(boolField('show_temperature'), boolField('show_color')),
         // the list is edited row by row (the rows editor takes the field out of the form)
         { name: 'colors', selector: { object: {} } },
         boolField('temperature_tint'),
         boolField('live_update'),
-        ...colourFields(),
+        // its colour follows the light's unless one is given (Home Assistant's State, as its own tile's)
+        ...colourFields({ state: true }),
+        fieldRow(
+          tintField(['off', 'on', 'always']),
+          selectField('tint_strength', STRENGTHS, { words: { full: 'full_colour' } }),
+        ),
+        selectField('light_whites', ['palette', 'temperature']),
         actionFields(),
       ],
       ...formLabels({
@@ -313,13 +360,27 @@ export class FluvyLightCard extends Card<LightCardConfig> {
     };
   }
 
+  /** A light group's members are watched too: its colour is theirs. */
+  protected override watched(): readonly string[] {
+    return [...super.watched(), ...this.members()];
+  }
+
+  /** What a light group holds (`entity_id`); none for a single light. */
+  private members(): readonly string[] {
+    const ids = this.hass?.states[this.config?.entity ?? '']?.attributes['entity_id'];
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [];
+  }
+
   override getCardSize(): number {
     return this.config?.variant === 'compact' ? 2 : 4;
   }
-  /** Half a section is enough (two lamps on a line); a card asked to be compact starts there. */
+  /**
+   * Half a section is enough (two lamps on a line); a card asked to be compact starts there, and never goes under it:
+   * in a third, the switch left its name no room.
+   */
   override getGridOptions(): LovelaceGridOptions {
     return this.config?.variant === 'compact'
-      ? { columns: 6, rows: 'auto', min_columns: 4 }
+      ? { columns: 6, rows: 'auto', min_columns: 6 }
       : { columns: 12, rows: 'auto', min_columns: 6 };
   }
 
@@ -402,8 +463,12 @@ export class FluvyLightCard extends Card<LightCardConfig> {
     kelvin: number,
     minK: number,
     maxK: number,
+    unusable: boolean,
+    onFill: boolean,
   ): TemplateResult {
-    return html`${label(this.t('light.temperature'))}
+    // its label on one line: the short form where the column does not hold "Température de couleur" (half a section)
+    const words = this.t('light.temperature');
+    return html`${label(this.head.ruler.width('fv-label', words) <= width ? words : this.t('light.temperature_short'))}
       <fluvy-ruler
         .value=${kelvin}
         .min=${minK}
@@ -414,6 +479,8 @@ export class FluvyLightCard extends Card<LightCardConfig> {
         .minor=${0.1}
         .major=${0.5}
         ?inactive=${!on}
+        ?disabled=${unusable}
+        ?on-fill=${onFill}
         .tint=${this.config?.temperature_tint === false ? '' : 'warm-cool'}
         unit="K"
         .label=${`${name} · ${this.t('light.temperature')}`}
@@ -426,15 +493,53 @@ export class FluvyLightCard extends Card<LightCardConfig> {
       ])}`;
   }
 
+  /**
+   * The full card's level and its stepper, laid out for the column from every figure it can show (100 %, the word for
+   * off), never from the state (`fitValueRow`): beside, else the stepper centred under the level; the stepper stays,
+   * still, while the lamp cannot be reached. Without it the readout is the card's tap.
+   */
+  private renderLevel(
+    entityId: string,
+    name: string,
+    on: boolean,
+    unusable: boolean,
+    level: number,
+  ): TemplateResult {
+    const label = this.t('light.brightness');
+    const off = this.t('common.off');
+    const fit = fitValueRow(this.head.ruler, {
+      width: this.contentWidth,
+      control: this.config?.show_stepper === false ? 0 : STEPPER,
+      narrow: STEPPER_HALVES,
+      labels: [label],
+      figures: [{ value: formatNumber(this.hass, 100, { digits: 0 }), unit: '%' }, { value: off }],
+    });
+    const lit = on || this.preview_ !== null;
+    const value = unusable ? '—' : lit ? formatNumber(this.hass, level, { digits: 0 }) : off;
+    const unit = unusable || !lit ? '' : '%';
+    return html`<div class="sl-value ${valueRowClass(fit.layout)}">
+      ${readout({ label, value, unit, size: fit.size })}
+      ${
+        fit.layout !== 'alone'
+          ? stepper((d) => this.stepBrightness(d), {
+              disabled: unusable,
+              decrease: this.t('common.decrease'),
+              increase: this.t('common.increase'),
+            })
+          : this.readoutTap(entityId, `${name} · ${label} ${value} ${unit}`)
+      }
+    </div>`;
+  }
+
   protected renderCard(): TemplateResult {
     const view = this.entity();
     const name = this.config?.name ?? view.name;
-    if (view.status === 'missing')
-      return this.renderEmpty(`${name} · ${stateText(this.hass, view)}`);
+    // a light that cannot be read keeps the card's whole anatomy, still: its switch, its level ("—"), its rulers
     const unusable = !isUsable(view);
-    const on = this.stateOf(view) === 'on' || (this.held !== null && this.held.value > 0);
+    const on = !unusable && (this.stateOf(view) === 'on' || (this.held?.value ?? 0) > 0);
     const modes = view.attr<string[]>('supported_color_modes') ?? [];
-    const dimmable = modes.some((m) => DIMMABLE.has(m));
+    // a light Home Assistant has not described (gone, or unavailable since it started) draws as a dimmer
+    const dimmable = modes.some((m) => DIMMABLE.has(m)) || (unusable && !modes.length);
     const raw = view.attr<number | null>('brightness');
     const reported = on && typeof raw === 'number' ? Math.max(1, Math.round((raw / 255) * 100)) : 0;
     // released only by an exact match or by time: a ±1 tolerance would swallow every single-step change
@@ -443,7 +548,6 @@ export class FluvyLightCard extends Card<LightCardConfig> {
     const level = this.held ? this.held.value : reported;
     this.level = level;
     const shownLevel = this.preview_ ?? level;
-    const tone: Tone = unusable ? 'off' : 'light';
     const w = this.contentWidth;
     const variant = this.config?.variant ?? 'auto';
     const compact = variant === 'compact' || (variant === 'auto' && w < COMPACT_BELOW);
@@ -453,7 +557,7 @@ export class FluvyLightCard extends Card<LightCardConfig> {
       ? win.marks
           .filter(([f]) => f > 0.06 && f < 0.94)
           .map(([f, v]) => [f, formatNumber(this.hass, v, { digits: 0 })])
-      : compact
+      : compact || w < COMPACT_BELOW
         ? [
             [0, '0'],
             [0.5, '50'],
@@ -468,24 +572,34 @@ export class FluvyLightCard extends Card<LightCardConfig> {
           ];
     // the compact head says the level where the full card has its big value ("On · 70 %")
     const state = stateText(this.hass, view);
+    const figure = `${formatNumber(this.hass, shownLevel, { digits: 0 })} %`;
     const sub = compact
       ? on && dimmable
-        ? `${state} · ${formatNumber(this.hass, shownLevel, { digits: 0 })} %`
+        ? `${state} · ${figure}`
         : state
-      : view.areaName || state;
-
-    const kelvin = view.attr<number | null>('color_temp_kelvin');
-    const minK = view.attr<number>('min_color_temp_kelvin') ?? 2000;
-    const maxK = view.attr<number>('max_color_temp_kelvin') ?? 6500;
-    const hasTemp = modes.includes('color_temp') && this.config?.show_temperature !== false;
-    const temperature = hasTemp
-      ? () => this.temperatureRuler(name, w, on, kelvin ?? minK, minK, maxK)
-      : undefined;
+      : (!unusable && view.areaName) || state;
+    // where the state's words would not hold beside the switch (es "Encendida" in half a section), the line says the
+    // level, or the state's one word ("Not found"), else keeps its place, empty (the switch says on or off) — never a
+    // word cut; an area's name ends in its ellipsis, as names do
+    const short =
+      compact || sub === state
+        ? [
+            ...(compact && on && dimmable
+              ? [figure]
+              : unusable
+                ? [stateWord(this.hass, view)]
+                : []),
+            '\u00a0',
+          ]
+        : [];
 
     // a colour bulb: its controls come with their module (the first colour bulb fetches it); until then, the white bulb's card
     const coloured = modes.some((m) => COLOURED.has(m)) && this.config?.show_color !== false;
     if (coloured && !this.colour) this.loadColour();
     const colour = coloured ? this.colour : undefined;
+    const kelvin = view.attr<number | null>('color_temp_kelvin');
+    const minK = view.attr<number>('min_color_temp_kelvin') ?? 2000;
+    const maxK = view.attr<number>('max_color_temp_kelvin') ?? 6500;
     // the held colour lets go when the bulb reports it, or when its time is up
     if (
       this.heldColour &&
@@ -494,10 +608,46 @@ export class FluvyLightCard extends Card<LightCardConfig> {
     )
       this.heldColour = null;
     const choice = this.heldColour?.choice ?? null;
-    // the card wears the bulb's colour (the finger's while held) where the config gives it none: the icon, the
-    // switch and the brightness ruler take it through the light-active family the accent remaps
-    const bulb = choice ? ('rgb' in choice ? hexOf(choice.rgb) : undefined) : bulbHex(view, on);
-    const accent = this.config?.color ? undefined : this.accents.item(bulb);
+
+    // its colour: the one it is given (a name, a hex; Primary: the palette's accent), else a tone it is given, else
+    // the light's own — the finger's choice while held, what it glows (a group: its lit members', by brightness), the
+    // colour it last glowed while a flip waits for Home Assistant — and, glowing none, the palette's lit light
+    const own = this.accents.pick(this.config?.color);
+    const tone: Tone = own ? 'accent' : (this.config?.tone ?? 'light');
+    const live =
+      own || this.config?.tone
+        ? undefined
+        : choice
+          ? 'rgb' in choice
+            ? hexOf(choice.rgb)
+            : undefined
+          : glowOf(
+              view,
+              on,
+              this.config?.light_whites,
+              this.members().map((id) => this.entity(id)),
+            );
+    // the icon, the switch and the rulers take it through the light-active family `data-accent` remaps
+    const accent = live ? this.accents.item(live) : undefined;
+
+    // its surface (`tint`): lit, a lit tile's whole fill or a wash as strong as asked; at rest (`always`) a quiet wash
+    // where no `card_color` is; a light that cannot be read keeps the unavailable skin
+    const tint = this.config?.tint ?? lightDefaults().tint;
+    const strength = this.config?.tint_strength ?? 'full';
+    // a word the card does not know is never lit
+    const lit = on && (tint === 'on' || tint === 'always');
+    const full = lit && strength === 'full';
+    const source = live ?? (own && own !== PALETTE_ACCENT ? own : tone);
+    const surface = lit
+      ? full
+        ? undefined
+        : this.accents.lit(
+            source,
+            strength === 'soft' ? LIT_FLOOR : dimmable ? Math.max(LIT_FLOOR, shownLevel / 100) : 1,
+          )
+      : tint === 'always' && !unusable && !this.config?.card_color
+        ? this.accents.lit(source, 0)
+        : undefined;
 
     // the head fitted to its column round its switch: the sub steps aside, then the icon — never the switch (half
     // a phone's section leaves 136: the name and the switch, and the ruler under them)
@@ -505,45 +655,43 @@ export class FluvyLightCard extends Card<LightCardConfig> {
       width: w,
       title: name,
       sub,
-      ...(unusable ? {} : { trailing: SWITCH_SLOT }),
+      shorter: short,
+      trailing: SWITCH_SLOT,
     });
+    const temperature =
+      modes.includes('color_temp') && this.config?.show_temperature !== false
+        ? () => this.temperatureRuler(name, w, on, kelvin ?? minK, minK, maxK, unusable, full)
+        : undefined;
 
     return html`<article
-      class="fv-card sl-card ${unusable ? 'is-unavailable is-off' : ''} ${compact ? 'sl-card--compact' : ''}"
+      class="fv-card sl-card ${unusable ? 'is-unavailable is-off' : ''} ${compact ? 'sl-card--compact' : ''} ${full ? `is-lit fv-tone--${tone}` : lit && surface ? 'is-glow' : ''}"
       data-card
       data-accent=${accent ?? nothing}
+      data-surface=${surface ?? nothing}
     >
       ${head({
         icon: fitted.icon ? (this.config?.icon ?? glyphFor(view)) : null,
-        tone: on ? tone : unusable ? 'off' : 'neutral',
+        small: fitted.small,
+        tone: unusable ? 'off' : on ? tone : 'neutral',
         title: name,
         name: true,
         sub: fitted.sub,
-        trailing: unusable
-          ? nothing
-          : toggle(
-              on,
-              'light',
-              (next) => {
-                this.expect(view.id, next ? 'on' : 'off');
-                this.call('light', next ? 'turn_on' : 'turn_off');
-              },
-              name,
-            ),
-        onIconTap: () => this.tap(view.id),
-        onHold: () => this.hold(view.id),
-        iconLabel: name,
+        trailing: toggle(
+          on,
+          tone,
+          (next) => {
+            this.expect(view.id, next ? 'on' : 'off');
+            this.call('light', next ? 'turn_on' : 'turn_off');
+          },
+          name,
+          unusable,
+        ),
+        cut: fitted.cut,
+        ...this.headActions(view.id),
       })}
       ${
         dimmable
-          ? html` ${
-                compact
-                  ? nothing
-                  : html`<div class="sl-value fv-value-row">
-                      ${readout({ label: this.t('light.brightness'), value: unusable ? '—' : on || this.preview_ !== null ? formatNumber(this.hass, shownLevel, { digits: 0 }) : this.t('common.off'), unit: unusable || (!on && this.preview_ === null) ? '' : '%', size: 'l' })}
-                      ${unusable ? nothing : stepper((d) => this.stepBrightness(d), { decrease: this.t('common.decrease'), increase: this.t('common.increase') })}
-                    </div>`
-              }
+          ? html` ${compact ? nothing : this.renderLevel(view.id, name, on, unusable, shownLevel)}
               <div class="sl-bubble-row"></div>
               <fluvy-ruler
                 .value=${level}
@@ -551,10 +699,11 @@ export class FluvyLightCard extends Card<LightCardConfig> {
                 .max=${100}
                 .step=${1}
                 .length=${w}
-                .tone=${on ? 'light' : 'neutral'}
+                .tone=${on ? tone : 'neutral'}
                 ?disabled=${unusable}
                 ?inactive=${!on}
                 ?wake=${!unusable}
+                ?on-fill=${full}
                 unit="%"
                 .label=${`${name} · ${this.t('light.brightness')}`}
                 .format=${(v: number) => formatNumber(this.hass, v, { digits: 0 })}
@@ -571,7 +720,9 @@ export class FluvyLightCard extends Card<LightCardConfig> {
           : nothing
       }
       ${
-        unusable || compact
+        // the compact layout asked for keeps the head and the ruler; one of a colour bulb by its width (a zoomed phone)
+        // keeps a row of its quick colours too
+        variant === 'compact'
           ? nothing
           : colour
             ? colour.colourControls({
@@ -586,9 +737,15 @@ export class FluvyLightCard extends Card<LightCardConfig> {
                 maxK,
                 format: (v) => formatNumber(this.hass, v, { digits: 0 }),
                 temperature,
+                disabled: unusable,
+                onFill: full,
+                row: compact,
+                host: this,
                 pick: (picked, data) => this.pickColour(picked, data),
               })
-            : (temperature?.() ?? nothing)
+            : compact
+              ? nothing
+              : (temperature?.() ?? nothing)
       }
     </article>`;
   }

@@ -9,12 +9,14 @@ import type { Card, Section, StrategyContext, ViewSpec } from '../types.js';
  * and who is home on the right. No tabs: a room opens as a subview and comes back here.
  */
 
-/** The rooms a wall shows: the ones asked for (in that order), else every room with something in it. */
+/**
+ * The rooms a wall shows: the ones asked for that exist, in that order — one chosen and empty is kept, its card saying
+ * so — else every room with something in it.
+ */
 export function wallRooms(ctx: StrategyContext): AreaRegistryEntry[] {
-  const rooms = roomsOf(ctx.home);
-  if (!ctx.areas) return rooms;
+  if (!ctx.areas) return roomsOf(ctx.home);
   return ctx.areas
-    .map((id) => rooms.find((area) => area.area_id === id))
+    .map((id) => ctx.home.areas.find((area) => area.area_id === id))
     .filter((area): area is AreaRegistryEntry => area !== undefined);
 }
 

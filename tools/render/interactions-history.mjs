@@ -252,6 +252,11 @@ const inside = (page, fn) =>
     'the calendar opens a popover',
     (await page.locator('fluvy-history .fv-popover').count()) === 1,
   );
+  // the picker's words are the pages' shared ones: since 1.8.0 this page said the raw "from" and "to"
+  const times = await page
+    .locator('fluvy-history fluvy-date-picker .ad-time > span')
+    .allTextContents();
+  check('its times say From and To', times.join() === 'From,To', times.join());
   await page.keyboard.press('Escape');
   await page.waitForTimeout(400);
   check('Escape closes it', (await page.locator('fluvy-history .fv-popover').count()) === 0);
@@ -264,6 +269,18 @@ const inside = (page, fn) =>
   await page.keyboard.press('Escape');
   await page.waitForTimeout(400);
   check('Escape closes the drawer', (await page.locator('fluvy-history .fv-drawer').count()) === 0);
+  await page.close();
+}
+
+/* ---------- the picker in another language: its words, never its keys ---------- */
+{
+  const page = await open('lang=de');
+  await page.locator('fluvy-history .hs-pick').click();
+  await page.waitForTimeout(400);
+  const times = await page
+    .locator('fluvy-history fluvy-date-picker .ad-time > span')
+    .allTextContents();
+  check('de: its times say Von and Bis', times.join() === 'Von,Bis', times.join());
   await page.close();
 }
 

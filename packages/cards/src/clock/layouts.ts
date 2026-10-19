@@ -2,8 +2,9 @@ import { formatNumber, localize, strings, type HomeAssistant } from '@fluvy/core
 import { clockFace, ico, readout, type Tone } from '@fluvy/ui';
 import { html, nothing, type TemplateResult } from 'lit';
 import { keyed } from 'lit/directives/keyed.js';
-import { firstFit, fitLine, type Segment, type TextRuler } from '../shared/fit.js';
-import type { Forecast, Sky } from './sky.js';
+import { fitLine, type Segment, type TextRuler } from '../shared/fit.js';
+import { statsRow } from '../shared/readouts.js';
+import { lowerFirst, type Forecast, type Sky } from './sky.js';
 import type { ClockParts } from './time.js';
 
 const s = strings('clock', 'weather');
@@ -22,7 +23,7 @@ export interface ClockModel {
   readonly face: Date;
   readonly clock: ClockParts;
   readonly title: string;
-  readonly date: { readonly full: string; readonly short: string } | null;
+  readonly date: { readonly full: string; readonly short: string; readonly tiny: string } | null;
   readonly week: number | null;
   /** Null without a `weather` entity. */
   readonly sky: Sky | null;
@@ -47,6 +48,9 @@ const clamp = (value: number, min: number, max: number): number =>
 
 const degrees = (m: ClockModel, value: number | null): string =>
   value === null ? '—' : formatNumber(m.hass, value, { digits: 0 });
+
+/** The widest figure a degree is laid out for: a frost below ten, as tabular as the rest. */
+const WIDEST_DEGREES = '−88';
 
 /** Tabular figures: every "00:00" is as wide as any other time, so the layout never moves with the hour. */
 const widest = (time: string): string => time.replace(/\d/g, '0').padStart(5, '0');
@@ -74,37 +78,88 @@ function units(m: ClockModel): string[] {
   return seconds ? [[seconds, period].filter(Boolean).join(' '), period] : [period];
 }
 
-function big(time: string, unit: string): TemplateResult {
-  return html`<p class="ck-big" data-align="optical">
+function big(time: string, unit: string, small: boolean): TemplateResult {
+  return html`<p class="ck-big ${small ? 'ck-big--s' : ''}" data-align="optical">
     <span data-baseline="d">${time}</span
     >${unit ? html`<span class="ck-big__unit" data-baseline="d">${unit}</span>` : nothing}
   </p>`;
 }
 
+/**
+ * The big time's unit and size for a column: the fullest unit that holds beside the widest time at 64 — then none —
+ * and, where not even the time alone holds, the same at the smaller size (48, the step before a digit is cut).
+ */
+function bigFit(
+  m: ClockModel,
+  available: number,
+): { readonly unit: string; readonly small: boolean } {
+  const all = [...units(m), ''];
+  for (const small of [false, true]) {
+    const cls = small ? 'ck-big ck-big--s' : 'ck-big';
+    const unit = all.find(
+      (candidate) =>
+        m.ruler.width(cls, widest(m.clock.time), 'ck-big__unit', candidate) <= available,
+    );
+    if (unit !== undefined) return { unit, small };
+  }
+  return { unit: '', small: true };
+}
+
+/**
+ * Outside · Tonight · Tomorrow: three columns where every label and figure holds its third, else two and one (a narrow
+ * column in a long language) — laid out for the widest figure a degree takes, so a reading, or its dash while the
+ * weather is out of reach, never moves the row.
+ */
 function forecastRow(m: ClockModel): Part {
   const { sky, forecast } = m;
-  if (!sky?.ok || forecast.status === 'none') return nothing;
+  if (!sky || forecast.status === 'none') return nothing;
   const ready = forecast.status === 'ready';
-  return html`<div class="ck-cols fv-cols">
-    ${readout({ label: s(m.hass, 'outside'), value: degrees(m, sky.temperature), unit: sky.temperature === null ? '' : sky.unit, size: 's' })}
-    ${readout({ label: s(m.hass, 'tonight'), value: degrees(m, ready ? forecast.tonight : null), unit: ready ? sky.unit : '', size: 's' })}
-    ${readout({ label: localize(m.hass, 'common.tomorrow'), value: degrees(m, ready ? forecast.tomorrow : null), unit: ready ? sky.unit : '', size: 's' })}
+  const items = [
+    {
+      label: s(m.hass, 'outside'),
+      value: degrees(m, sky.temperature),
+      unit: sky.temperature === null ? '' : sky.unit,
+    },
+    {
+      label: s(m.hass, 'tonight'),
+      value: degrees(m, ready ? forecast.tonight : null),
+      unit: ready ? sky.unit : '',
+    },
+    {
+      label: localize(m.hass, 'common.tomorrow'),
+      value: degrees(m, ready ? forecast.tomorrow : null),
+      unit: ready ? sky.unit : '',
+    },
+  ];
+  const unit = sky.unit || m.hass?.config?.unit_system?.temperature || '°C';
+  const { columns, size, odd } = statsRow(
+    m.ruler,
+    m.width,
+    items.map((item) => ({ ...item, value: WIDEST_DEGREES, unit })),
+  );
+  return html`<div
+    class="ck-cols fv-cols ${odd ? 'fv-cols--odd' : ''}"
+    style="--ck-cols:${columns}"
+  >
+    ${items.map((item) => readout({ ...item, size }))}
   </div>`;
 }
 
-/** The weather as caption segments. `lead`: it opens the line. `detail`: nothing else tells the air (A5's line). */
+/**
+ * The weather as caption segments. `lead`: it opens the line. `detail`: nothing else tells the air (A5's line). The
+ * sky takes its shorter word where the line is short of room ("klare Nacht" → "klar", "Entity not found" → "Offline"),
+ * and after a date it is the first to leave, whole, where not even that holds — never cut.
+ */
 function skySegments(m: ClockModel, lead: boolean, detail: boolean): Segment[] {
   const { sky } = m;
   if (!sky) return [];
-  // "Entity not found" is the longest thing a weather can say: a narrow column says "Unavailable" rather than clip it
-  if (!sky.ok)
-    return [
-      {
-        text: lead ? sky.text : sky.inline,
-        short: lead ? s(m.hass, 'unavailable') : s(m.hass, 'unavailable').toLowerCase(),
-      },
-    ];
-  const segments: Segment[] = [{ text: lead ? sky.text : sky.inline }];
+  const segments: Segment[] = [
+    {
+      text: lead ? sky.text : sky.inline,
+      short: lead || sky.inline === sky.text ? sky.short : lowerFirst(sky.short),
+      optional: !lead,
+    },
+  ];
   if (m.forecast.status === 'none' && sky.temperature !== null)
     segments.push({ text: `${degrees(m, sky.temperature)}°`, optional: true });
   if (detail && sky.feels !== null)
@@ -117,18 +172,23 @@ function skySegments(m: ClockModel, lead: boolean, detail: boolean): Segment[] {
   return segments;
 }
 
-/** Title · date · week · weather, as far as the column goes. */
+/** Title · date · week · weather, as far as the column goes; the date without its weekday where even that is short. */
 function caption(m: ClockModel, available: number, withSky: boolean): string {
-  const segments: Segment[] = [];
-  if (m.title) segments.push({ text: m.title });
-  if (m.date) segments.push({ text: m.date.full, short: m.date.short });
-  if (m.week !== null)
-    segments.push({
-      text: localize(m.hass, segments.length ? 'calendar.week' : 'clock.week', { week: m.week }),
-      optional: true,
-    });
-  if (withSky) segments.push(...skySegments(m, segments.length === 0, !m.date));
-  return fitLine(segments, available, (text) => m.ruler.width('ck-caption', text));
+  const width = (text: string): number => m.ruler.width('ck-caption', text);
+  const line = (short?: string): string => {
+    const segments: Segment[] = [];
+    if (m.title) segments.push({ text: m.title });
+    if (m.date) segments.push({ text: m.date.full, ...(short ? { short } : {}) });
+    if (m.week !== null)
+      segments.push({
+        text: localize(m.hass, segments.length ? 'calendar.week' : 'clock.week', { week: m.week }),
+        optional: true,
+      });
+    if (withSky) segments.push(...skySegments(m, segments.length === 0, !m.date));
+    return fitLine(segments, available, width);
+  };
+  const fitted = line(m.date?.short);
+  return width(fitted) > available ? line(m.date?.tiny) : fitted;
 }
 
 /* ---------- hero: the big face, or the big digits ---------- */
@@ -159,7 +219,7 @@ export function heroDigital(m: ClockModel): TemplateResult {
     const line = caption(m, beside, false);
     return html`<div class="ck-split">
       <div>
-        ${big(time, all[0] ?? '')}${line ? html`<p class="ck-caption ck-caption--left" data-baseline="dt">${line}</p>` : nothing}
+        ${big(time, all[0] ?? '', false)}${line ? html`<p class="ck-caption ck-caption--left" data-baseline="dt">${line}</p>` : nothing}
       </div>
       <div class="ck-split__side">
         ${ico(sky.glyph, sky.ok ? m.tone : 'off', { hero: true })}
@@ -171,49 +231,91 @@ export function heroDigital(m: ClockModel): TemplateResult {
     </div>`;
   }
 
+  // the day period outlives the seconds, and the time outlives them both: a column that holds none of them beside the
+  // widest time steps the time down a size (48) before a digit is cut
+  const { unit, small } = bigFit(m, m.width);
   const line = caption(m, m.width, true);
   return html`
-    ${big(time, firstFit(all, fits(m.width)) ?? '')}
+    ${big(time, unit, small)}
     ${line ? html`<p class="ck-caption ck-caption--left">${line}</p>` : nothing} ${row}
   `;
 }
 
 /* ---------- side: the compact face with the time beside it ---------- */
 
-/** "Sunrise 07:31": what a clock without weather says on its last line. */
-function sunLine(m: ClockModel): string {
-  const next = m.sun.next;
-  return next ? [s(m.hass, next.kind), next.at.time, next.at.period].filter(Boolean).join(' ') : '';
-}
+/**
+ * What a clock without weather says on its last line, longest first: "Sunrise 07:31", its short word ("Aufgang
+ * 07:31"), then without the day period (the word says which half of the day).
+ */
+const sunForms = (
+  m: ClockModel,
+  kind: 'sunrise' | 'sunset',
+  time: string,
+  period: string,
+): string[] =>
+  [s(m.hass, kind), s(m.hass, `${kind}_label`), s(m.hass, `${kind}_label`)].map((word, i) =>
+    [word, time, i < 2 ? period : ''].filter(Boolean).join(' '),
+  );
 
 export function side(m: ClockModel): TemplateResult {
   const { time } = m.clock;
   const all = units(m);
   const timeWidth = (unit: string, cls = 'ck-time'): number =>
     m.ruler.width(cls, widest(time), 'fv-unit', unit);
+  // the face box is 2R + 24, pulled 12 out, 8 from the text
+  const room = (R: number): number => (m.analog ? m.width - (2 * R + 20) : m.width);
   // The face yields to the time, never the reverse: 72 on the sheet, down to 48 in a 300 px column on a 12 h clock.
-  const R = clamp(floor4((m.width - 20 - timeWidth(all[0] ?? '')) / 2), 48, 72);
-  const available = m.analog ? m.width - (2 * R + 20) : m.width; // the face box is 2R + 24, pulled 12 out, 8 from the text
-  // a column where not even "10:08 PM" fits beside the smallest face steps the time down to 32 (the tile's small time)
-  const fits = all.find((candidate) => timeWidth(candidate) <= available);
-  const small = fits === undefined;
-  const unit = small
-    ? (firstFit(all, (candidate) => timeWidth(candidate, 'ck-time ck-time--s') <= available) ?? '')
-    : fits;
-  const sub = (segments: Segment[]): string =>
-    fitLine(segments, available, (text) => m.ruler.width('fv-card__sub', text));
+  let R = clamp(floor4((m.width - 20 - timeWidth(all[0] ?? '')) / 2), 48, 72);
+  // a column where not even "10:08 PM" fits beside the smallest face steps the time down to 32 (the tile's small
+  // time), its units going first; where not even the time alone holds at 32, the face follows it down to a tile's
+  // 24 before a digit is cut
+  const SMALL = 'ck-time ck-time--s';
+  let unit = all.find((candidate) => timeWidth(candidate) <= room(R));
+  const small = unit === undefined;
+  if (small) {
+    unit = [...all, ''].find((candidate) => timeWidth(candidate, SMALL) <= room(R));
+    if (unit === undefined) {
+      unit =
+        [...all, ''].find(
+          (candidate) =>
+            timeWidth(candidate, SMALL) <=
+            room(clamp(floor4((m.width - 20 - timeWidth(candidate, SMALL)) / 2), 24, 72)),
+        ) ?? '';
+      R = clamp(floor4((m.width - 20 - timeWidth(unit, SMALL)) / 2), 24, 72);
+    }
+  }
+  // The sun's line takes the form the wider of sunrise and sunset holds at the widest time, so it never changes with
+  // the event or with its time out of reach; the face yields to its shortest form as to the time, down to a tile's
+  // 24, and where not even that holds the line leaves.
+  const width = (text: string): number => m.ruler.width('fv-card__sub', text);
+  const next = m.sky ? null : m.sun.next;
+  const widestSun = (form: number): number =>
+    Math.max(
+      ...(['sunrise', 'sunset'] as const).map((kind) =>
+        width(sunForms(m, kind, widest(time), m.clock.period)[form] ?? ''),
+      ),
+    );
+  if (next && m.analog && widestSun(2) > room(R) && widestSun(2) <= room(24))
+    R = floor4((m.width - 20 - widestSun(2)) / 2);
+  const available = room(R);
+  const form = [0, 1, 2].find((index) => widestSun(index) <= available);
+  const sub = (segments: Segment[]): string => fitLine(segments, available, width);
 
   const lines = [
     m.title,
     m.date
       ? sub([
-          { text: m.date.short },
+          { text: m.date.short, short: m.date.tiny },
           ...(m.week === null
             ? []
             : [{ text: localize(m.hass, 'calendar.week', { week: m.week }), optional: true }]),
         ])
       : '',
-    m.sky ? sub(skySegments(m, true, false)) : sunLine(m),
+    m.sky
+      ? sub(skySegments(m, true, false))
+      : next && form !== undefined
+        ? sunForms(m, next.kind, next.at.time, next.at.period)[form]
+        : '',
   ];
   const text = html`<div class="ck-side__text">
     <p class="ck-time ${small ? 'ck-time--s' : ''}" data-align="optical">
@@ -286,11 +388,13 @@ export function tile(m: ClockModel): TemplateResult {
   // the face box is 2R + 24: R from the tile's own width, 56 at most (a 172 tile), never wider than the tile
   if (m.analog) return html`${face(m, clamp(floor4((m.width - 24) / 2), 24, 56))}`;
   const { time } = m.clock;
-  const unit =
-    firstFit(
-      [m.clock.period, ''],
-      (candidate) => m.ruler.width('ck-tile__time', widest(time), 'fv-unit', candidate) <= m.width,
-    ) ?? '';
+  // the period beside the time while the tile holds both; a tile too narrow for the time alone (a 124 tile on a
+  // phone's 264 section) steps it down to 32 before a digit is cut
+  const timeFits = (cls: string, candidate: string): boolean =>
+    m.ruler.width(cls, widest(time), 'fv-unit', candidate) <= m.width;
+  const small = !timeFits('ck-tile__time', '');
+  const timeCls = small ? 'ck-tile__time ck-tile__time--s' : 'ck-tile__time';
+  const unit = [m.clock.period, ''].find((candidate) => timeFits(timeCls, candidate)) ?? '';
   // the weather in its shorter word where the clock's own does not fit ("Nuit dégagée" → "Dégagé"); a line still too
   // long takes the tile's second line, and a word longer than the tile gives way to the tiles' dash (a title is a
   // name: it may end in an ellipsis instead)
@@ -309,7 +413,7 @@ export function tile(m: ClockModel): TemplateResult {
   );
   const state = !m.title && line.split(/\s+/).some((word) => measure(word) > m.width) ? '—' : line;
   return html`
-    <p class="ck-tile__time" data-baseline="tt" data-align="optical">
+    <p class=${timeCls} data-baseline="tt" data-align="optical">
       ${time}${unit ? html`<span class="fv-unit">${unit}</span>` : nothing}
     </p>
     ${state ? html`<p class="fv-tile__state">${state}</p>` : nothing} ${tileFoot(m)}

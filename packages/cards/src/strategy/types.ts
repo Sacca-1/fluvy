@@ -1,4 +1,4 @@
-import type { LanguageCode, LovelaceCardConfig, MessageKey } from '@fluvy/core';
+import type { HomeAssistant, LanguageCode, LovelaceCardConfig, MessageKey } from '@fluvy/core';
 import type { FlowStyle } from '../energy-flow/energy-flow-card.js';
 import type { ThermostatVariant } from '../thermostat/thermostat-card.js';
 import type { HomeRegistry } from './home-registry.js';
@@ -34,7 +34,7 @@ export interface FluvyStrategyConfig {
   flow_style?: FlowStyle;
   /** The rooms' cards (default: a photo where the area has one, else a tile). */
   room_variant?: RoomVariant;
-  /** The rooms a wall shows (default: every room with something in it). */
+  /** The rooms a wall shows, in that order, an empty one kept (default: every room with something in it). */
   areas?: readonly string[];
   /** Seconds between the cameras' stills (default 10). */
   camera_refresh?: CameraRefresh;
@@ -55,10 +55,12 @@ export interface FluvyHomeStrategyConfig extends FluvyStrategyConfig {
   hide?: ReadonlyArray<Exclude<ViewKey, 'home'>>;
 }
 
-export type Card = LovelaceCardConfig & { grid_options?: { columns?: number } };
+export type Card = LovelaceCardConfig & { grid_options?: { columns?: number | 'full' } };
 export interface Section {
   readonly type: 'grid';
   readonly cards: Card[];
+  /** Columns of the view it spans (Home Assistant narrows it to those a screen has): a band under the columns. */
+  readonly column_span?: number;
 }
 export type ViewKey =
   'home' | 'rooms' | 'lights' | 'climate' | 'energy' | 'security' | 'media' | 'agenda' | 'sensors';
@@ -132,6 +134,8 @@ export interface StrategyContext {
   readonly areas: readonly string[] | undefined;
   /** Whether every view's first column opens with the views as chips under the greeting. */
   readonly greetingTabs: boolean;
+  /** The house the dashboard is generated for: the cards' heights count what its entities draw. */
+  readonly hass: HomeAssistant;
   /** What opens the first column of every view, in px at a 360 column (the greeting, the chips): the layout counts it. */
   readonly header: number;
 }

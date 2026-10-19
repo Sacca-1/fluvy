@@ -1,8 +1,10 @@
 import {
   declarationsCss,
+  statusesKey,
   THEME_SENTINEL,
   type CssDeclaration,
   type PaletteMode,
+  type StatusColours,
 } from '@fluvy/tokens/runtime';
 import { setFallbackTokens } from '@fluvy/ui';
 import type { EffectiveSettings } from '../settings/schema.js';
@@ -11,6 +13,18 @@ import { PAGE_ATTRIBUTE, PANEL_ATTRIBUTE } from './attributes.js';
 
 /** The last page rule, for the loader to apply before the app renders (the websocket answers later). */
 export const EARLY_KEY = 'fluvy:look';
+
+/**
+ * A look as the cards' own tokens, used where no look reaches them (`:host([no-theme])`): both of its modes, in the
+ * house's status colours, and never the sentinel, so a card can still tell that no look is on.
+ */
+export function fallbackCss(look: Look, statuses?: StatusColours): string {
+  const ours = (mode: PaletteMode): readonly CssDeclaration[] =>
+    declarationsOf(look, mode, statuses).filter(
+      ([name]) => name.startsWith('--fluvy-') && name !== THEME_SENTINEL,
+    );
+  return `:host([no-theme]){${declarationsCss(ours('light'))}}:host([no-theme][dark]){${declarationsCss(ours('dark'))}}`;
+}
 
 export interface EarlyLook {
   readonly mode: PaletteMode;
@@ -68,12 +82,12 @@ export class LookEngine {
   /** Applies the look; true when anything changed (the cards then look for the theme again). */
   apply(settings: EffectiveSettings, dark: boolean): boolean {
     const mode: PaletteMode = dark ? 'dark' : 'light';
-    const { look, scope } = settings;
-    const key = `${lookKey(look)}|${scope}|${mode}`;
+    const { look, scope, statuses } = settings;
+    const key = `${lookKey(look)}${statusesKey(statuses)}|${scope}|${mode}`;
     if (key === this.applied) return false;
     this.applied = key;
 
-    const declarations = declarationsOf(look, mode);
+    const declarations = declarationsOf(look, mode, statuses);
     const everywhere = scope === 'everywhere';
     this.pageCss = everywhere ? `:root{${declarationsCss(declarations, true)}}` : '';
     this.targets.splice(
@@ -88,24 +102,18 @@ export class LookEngine {
     this.panelSheet.replaceSync(
       everywhere ? '' : `:host([${PANEL_ATTRIBUTE}]){${declarationsCss(declarations)}}`,
     );
-    this.applyFallback(look);
+    this.applyFallback(look, statuses);
     this.syncChrome();
     this.remember(mode);
     return true;
   }
 
-  /** The cards' own tokens (used where no look reaches them): both modes of the look, without the sentinel. */
-  private applyFallback(look: Look): void {
-    const key = lookKey(look);
+  /** The cards' own tokens (used where no look reaches them) become this look's. */
+  private applyFallback(look: Look, statuses: StatusColours): void {
+    const key = lookKey(look) + statusesKey(statuses);
     if (key === this.fallback) return;
     this.fallback = key;
-    const ours = (mode: PaletteMode): readonly CssDeclaration[] =>
-      declarationsOf(look, mode).filter(
-        ([name]) => name.startsWith('--fluvy-') && name !== THEME_SENTINEL,
-      );
-    setFallbackTokens(
-      `:host([no-theme]){${declarationsCss(ours('light'))}}:host([no-theme][dark]){${declarationsCss(ours('dark'))}}`,
-    );
+    setFallbackTokens(fallbackCss(look, statuses));
   }
 
   /** What Home Assistant does once a theme is on: the page background, the browser's theme colour, the companion app. */

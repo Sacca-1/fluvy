@@ -1,8 +1,8 @@
-import { strings } from '@fluvy/core';
+import { plural, strings } from '@fluvy/core';
 import { listRow, type Tone } from '@fluvy/ui';
 import { html, nothing, type TemplateResult } from 'lit';
 import { sameDay } from '../../shared/dates.js';
-import { FACE, badgeWidth, textWidth } from '../fit.js';
+import { FACE, badgeWidth, fitText, textWidth } from '../fit.js';
 import type { DayEvent } from '../model.js';
 import type { ViewContext } from './context.js';
 
@@ -10,6 +10,17 @@ const s = strings('calendar');
 
 /** Rows a day lists before the rest folds into "+N more": nine events must leave a usable card. */
 export const MAX_ROWS = 6;
+
+/**
+ * Rows a list holds while it cannot say what is in it — its calendars still being read, or out of reach: the four
+ * each view's declared height counts (`layoutHeight`), so the card stands at its size from its first frame, and keeps
+ * it while its calendars are unavailable (1.9).
+ */
+export const RESTING = 4;
+
+/** Nothing can be said of the events yet, or at all: the view draws itself at rest (its rows still, its grid empty). */
+export const atRest = (ctx: ViewContext): boolean =>
+  ctx.status === 'loading' || ctx.status === 'unavailable';
 
 /* ---------- surface and head ---------- */
 
@@ -39,54 +50,107 @@ export const headRoom = (ctx: ViewContext, trailing: number): number =>
   ctx.width - 56 - (trailing > 0 ? trailing + 12 : 0) - 1;
 
 /**
+ * The head's line, longest first: while every calendar is out of reach it says so first ("Unavailable · Thursday 17
+ * September"), the date giving way before the state does.
+ */
+const lineOf = (ctx: ViewContext, candidates: readonly string[]): readonly string[] =>
+  ctx.away ? [...candidates.map((text) => `${ctx.away} · ${text}`), ctx.away] : candidates;
+
+/**
  * A head whose title stays whole: the icon circle gives its room to a title that would not fit beside the trailing
- * slot (a month's name beside the ‹ › pair in a narrow column), as the energy heads do; the sub then has that room too.
+ * slot (a month's name beside the ‹ › pair in a narrow column), as the energy heads do — where that room makes it
+ * whole, or the title would end before it had begun; and to a line whose shortest form would not hold beside it
+ * ("Semana 38"), as a line is never cut. The sub then has that room too. The card's `show_icon` may keep the circle
+ * (`always`) or draw none (`never`).
  */
 export function fitHead(
   ctx: ViewContext,
   icon: 'calendar' | 'clock' | 'list',
   title: string,
   trailing: number,
+  line: readonly string[],
 ): { readonly icon: 'calendar' | 'clock' | 'list' | null; readonly room: number } {
   const room = headRoom(ctx, trailing);
-  return textWidth(title, FACE.title) <= room ? { icon, room } : { icon: null, room: room + 56 };
+  const show = ctx.config.show_icon;
+  const width = textWidth(title, FACE.title);
+  return show === 'always' ||
+    (show !== 'never' &&
+      (width <= room || (width > room + 56 && room >= Math.min(96, width))) &&
+      textWidth(lineOf(ctx, line).at(-1) ?? '', FACE.sub) <= room)
+    ? { icon, room }
+    : { icon: null, room: room + 56 };
 }
 
 /**
  * A head with a badge, fitted in the header's order: the badge's shorter forms (`pills`, longest first), then the badge
- * itself give way to a title that would not fit beside them — what a badge says, the body says too — and last the
- * icon circle (`fitHead`). The sub has the title's room.
+ * itself give way to a title, or a line's shortest form, that would not fit beside them — what a badge says, the body
+ * says too — and last the icon circle (`fitHead`). The sub has the title's room.
  */
 export function fitBadgeHead(
   ctx: ViewContext,
   icon: 'calendar' | 'clock' | 'list',
   title: string,
   pills: readonly string[],
+  line: readonly string[],
 ): {
   readonly icon: 'calendar' | 'clock' | 'list' | null;
   readonly pill: string;
   readonly room: number;
 } {
-  const width = textWidth(title, FACE.title);
+  const width = Math.max(
+    textWidth(title, FACE.title),
+    textWidth(lineOf(ctx, line).at(-1) ?? '', FACE.sub),
+  );
   for (const pill of pills) {
     const room = headRoom(ctx, badgeWidth(pill));
     if (width <= room) return { icon, pill, room };
   }
-  return { ...fitHead(ctx, icon, title, 0), pill: '' };
+  return { ...fitHead(ctx, icon, title, 0, line), pill: '' };
 }
 
-/** The time column is the sheet's 40 on a 24-hour clock; "12:30 PM" needs more, on the grid. */
-function timeColumn(ctx: ViewContext): number {
-  if (!ctx.words.hour12) return 40;
-  const widest = Math.max(
-    ...[new Date(2000, 0, 1, 12, 30), new Date(2000, 0, 1, 22, 30)].map((date) =>
-      textWidth(ctx.words.time(date), FACE.time),
-    ),
+/** A list row's 44 circle and the 12 gaps on either side of its words (`fv-row`). */
+const ROW_SIDES = 44 + 12 + 12;
+/** The least a row's name may have beside its end before the circles give way to it (the name itself when shorter). */
+const ROW_NAME_MIN = 96;
+
+/**
+ * Whether the view's list rows keep their circles (the rows' rule, `HeadFit.rowsKeepIcon`): a row whose end — a
+ * chevron's 44, nothing — would leave its name under 96 (or under the name itself), or its line's shortest form
+ * ("2 événements") cut, gives the circle's room to the words, and every row of the list with it, so the names keep one
+ * column.
+ */
+export const rowsKeepIcon = (
+  ctx: ViewContext,
+  rows: readonly { readonly title: string; readonly end: number; readonly sub?: string }[],
+): boolean =>
+  rows.every(
+    ({ title, end, sub = '' }) =>
+      ctx.width - ROW_SIDES - end >=
+      Math.max(Math.min(ROW_NAME_MIN, textWidth(title, FACE.row)), textWidth(sub, FACE.sub)),
   );
-  return Math.max(40, Math.ceil(widest / 4) * 4);
+
+/**
+ * The time column is the sheet's 40; "12:30 PM" needs more, and so does an all-day event's pair of words ("Journée /
+ * entière"), on the grid — whatever the day holds, so the rows never move with it.
+ */
+function timeColumn(ctx: ViewContext): number {
+  const texts = [s(ctx.hass, 'all_day_top'), s(ctx.hass, 'all_day_bottom')];
+  if (ctx.words.hour12)
+    texts.push(
+      ctx.words.time(new Date(2000, 0, 1, 12, 30)),
+      ctx.words.time(new Date(2000, 0, 1, 22, 30)),
+    );
+  return Math.max(
+    40,
+    Math.ceil(Math.max(...texts.map((text) => textWidth(text, FACE.time))) / 4) * 4,
+  );
 }
 
 /* ---------- one-liners ---------- */
+
+/** The head's line that fits its room (`lineOf`): a state that holds not even alone is the house's dash for it. */
+export const headSub = (ctx: ViewContext, candidates: readonly string[], room: number): string =>
+  fitText([...lineOf(ctx, candidates), ...(ctx.away ? ['—'] : [])], room, FACE.sub);
 
 /** One quiet line where a list would be: never an empty box. `off` is the ink of things that cannot be read. */
 export const note = (
@@ -98,9 +162,11 @@ export const note = (
     ${text}
   </p>`;
 
-/** What stands in for the content while nothing can be shown; `null` when the view should draw itself. */
+/**
+ * What stands in for the content while nothing can be shown; `null` when the view should draw itself — at rest while
+ * its calendars are out of reach (1.9: a card keeps its size).
+ */
 export function outage(ctx: ViewContext): TemplateResult | null {
-  if (ctx.status === 'unavailable') return note(s(ctx.hass, 'unavailable'), 'off');
   if (ctx.status === 'failed') return note(s(ctx.hass, 'failed'), 'off');
   return null;
 }
@@ -185,6 +251,8 @@ export function tapRow(
 /** Time column right-aligned, the 4 px bar in the calendar's tone, title / sub; a past event goes quiet. */
 export function eventRow(ctx: ViewContext, item: DayEvent): TemplateResult {
   const { words } = ctx;
+  // where, or whose: a name, which may end in its ellipsis
+  const place = placeOf(ctx, item);
   const time = item.whole
     ? html`<span>${s(ctx.hass, 'all_day_top')}</span
         ><span class="cd-event__end">${s(ctx.hass, 'all_day_bottom')}</span>`
@@ -201,15 +269,15 @@ export function eventRow(ctx: ViewContext, item: DayEvent): TemplateResult {
       ></span>
       <span class="fv-row__text"
         ><span class="fv-row__title" data-name>${titleOf(ctx, item)}</span
-        ><span class="fv-row__sub">${placeOf(ctx, item)}</span></span
+        ><span class="fv-row__sub" data-name title=${place}>${place}</span></span
       >`,
   );
 }
 
-/** The row a long list folds into. It opens the calendar, where the whole day is. */
-export const moreRow = (ctx: ViewContext, text: string): TemplateResult =>
+/** The row a long list folds into. It opens the calendar, where the whole day is. `keep`: it keeps its circle. */
+export const moreRow = (ctx: ViewContext, text: string, keep = true): TemplateResult =>
   listRow({
-    icon: 'dots',
+    icon: keep ? 'dots' : null,
     tone: 'neutral',
     title: text,
     trailing: 'chevron',
@@ -221,6 +289,8 @@ export interface DayList {
   readonly body: TemplateResult;
   /** The "+N more" row when the day was capped, for the view to place among its own rows. */
   readonly more: TemplateResult | typeof nothing;
+  /** Its words ("+3 more", "3 earlier"), for the rows' rule; empty when the day was not capped. */
+  readonly moreText: string;
 }
 
 /**
@@ -234,13 +304,16 @@ export function dayList(
     readonly afterLabel?: boolean;
     readonly max?: number;
     readonly items?: readonly DayEvent[];
+    /** The "+N more" row keeps its circle (the rows' rule, decided by the view for its list at once). */
+    readonly keep?: boolean;
   } = {},
 ): DayList {
   const afterLabel = options.afterLabel ?? false;
-  if (ctx.status === 'loading' || !ctx.agenda.covers(day))
-    return { body: skeleton(3, afterLabel), more: nothing };
+  if (atRest(ctx) || !ctx.agenda.covers(day))
+    return { body: skeleton(RESTING, afterLabel), more: nothing, moreText: '' };
   const items = options.items ?? ctx.agenda.on(day);
-  if (!items.length) return { body: note(ctx.words.events(0), 'quiet', afterLabel), more: nothing };
+  if (!items.length)
+    return { body: note(ctx.words.events(0), 'quiet', afterLabel), more: nothing, moreText: '' };
 
   const max = options.max ?? MAX_ROWS;
   const hidden = Math.max(0, items.length - max);
@@ -250,14 +323,21 @@ export function dayList(
       ? Math.min(upcoming < 0 ? items.length : upcoming, hidden)
       : 0;
   const shown = items.slice(start, start + max);
+  const moreText =
+    hidden > 0
+      ? plural(ctx.hass, start === hidden ? 'calendar.earlier' : 'calendar.more', hidden, {
+          count: hidden,
+        })
+      : '';
   return {
     body: html`<div class="cd-events ${afterLabel ? 'cd-events--after-label' : ''}">
       ${shown.map((item) => eventRow(ctx, item))}
     </div>`,
-    more:
-      hidden > 0
-        ? moreRow(ctx, s(ctx.hass, start === hidden ? 'earlier' : 'more', { count: hidden }))
-        : nothing,
+    // the row keeps its circle as the view's list does, or by its own words where the view decided nothing
+    more: moreText
+      ? moreRow(ctx, moreText, options.keep ?? rowsKeepIcon(ctx, [{ title: moreText, end: 44 }]))
+      : nothing,
+    moreText,
   };
 }
 

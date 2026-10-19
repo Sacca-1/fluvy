@@ -9,6 +9,7 @@
  * rounds that leave the name too little take their own line; chips and tiles do the same as rounds; the room's ruler
  * sets what is on; a light that cannot be read is a dashed ring that takes no tap; the words follow the language.
  */
+import { contrastRatio } from './lib/colour.mjs';
 import { calls, frame, moreInfo, reset, settle, startSuite } from './lib/suite.mjs';
 
 const suite = await startSuite();
@@ -529,6 +530,171 @@ const ids = (call) => [].concat(call?.d?.entity_id ?? call?.t?.entity_id ?? []);
       pickedNow.swatches[3].active &&
       pickedNow.accent === '#00ff00',
     JSON.stringify([afterPicked, pickedNow.swatches[3], pickedNow.accent]),
+  );
+  await page.close();
+}
+
+/* ---------- a lit light card shows its colour (#41), on the `slider` sheet ---------- */
+{
+  const page = await suite.sheet('slider');
+  const cards = (title) => frame(page, title).locator('fluvy-light-card');
+  /** A light card's surface: its classes, its keys, its fill against a plain card's, its discs. */
+  const surfaceOf = (card) =>
+    card.evaluate((el) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 1;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      const hex = (css) => {
+        ctx.clearRect(0, 0, 1, 1);
+        ctx.fillStyle = '#000';
+        ctx.fillStyle = css;
+        ctx.fillRect(0, 0, 1, 1);
+        const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+        return `#${[r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
+      };
+      const root = el.shadowRoot;
+      const article = root.querySelector('article');
+      const style = getComputedStyle(article);
+      const thumb = root.querySelector('.fv-switch__thumb');
+      return {
+        lit: article.classList.contains('is-lit'),
+        glow: article.classList.contains('is-glow'),
+        off: article.classList.contains('is-off'),
+        accent: article.dataset.accent ?? '',
+        surface: article.dataset.surface ?? '',
+        fill: hex(style.backgroundColor),
+        toneFill: hex(style.getPropertyValue('--tone-fill').trim() || 'transparent'),
+        plain: hex(getComputedStyle(el).getPropertyValue('--fluvy-card').trim()),
+        page: hex(getComputedStyle(el).getPropertyValue('--fluvy-page').trim()),
+        disc: hex(getComputedStyle(root.querySelector('.fv-card__head > .fv-ico')).backgroundColor),
+        thumb: thumb ? hex(getComputedStyle(thumb).backgroundColor) : '',
+        outline: style.outlineStyle,
+        transition: style.transitionDuration,
+      };
+    });
+
+  const full = await surfaceOf(cards('Tint · colour'));
+  check(
+    'lit (tint: on): the card is a lit tile in its bulb’s colour — its fill, a plain-card circle and thumb',
+    full.lit &&
+      full.accent === '#ff9800' &&
+      full.fill === full.toneFill &&
+      full.fill !== full.plain &&
+      full.disc === full.plain &&
+      full.thumb === full.plain,
+    JSON.stringify(full),
+  );
+  const [dim, bright] = await Promise.all(
+    [0, 1].map((i) => surfaceOf(cards('Tint · dim and bright').nth(i))),
+  );
+  check(
+    'as bright as the lamp: a lamp at 10 % reads lit, nearer the card than one at 78 %, and neither the card',
+    dim.glow &&
+      bright.glow &&
+      dim.surface === '#ff9800-60' &&
+      bright.surface === '#ff9800-80' &&
+      contrastRatio(dim.fill, dim.plain) > 1.1 &&
+      contrastRatio(dim.fill, dim.plain) < contrastRatio(bright.fill, bright.plain),
+    JSON.stringify([dim, bright]),
+  );
+  // the finger moves the level: the wash follows under it, before anything is sent
+  await reset(page);
+  await cards('Tint · dim and bright')
+    .nth(1)
+    .locator('fluvy-ruler')
+    .first()
+    .evaluate((r) => r.dispatchEvent(new CustomEvent('fluvy-input', { detail: { value: 15 } })));
+  await settle(page, 100);
+  const dragged = await surfaceOf(cards('Tint · dim and bright').nth(1));
+  check(
+    'dragging the level from 78 to 15 takes the wash to its floor under the finger, and sends nothing yet',
+    dragged.surface === '#ff9800-60' && (await calls(page)).length === 0,
+    JSON.stringify(dragged),
+  );
+  // a quick colour: the card wears it at once, before the bulb answers
+  await reset(page);
+  await cards('Tint · colour').locator('.lc-swatch').nth(2).click();
+  await settle(page, 60);
+  const red = await surfaceOf(cards('Tint · colour'));
+  check(
+    'a tap on red: the lit card turns red before Home Assistant answers',
+    red.lit && red.accent === '#f44336' && red.fill !== full.fill,
+    JSON.stringify(red),
+  );
+  // an off lamp switched on: lit in the same frame
+  await reset(page);
+  await cards('Tint · two compact').nth(1).locator('.fv-hit').click();
+  await settle(page, 30);
+  const flipped = await surfaceOf(cards('Tint · two compact').nth(1));
+  check(
+    'an off lamp switched on (tint: on) is lit at once, before Home Assistant says',
+    flipped.lit && (await calls(page)).some((c) => c.s === 'light.turn_on'),
+    JSON.stringify(flipped),
+  );
+  const gone = await surfaceOf(cards('Tint · unavailable'));
+  check(
+    'a light that cannot be read keeps the unavailable skin (always): the page’s fill, the dashed outline',
+    gone.off &&
+      !gone.lit &&
+      gone.surface === '' &&
+      gone.fill === gone.page &&
+      gone.outline === 'dashed',
+    JSON.stringify(gone),
+  );
+  // the house's defaults change in fluvy's settings: a card that says none draws again at once
+  const before = await surfaceOf(cards('Colour · hs mode'));
+  await page.evaluate(() => window.fluvyLightDefaults({ tint: 'on', colors: true }));
+  await settle(page, 60);
+  const after = await surfaceOf(cards('Colour · hs mode'));
+  const tiles = await frame(page, 'Tiles · their own colour first')
+    .locator('fluvy-tiles-card')
+    .first()
+    .evaluate((el) =>
+      [...el.shadowRoot.querySelectorAll('.fv-tile')].map((t) => t.dataset.accent ?? ''),
+    );
+  await page.evaluate(() => window.fluvyLightDefaults({ tint: 'off', colors: false }));
+  await settle(page, 60);
+  check(
+    'the house’s default “Lit lights show their colour” lights a card that says none at once, and goes again',
+    !before.lit && after.lit && !(await surfaceOf(cards('Colour · hs mode'))).lit,
+    JSON.stringify([before.lit, after.lit]),
+  );
+  check(
+    'a tile’s own colour still comes before its bulb’s under the house’s default',
+    tiles[0] !== '' && tiles[0] !== '#ff9800',
+    JSON.stringify(tiles),
+  );
+  await page.close();
+}
+
+/* ---------- the lit surface eases in, never on the first frame, and not at all under reduced motion ---------- */
+{
+  const page = await suite.page('sheet=slider&width=392', { wait: 0 });
+  const transitions = await page.evaluate(() =>
+    [...document.querySelectorAll('fluvy-light-card')].flatMap((card) =>
+      card.shadowRoot
+        .querySelector('article')
+        .getAnimations()
+        .filter((a) => 'transitionProperty' in a)
+        .map((a) => a.transitionProperty),
+    ),
+  );
+  const duration = await frame(page, 'Tint · colour')
+    .locator('fluvy-light-card')
+    .evaluate((el) => getComputedStyle(el.shadowRoot.querySelector('article')).transitionDuration);
+  check(
+    'no light card’s surface moves on its first frame; it eases (background, 320 ms) when it changes',
+    transitions.length === 0 && /0\.32s/.test(duration),
+    JSON.stringify([transitions, duration]),
+  );
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const reduced = await frame(page, 'Tint · colour')
+    .locator('fluvy-light-card')
+    .evaluate((el) => getComputedStyle(el.shadowRoot.querySelector('article')).transitionDuration);
+  check(
+    'under reduced motion it changes at once (1 ms)',
+    reduced.split(',').every((d) => d.trim() === '0.001s'),
+    reduced,
   );
   await page.close();
 }

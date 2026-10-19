@@ -3,7 +3,7 @@
  * cursor over the stretches it spent in each state, drawn across the card's whole content column, so the cursor
  * lands exactly where every chart's does. The busiest lines come first.
  */
-import { isActiveState, resolveEntity, stateText } from '@fluvy/core';
+import { isActiveState, plural, resolveEntity, stateText } from '@fluvy/core';
 import { spanAt, type Line, type Span } from '@fluvy/core/history';
 import { axis, head, scrub } from '@fluvy/ui';
 import { html, nothing, type TemplateResult } from 'lit';
@@ -117,7 +117,7 @@ export function renderStates(
     ${
       hidden
         ? html`<button class="fv-link hs-more" @click=${() => page.expandLines()}>
-            ${page.t('more', { n: hidden })}
+            ${plural(page.hass, 'history.more', hidden)}
           </button>`
         : nothing
     }

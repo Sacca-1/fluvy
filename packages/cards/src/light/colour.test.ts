@@ -7,6 +7,7 @@ import {
   kelvinRgb,
   resolveSwatch,
   swatchWord,
+  whiteHex,
   type Swatch,
 } from './colour.js';
 
@@ -36,6 +37,17 @@ describe('a colour bulb’s quick colours', () => {
     expect(resolveSwatch('mauve-ish', 2200, 6500)).toBeUndefined();
     expect(resolveSwatch('constructor', 2200, 6500)).toBeUndefined(); // no colour of the prototype's
     expect(resolveSwatch([1, 2], 2200, 6500)).toBeUndefined();
+  });
+
+  it('shows the whites as the eye reads them side by side: the cool one cool, the warm one warm (#41)', () => {
+    const channels = (hex: string): number[] =>
+      [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
+    const [cr = 0, , cb = 0] = channels(resolveSwatch('cool', 2200, 6500)!.hex);
+    const [wr = 0, , wb = 0] = channels(resolveSwatch('warm', 2200, 6500)!.hex);
+    // a black body's 5000 K is a peach cream on a screen: shown beside a neutral white, it is the cooler one
+    expect(cb).toBeGreaterThanOrEqual(cr);
+    expect(wr).toBeGreaterThan(wb);
+    expect(whiteHex(4000)).toBe('#ffffff');
   });
 
   it('names a hex by its canonical form, a Home Assistant colour by its name', () => {

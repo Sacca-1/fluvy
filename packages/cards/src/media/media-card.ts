@@ -13,12 +13,14 @@ import {
   type FluvyCardConfig,
   type LovelaceConfigForm,
   type LovelaceGridOptions,
+  type HomeAssistant,
 } from '@fluvy/core';
 
 import {
   clamp,
   clickPress,
   glyph,
+  headTap,
   ico,
   icon,
   label,
@@ -91,8 +93,8 @@ export interface MediaCardConfig extends FluvyCardConfig {
   show_source?: boolean;
   show_volume?: boolean;
   /**
-   * The power round: the head's trailing round in place of "…" (the dialog stays a tap on the art, or a still press
-   * on the head, away), the hero's corner, and the mini row when `controls` names it. On by default, for a player
+   * The power round: the head's trailing round in place of "…" (the dialog stays a tap on the head, the art and the
+   * words, or a still press on it, away), the hero's corner, and the mini row when `controls` names it. On by default, for a player
    * that can be switched on or off; it reads "Turn on" on a player that is off, in place of a dead transport.
    */
   show_power?: boolean;
@@ -103,7 +105,7 @@ export interface MediaCardConfig extends FluvyCardConfig {
   controls?: readonly MediaControl[];
 }
 
-/** The click of a held artwork or row, seen before its own buttons': a hold never also taps. */
+/** The click of a pressed head or row, seen before its own buttons': a hold, or a mouse's drag, never also taps. */
 const clickHeld = { handleEvent: clickPress, capture: true };
 
 const VARIANTS: readonly MediaVariant[] = ['full', 'mini', 'hero'];
@@ -131,17 +133,18 @@ const cssUrl = (url: string): string => url.replace(/["\\]/g, '');
  * and the volume ruler — in three sizes (`full`, `mini`, `hero`).
  *
  * Everything on a `media_player` is optional, so every line degrades: no artwork falls back to the
- * gradient plate, no duration hides the seek bar, no feature bit hides its control, and an idle or
- * unreachable speaker (the dead Cast device every instance has) reads as calm, not broken.
+ * gradient plate, no duration leaves the seek line at rest (its track empty, its times dashes: the player keeps its
+ * size whatever plays), no feature bit hides its control, and an idle or unreachable speaker (the dead Cast device
+ * every instance has) reads as calm, not broken: out of reach it keeps the whole player, still, in the off skin.
  *
  * The head keeps one trailing round, as every head of the language does: the power round for a player
  * that can be switched on or off (two 48 rounds beside the 80 art would leave a title 104 px at a phone's
- * column), else "…"; the dialog stays a tap on the art and a still press on the head away.
+ * column), else "…"; the dialog stays a tap on the head (the art and the words) and a still press on it away.
  */
 export class FluvyMediaCard extends Card<MediaCardConfig> {
   /** The card's height at a 360 column, for the automatic dashboard's columns. */
-  static override layoutHeight(config: MediaCardConfig): number {
-    return mediaHeight(config);
+  static override layoutHeight(config: MediaCardConfig, hass?: HomeAssistant): number {
+    return mediaHeight(config, hass);
   }
 
   static override styles: CSSResultGroup = [
@@ -167,29 +170,28 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
       .md-art--l.fv-art--idle {
         box-shadow: inset 0 0 0 1px var(--fluvy-border);
       }
-      .md-art-tap {
+      /* the art and the words are the player's button (its head's, as headTap draws it): the art gives under the finger and
+         rises under a pointer, as a head's circle does, and the words dim; the hero's head is its art and its words */
+      .md-hero__head {
         display: block;
-        padding: 0;
-        border: 0;
-        background: none;
-        cursor: pointer;
       }
-      /* the mini row's words as its tap, where the art has given way to the row's one round */
-      .md-mini__text {
-        display: flex;
-        flex: 1 1 auto;
-        flex-direction: column;
-        align-items: stretch;
-        justify-content: center;
-        min-width: 0;
-        height: 44px;
-        padding: 0;
-        border: 0;
-        background: none;
-        color: inherit;
-        font: inherit;
-        text-align: left;
-        cursor: pointer;
+      .fv-card__head--tap .fv-art {
+        transition: scale var(--fv-fast) var(--fv-ease);
+      }
+      .fv-card__head--tap :is(.md-now__text, .md-hero__text, .fv-row__text) {
+        transition: opacity var(--fv-base) var(--fv-ease);
+      }
+      .fv-card__head--tap:has(.fv-card__tap:active) .fv-art {
+        scale: 0.94;
+      }
+      .fv-card__head--tap:has(.fv-card__tap:active)
+        :is(.md-now__text, .md-hero__text, .fv-row__text) {
+        opacity: 0.7;
+      }
+      @media (hover: hover) {
+        .fv-card__head--tap:has(.fv-card__tap:hover:not(:active)) .fv-art {
+          scale: 1.06;
+        }
       }
 
       /* fluid text: the source line ellipsizes instead of pushing the card open */
@@ -203,6 +205,11 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+      /* the hero's words keep the room of their three lines (the track, who made it, the speaker) whatever the player
+         says: a track without an artist, a player out of reach (1.9: a card keeps its size) */
+      .md-hero__text {
+        min-height: calc(28px + 2 * 20px);
       }
       .md-card--hero .md-source {
         justify-content: center;
@@ -440,15 +447,20 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
     this.call('media_player', 'media_seek', { seek_position: Math.round(seconds) });
   }
 
-  /** What the power round does now, or null: asked away, or a player that can be neither switched on nor off. */
+  /**
+   * What the power round does now, or null: asked away, or a player that can be neither switched on nor off. A player
+   * gone from the house keeps the round its config offers, still: its features are not known (1.9).
+   */
   private power(view: EntityView): PowerAction | null {
-    return this.config?.show_power === false ? null : powerAction(view, this.stateOf(view));
+    if (this.config?.show_power === false) return null;
+    if (view.status === 'missing') return { service: 'turn_off', expect: 'off' };
+    return powerAction(view, this.stateOf(view));
   }
 
   /* ---------- pieces ---------- */
 
   /** The gradient plate with the entity picture over it; a picture change crossfades the two layers. */
-  private art(size: number, picture: string, extra = ''): TemplateResult {
+  private art(size: number, picture: string, extra = '', ref: IconRef = 'speaker'): TemplateResult {
     if (this.layers[this.front] !== picture) {
       this.front = this.front === 0 ? 1 : 0;
       this.layers[this.front] = picture;
@@ -465,7 +477,7 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
             style=${url ? `background-image:url("${cssUrl(url)}")` : nothing}
           ></span>`,
       )}
-      ${picture ? nothing : glyph('speaker')}
+      ${picture ? nothing : icon(ref)}
     </span>`;
   }
 
@@ -474,6 +486,7 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
     on: boolean,
     text: string,
     onClick: () => void,
+    still = false,
   ): TemplateResult {
     return html`<button
       class="fv-round ${on ? 'is-on' : 'fv-round--quiet'}"
@@ -482,13 +495,14 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
       aria-label=${text}
       title=${text}
       aria-pressed=${on ? 'true' : 'false'}
+      ?disabled=${still}
       @click=${onClick}
     >
       ${icon(ref)}
     </button>`;
   }
 
-  private playRound(view: EntityView): TemplateResult {
+  private playRound(view: EntityView, still = false): TemplateResult {
     const playing = this.isPlaying(view);
     const active = this.isActive(view);
     const name = playing ? 'pause' : 'play';
@@ -499,6 +513,7 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
       data-target
       aria-label=${text}
       title=${text}
+      ?disabled=${still}
       @click=${() => this.playPause(view)}
     >
       ${keyed(name, html`<span class="md-swap">${glyph(name)}</span>`)}
@@ -516,7 +531,7 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
         this.expect(view.id, action.expect);
         this.call('media_player', action.service);
       },
-      false,
+      !isUsable(view),
       extra,
     );
   }
@@ -524,27 +539,37 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
   /** Mutes and unmutes a player that can be muted; else the round opens its dialog, where the volume is. */
   private volumeRound(view: EntityView): TemplateResult {
     const muted = view.attr<boolean>('is_volume_muted') === true;
+    const still = !isUsable(view);
     if (!view.supports(MEDIA.VOLUME_MUTE))
-      return round('volume', 'quiet', this.t('media.volume'), () =>
-        this.tap(view.id, { action: 'more-info' }),
+      return round(
+        'volume',
+        'quiet',
+        this.t('media.volume'),
+        () => this.tap(view.id, { action: 'more-info' }),
+        still,
       );
     return round(
       muted ? 'volumeOff' : 'volume',
       'quiet',
       muted ? s(this.hass, 'unmute') : this.t('media.mute'),
       () => this.call('media_player', 'volume_mute', { is_volume_muted: !muted }),
+      still,
     );
   }
 
-  private repeatRound(view: EntityView): TemplateResult {
+  private repeatRound(view: EntityView, still = false): TemplateResult {
     const mode = textAttr(view, 'repeat') || 'off';
     const next = mode === 'off' ? 'all' : mode === 'all' ? 'one' : 'off';
     const text = s(
       this.hass,
       mode === 'one' ? 'repeat_one' : mode === 'all' ? 'repeat_all' : 'repeat_off',
     );
-    return this.transportRound(mode === 'one' ? 'repeatOne' : 'repeat', mode !== 'off', text, () =>
-      this.call('media_player', 'repeat_set', { repeat: next }),
+    return this.transportRound(
+      mode === 'one' ? 'repeatOne' : 'repeat',
+      mode !== 'off',
+      text,
+      () => this.call('media_player', 'repeat_set', { repeat: next }),
+      still,
     );
   }
 
@@ -552,42 +577,60 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
    * The transport: five equal rounds 20 apart on the sheet. A column that cannot hold them 8 apart loses the ends
    * (shuffle and repeat: the modes, which more-info still offers) before the three that move the track; one that
    * cannot hold even those steps the rounds down to 44. A player that is off has no transport while the head's
-   * power round (`powered`) is there to switch it on: that round is the one clear thing to do.
+   * power round (`powered`) is there to switch it on: that round is the one clear thing to do. A player out of reach
+   * keeps every round its features offer (all five for one gone from the house, whose features are not known), still.
    */
   private renderTransport(
     view: EntityView,
     big: boolean,
     powered: boolean,
   ): TemplateResult | typeof nothing {
-    const active = this.isActive(view);
-    const canPlay = playable(view) && !(powered && isOff(this.stateOf(view)));
+    const still = !isUsable(view);
+    const gone = view.status === 'missing';
+    const offers = (bit: number): boolean => gone || view.supports(bit);
+    const active = still || this.isActive(view);
+    const canPlay = still
+      ? gone || playable(view)
+      : playable(view) && !(powered && isOff(this.stateOf(view)));
     const items: { readonly round: TemplateResult; readonly mode?: boolean }[] = [];
-    if (active && view.supports(MEDIA.SHUFFLE)) {
+    if (active && offers(MEDIA.SHUFFLE)) {
       const on = view.attr<boolean>('shuffle') === true;
       items.push({
-        round: this.transportRound('shuffle', on, this.t('media.shuffle'), () =>
-          this.call('media_player', 'shuffle_set', { shuffle: !on }),
+        round: this.transportRound(
+          'shuffle',
+          on,
+          this.t('media.shuffle'),
+          () => this.call('media_player', 'shuffle_set', { shuffle: !on }),
+          still,
         ),
         mode: true,
       });
     }
-    if (active && view.supports(MEDIA.PREVIOUS)) {
+    if (active && offers(MEDIA.PREVIOUS)) {
       items.push({
-        round: round('prev', 'quiet', this.t('media.previous'), () =>
-          this.call('media_player', 'media_previous_track'),
+        round: round(
+          'prev',
+          'quiet',
+          this.t('media.previous'),
+          () => this.call('media_player', 'media_previous_track'),
+          still,
         ),
       });
     }
-    if (canPlay) items.push({ round: this.playRound(view) });
-    if (active && view.supports(MEDIA.NEXT)) {
+    if (canPlay) items.push({ round: this.playRound(view, still) });
+    if (active && offers(MEDIA.NEXT)) {
       items.push({
-        round: round('next', 'quiet', this.t('media.next'), () =>
-          this.call('media_player', 'media_next_track'),
+        round: round(
+          'next',
+          'quiet',
+          this.t('media.next'),
+          () => this.call('media_player', 'media_next_track'),
+          still,
         ),
       });
     }
-    if (active && view.supports(MEDIA.REPEAT))
-      items.push({ round: this.repeatRound(view), mode: true });
+    if (active && offers(MEDIA.REPEAT))
+      items.push({ round: this.repeatRound(view, still), mode: true });
     if (!items.length) return nothing;
     const width = this.contentWidth;
     const needs = (count: number, size: number): number => count * size + (count - 1) * 8;
@@ -606,10 +649,21 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
     </div>`;
   }
 
-  private renderSeek(view: EntityView, big: boolean): TemplateResult | typeof nothing {
+  /**
+   * The seek line with nothing to seek (nothing playing, a stream without a length, a player out of reach): its empty
+   * track and its times as dashes, so the player keeps its size whatever it plays (1.9).
+   */
+  private restingSeek(big: boolean): TemplateResult {
+    return html`<div class="md-seek ${big ? 'md-seek--sheet' : ''}" aria-hidden="true">
+      <div class="md-progress" style="width:${this.contentWidth}px"></div>
+      <div class="md-times"><span>—</span><span>—</span></div>
+    </div>`;
+  }
+
+  private renderSeek(view: EntityView, big: boolean): TemplateResult {
     const duration = numberAttr(view, 'media_duration');
     const position = trackPosition(view, duration);
-    if (duration === null || position === null) return nothing;
+    if (duration === null || position === null) return this.restingSeek(big);
     const width = this.contentWidth;
     const fraction = this.scrub_ ?? position / duration;
     const shown = this.scrub_ === null ? position : this.scrub_ * duration;
@@ -656,8 +710,11 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
 
   private renderVolume(view: EntityView): TemplateResult | typeof nothing {
     if (this.config?.show_volume === false) return nothing;
-    const canSet = view.supports(MEDIA.VOLUME_SET);
-    const canMute = view.supports(MEDIA.VOLUME_MUTE);
+    // a player out of reach keeps its volume where its features say it has one (and where they are not known), still
+    const still = !isUsable(view);
+    const gone = view.status === 'missing';
+    const canSet = gone || view.supports(MEDIA.VOLUME_SET);
+    const canMute = gone || view.supports(MEDIA.VOLUME_MUTE);
     if (!canSet && !canMute) return nothing;
     const muted = view.attr<boolean>('is_volume_muted') === true;
     const level = numberAttr(view, 'volume_level');
@@ -674,7 +731,9 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
                 .max=${100}
                 .step=${1}
                 .length=${length}
-                .tone=${muted ? 'neutral' : 'accent'}
+                .tone=${muted || still ? 'neutral' : 'accent'}
+                ?inactive=${still}
+                ?inert=${still}
                 unit="%"
                 .label=${`${name} · ${this.t('media.volume')}`}
                 .format=${(v: number) => formatNumber(this.hass, v, { digits: 0 })}
@@ -703,7 +762,9 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
       label: source,
       active: source === current,
     }));
-    return html`${label(this.t('media.source'))}${chipRow(items, (key) => this.call('media_player', 'select_source', { source: key }), this.config?.source_style)}`;
+    // measured, so a source's name is never cut in a narrow column ("Netflix" in a third of 171): two a row instead
+    const fit = { ruler: this.head.ruler, width: this.contentWidth };
+    return html`${label(this.t('media.source'))}${chipRow(items, (key) => this.call('media_player', 'select_source', { source: key }), this.config?.source_style, fit)}`;
   }
 
   /* ---------- seek gestures ---------- */
@@ -774,78 +835,109 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
   /* ---------- variants ---------- */
 
   private renderPlayer(view: EntityView, name: string, hero: boolean): TemplateResult {
-    const active = this.isActive(view);
-    const picture = mediaPicture(this.hass, view);
+    // a player out of reach (unavailable, or gone from the house) is the whole player at rest in the off skin: its name
+    // and why over the plate, the seek line, the rounds and the volume still — only the colours change (1.9)
+    const away = !isUsable(view);
+    const active = !away && this.isActive(view);
+    const picture = away ? '' : mediaPicture(this.hass, view);
     const title = active
       ? textAttr(view, 'media_title') || textAttr(view, 'app_name') || name
-      : this.t('media.nothing');
-    let second = active ? this.secondary(view) : this.idleLine(view);
+      : away
+        ? name
+        : this.t('media.nothing');
+    let second = active
+      ? this.secondary(view)
+      : away
+        ? this.unavailableLine(view)
+        : this.idleLine(view);
     if (active && (second === title || !second)) second = stateText(this.hass, view);
     const speaker = this.sourceLine(view, name, second);
     const saysSpeaker = speaker !== title;
-    const classes = `fv-card md-card ${hero ? 'md-card--hero' : ''} ${this.isPlaying(view) ? 'is-playing' : ''} ${this.scrub_ === null ? '' : 'is-scrubbing'}`;
+    const plate = away ? 'ban' : 'speaker';
+    const classes = `fv-card md-card ${hero ? 'md-card--hero' : ''} ${away ? 'is-off is-unavailable' : ''} ${this.isPlaying(view) ? 'is-playing' : ''} ${this.scrub_ === null ? '' : 'is-scrubbing'}`;
     const wide = this.contentWidth >= 312;
     const power = this.power(view);
     const body = html` ${this.renderSeek(view, hero)}
     ${this.renderTransport(view, hero && wide, power !== null)} ${this.renderVolume(view)}
     ${this.renderSources(view)}`;
 
-    // the artwork is the card's icon: a tap is the tap action, a still press the hold action
-    const tap = (): void => this.tap(view.id);
-    const hold = (): void => this.hold(view.id);
+    // the artwork and the words under or beside it are the player's head, and its button: a tap is the tap action, a
+    // still press the hold action; the rounds keep their own
+    const { onTap, onHold } = this.headActions(view.id);
+    const pressed = onTap ?? onHold;
+    const heads = `${onTap ? 'fv-card__head--tap' : ''} ${onHold ? 'fv-card__head--hold' : ''}`;
+    const named = (text: string, cls: string): TemplateResult => {
+      const words = onTap ? headTap(text, { onTap, onHold, label: name, name: true }) : text;
+      return html`<h3 class=${cls} data-name>${words}</h3>`;
+    };
     if (hero) {
       // the corner round keeps 12 px clear of the art, which gives up that room on both sides (it stays centred)
       const clear = power ? 2 * (ROUND + 12) : 0;
       const size = Math.min(200, Math.floor((this.contentWidth - clear) / 4) * 4);
       return html`<article class=${classes} data-card>
-        <div class="md-hero">
-          <button
-            class="md-art-tap fv-ico--tap"
-            aria-label=${name}
-            .fvTap=${tap}
-            .fvHold=${hold}
-            @pointerdown=${startPress}
-            @contextmenu=${preventMenu}
-            @click=${clickPress}
-          >
-            ${this.art(size, picture, `md-art--l ${active || picture ? '' : 'fv-art--idle'}`)}
-          </button>
-          ${power ? this.powerRound(view, power, 'md-hero__power') : nothing}
-        </div>
-        <div class="md-hero__text" data-align="center">
-          <h3 class="md-hero__title" data-name>${title}</h3>
-          ${second ? html`<p class="fv-card__sub">${second}</p>` : nothing}
-          ${saysSpeaker ? html`<p class="fv-card__sub md-source">${glyph('speaker')}<span class="md-source__text">${speaker}</span></p>` : nothing}
+        <div
+          class="md-hero__head ${heads}"
+          .fvHold=${onHold}
+          @pointerdown=${pressed ? startPress : nothing}
+          @contextmenu=${onHold ? preventMenu : nothing}
+          @click=${pressed ? clickHeld : nothing}
+        >
+          <div class="md-hero">
+            ${this.art(size, picture, `md-art--l ${active || picture ? '' : 'fv-art--idle'}`, plate)}
+            ${power ? this.powerRound(view, power, 'md-hero__power') : nothing}
+          </div>
+          <div class="md-hero__text" data-align="center">
+            ${named(title, 'md-hero__title')}
+            ${second ? html`<p class="fv-card__sub">${second}</p>` : nothing}
+            ${saysSpeaker ? html`<p class="fv-card__sub md-source">${glyph('speaker')}<span class="md-source__text">${speaker}</span></p>` : nothing}
+          </div>
         </div>
         ${body}
       </article>`;
     }
 
-    // the title is a name and may end in an ellipsis; the lines under it lose their trailing segments instead
-    const room = this.contentWidth - ART - HEAD_GAP - ROUND;
-    const sub = this.head.fitSub(second, room);
+    // the title is a name and may end in an ellipsis; the lines under it lose their trailing segments instead. A column
+    // that would leave the words less than a name's start beside the 80 art and the round lets the art go (the head's
+    // own rule: the words and the art are one button, so its tap stays), and the head keeps its 80
+    const keepsArt = this.contentWidth - ART - HEAD_GAP - ROUND >= TITLE_FLOOR;
+    const room = this.contentWidth - (keepsArt ? ART : 0) - HEAD_GAP - ROUND;
+    // why a player is out of reach is said whole: "Not found" where "Entity not found" would not hold
+    const sub =
+      view.status === 'missing'
+        ? fitLine(
+            second
+              .split(' · ')
+              .map((text, index) =>
+                index ? { text, optional: true } : { text, short: this.t('state.not_found') },
+              ),
+            room,
+            (text) => this.head.ruler.width('fv-card__sub', text),
+          )
+        : this.head.fitSub(second, room);
     const source = this.head.fitSub(speaker, room - SPEAKER_GLYPH);
     return html`<article class=${classes} data-card>
       <div
-        class="md-now fv-card__head--hold"
-        .fvHold=${hold}
-        @pointerdown=${startPress}
-        @contextmenu=${preventMenu}
-        @click=${clickHeld}
+        class="md-now ${heads}"
+        .fvHold=${onHold}
+        @pointerdown=${pressed ? startPress : nothing}
+        @contextmenu=${onHold ? preventMenu : nothing}
+        @click=${pressed ? clickHeld : nothing}
       >
-        <button class="md-art-tap fv-ico--tap" aria-label=${name} @click=${tap}>
-          ${this.art(80, picture, active || picture ? '' : 'fv-art--idle')}
-        </button>
+        ${keepsArt ? this.art(80, picture, active || picture ? '' : 'fv-art--idle', plate) : nothing}
         <div class="md-now__text">
-          <h3 class="fv-card__title md-title" data-name>${title}</h3>
+          ${named(title, 'fv-card__title md-title')}
           ${sub ? html`<p class="fv-card__sub">${sub}</p>` : nothing}
           ${saysSpeaker ? html`<p class="fv-card__sub md-source">${glyph('speaker')}<span class="md-source__text">${source}</span></p>` : nothing}
         </div>
         ${
           power
             ? this.powerRound(view, power)
-            : round('dots', 'quiet', this.t('common.more'), () =>
-                this.tap(view.id, { action: 'more-info' }),
+            : round(
+                'dots',
+                'quiet',
+                this.t('common.more'),
+                () => this.tap(view.id, { action: 'more-info' }),
+                away,
               )
         }
       </div>
@@ -865,20 +957,24 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
     inner: number,
   ): { readonly art: boolean; readonly rounds: TemplateResult[] } {
     const state = this.stateOf(view);
-    const active = isActive(state);
+    // out of reach, the rounds its features offer (those asked for, where they are not known) stay, still
+    const still = !isUsable(view);
+    const gone = view.status === 'missing';
+    const offers = (bit: number): boolean => gone || view.supports(bit);
+    const active = still || isActive(state);
     const power = this.power(view);
     const offered = mediaControls(this.config?.controls, MINI_CONTROLS).filter((control) => {
       switch (control) {
         case 'power':
           return power !== null;
         case 'previous':
-          return active && view.supports(MEDIA.PREVIOUS);
+          return active && offers(MEDIA.PREVIOUS);
         case 'play':
-          return playable(view) && !(power && isOff(state));
+          return still ? gone || playable(view) : playable(view) && !(power && isOff(state));
         case 'next':
-          return active && view.supports(MEDIA.NEXT);
+          return active && offers(MEDIA.NEXT);
         case 'volume':
-          return this.config?.show_volume !== false && hasVolume(view);
+          return this.config?.show_volume !== false && (gone || hasVolume(view));
       }
     });
     const beside = Math.max(0, Math.floor((inner - MINI_ART - TITLE_FLOOR) / MINI_ROUND));
@@ -888,14 +984,22 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
         case 'power':
           return this.powerRound(view, power as PowerAction);
         case 'previous':
-          return round('prev', 'quiet', this.t('media.previous'), () =>
-            this.call('media_player', 'media_previous_track'),
+          return round(
+            'prev',
+            'quiet',
+            this.t('media.previous'),
+            () => this.call('media_player', 'media_previous_track'),
+            still,
           );
         case 'play':
-          return this.playRound(view);
+          return this.playRound(view, still);
         case 'next':
-          return round('next', 'quiet', this.t('media.next'), () =>
-            this.call('media_player', 'media_next_track'),
+          return round(
+            'next',
+            'quiet',
+            this.t('media.next'),
+            () => this.call('media_player', 'media_next_track'),
+            still,
           );
         case 'volume':
           return this.volumeRound(view);
@@ -904,9 +1008,14 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
     return { art, rounds };
   }
 
+  /**
+   * The compact row. Out of reach (unavailable, or gone from the house) it is the calm dashed row every instance needs
+   * for its dead Cast devices — the ban circle, the name and why, its rounds still — at the row's own size (1.9).
+   */
   private renderMini(view: EntityView, name: string): TemplateResult {
-    const active = this.isActive(view);
-    const picture = mediaPicture(this.hass, view);
+    const away = !isUsable(view);
+    const active = !away && this.isActive(view);
+    const picture = away ? '' : mediaPicture(this.hass, view);
     const duration = numberAttr(view, 'media_duration');
     const position = trackPosition(view, duration);
     const title = active
@@ -919,71 +1028,49 @@ export class FluvyMediaCard extends Card<MediaCardConfig> {
     // are tabular, so a position ticking once a second never fills the ruler's memory
     const line = active
       ? [name, position === null ? this.secondary(view) : formatDuration(position)].filter(Boolean)
-      : this.idleLine(view).split(' · ');
+      : (away ? this.unavailableLine(view) : this.idleLine(view)).split(' · ');
     const sub = fitLine(
       line.map((text, index) => ({ text, optional: index > 0 })),
       inner - (art ? MINI_ART : 0) - rounds.length * MINI_ROUND,
       (text) => this.head.ruler.width('fv-row__sub', text.replace(/\d/g, '0')),
     );
-    const tap = (): void => this.tap(view.id);
-    const text = html`<span class="fv-row__title" data-name>${title}</span
-      ><span class="fv-row__sub" data-name>${sub}</span>`;
+    // the art (where the row keeps it) and the words are the row's button, whichever is drawn; the rounds keep their own
+    const { onTap, onHold } = this.headActions(view.id);
+    const pressed = onTap ?? onHold;
     return html`<article
-      class="fv-card md-mini__card ${this.isPlaying(view) ? 'is-playing' : ''}"
+      class="fv-card md-mini__card ${away ? 'is-off is-unavailable' : ''} ${this.isPlaying(view) ? 'is-playing' : ''}"
       data-card
     >
       <div
-        class="md-mini__row fv-card__head--hold"
-        .fvHold=${() => this.hold(view.id)}
-        @pointerdown=${startPress}
-        @contextmenu=${preventMenu}
-        @click=${clickHeld}
+        class="md-mini__row ${onTap ? 'fv-card__head--tap' : ''} ${onHold ? 'fv-card__head--hold' : ''}"
+        .fvHold=${onHold}
+        @pointerdown=${pressed ? startPress : nothing}
+        @contextmenu=${onHold ? preventMenu : nothing}
+        @click=${pressed ? clickHeld : nothing}
       >
         ${
           !art
             ? nothing
-            : picture
-              ? html`<button class="md-art-tap fv-ico--tap" aria-label=${name} @click=${tap}>
-                  ${this.art(44, picture, 'md-art--s')}
-                </button>`
-              : ico(this.config?.icon ?? 'speaker', active ? 'media' : 'neutral', {
-                  onTap: tap,
-                  label: name,
-                })
+            : away
+              ? ico('ban', 'off')
+              : picture
+                ? this.art(44, picture, 'md-art--s')
+                : ico(this.config?.icon ?? 'speaker', active ? 'media' : 'neutral')
         }
-        ${
-          art
-            ? html`<div class="fv-row__text">${text}</div>`
-            : html`<button class="md-mini__text" aria-label=${name} @click=${tap}>${text}</button>`
-        }
+        <div class="fv-row__text">
+          <span class="fv-row__title" data-name
+            >${onTap ? headTap(title, { onTap, onHold, label: name, name: true }) : title}</span
+          ><span class="fv-row__sub" data-name>${sub}</span>
+        </div>
         ${rounds}
       </div>
-    </article>`;
-  }
-
-  /** Unreachable: the calm dashed row every instance needs for its dead Cast devices. */
-  private renderOff(view: EntityView, name: string, variant: MediaVariant): TemplateResult {
-    const text = html`<div class="fv-row__text">
-      <span class="fv-row__title" data-name>${name}</span>
-      <span class="fv-row__sub">${this.unavailableLine(view)}</span>
-    </div>`;
-    if (variant === 'mini') {
-      return html`<article class="fv-tile fv-tile--off" data-card>
-        ${ico('ban', 'off')}${text}
-      </article>`;
-    }
-    return html`<article class="fv-card md-card is-off is-unavailable" data-card>
-      <div class="md-mini__row">${ico('ban', 'off')}${text}</div>
     </article>`;
   }
 
   protected renderCard(): TemplateResult {
     const view = this.entity();
     const name = this.config?.name ?? view.name;
-    if (view.status === 'missing')
-      return this.renderEmpty(`${name} · ${stateText(this.hass, view)}`);
     const variant = this.variant;
-    if (!isUsable(view)) return this.renderOff(view, name, variant);
     if (variant === 'mini') return this.renderMini(view, name);
     return this.renderPlayer(view, name, variant === 'hero');
   }

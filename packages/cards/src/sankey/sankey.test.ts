@@ -1,3 +1,4 @@
+import { resolveEntity, type HomeAssistant } from '@fluvy/core';
 import { describe, expect, it } from 'vitest';
 import { allocatePeriod } from '../energy-model/period.js';
 import type { PrefSource } from '../energy-model/prefs.js';
@@ -12,7 +13,7 @@ import {
   TIER,
   type LaidNode,
 } from './layout.js';
-import { crossingsOf, houseKids, sankeyModel, ZERO, type DeviceInput } from './model.js';
+import { crossingsOf, houseKids, idNamed, sankeyModel, ZERO, type DeviceInput } from './model.js';
 
 /** The flow sheet's day, in four buckets: 4.1 in, 1.3 out, 11.2 of sun, 2.4 discharged, 3.0 charged. */
 const SOURCES: PrefSource[] = [
@@ -275,5 +276,63 @@ describe('the sankey’s geometry', () => {
       w: 100,
       end: false,
     });
+  });
+
+  it('half a column keeps its words in two columns, the start and the end, in their bars’ order', () => {
+    // four narrow bars across 132: at their starts the words would stand in four columns; here two a tier
+    const row: LaidNode[] = [
+      { key: 'a', value: 1, ink: 'home', x: 0, w: 28 },
+      { key: 'b', value: 1, ink: 'home', x: 36, w: 28 },
+      { key: 'c', value: 1, ink: 'home', x: 72, w: 28 },
+      { key: 'd', value: 1, ink: 'home', x: 108, w: 24 },
+    ];
+    // a bar in the left half tries the start first, one in the right half the end
+    const packed = packLabels(row, () => 50, 132);
+    expect(packed.map((p) => [p.x, p.end, p.tier])).toEqual([
+      [0, false, 0],
+      [80, true, 0],
+      [80, true, 1],
+      [0, false, 1],
+    ]);
+    // a column from 200 up keeps the words at their bars (the last one at its bar's end, the column's)
+    const wide = packLabels(
+      row.map((n) => ({ ...n, x: n.x * 2, w: n.w * 2 })),
+      () => 50,
+      264,
+    );
+    expect(wide.map((p) => p.x)).toEqual([0, 72, 144, 212]);
+  });
+});
+
+describe('a device away from the house (A7, the owner’s rule)', () => {
+  const house = (states: Record<string, unknown>, entities: Record<string, unknown> = {}) =>
+    ({ states, entities }) as unknown as HomeAssistant;
+  const meter = (name: string) => ({
+    entity_id: 'sensor.sk_heat_pump_energy',
+    state: '5.1',
+    attributes: { friendly_name: name, unit_of_measurement: 'kWh' },
+  });
+
+  it('keeps the room of the name it had: the friendly name this page read, or the registry’s', () => {
+    // read while it was there, then gone from the house: its name is still its own, measured as it was (the labels
+    // keep their tiers: 692 at 211, not 656 with "Heat p…" and the words packed a tier shorter)
+    resolveEntity(
+      house({ 'sensor.sk_heat_pump_energy': meter('Heat pump energy') }),
+      'sensor.sk_heat_pump_energy',
+    );
+    const away = house({});
+    expect(idNamed(away, resolveEntity(away, 'sensor.sk_heat_pump_energy'), undefined)).toBe(false);
+    const registered = house({}, { 'sensor.sk_dryer_energy': { name: 'Dryer' } });
+    expect(
+      idNamed(registered, resolveEntity(registered, 'sensor.sk_dryer_energy'), undefined),
+    ).toBe(false);
+  });
+
+  it('takes only its figure’s room where its name is only its id’s, and never with a name of its own', () => {
+    const away = house({});
+    expect(idNamed(away, resolveEntity(away, 'sensor.sk_never_seen_energy'), undefined)).toBe(true);
+    expect(idNamed(away, resolveEntity(away, 'sensor.sk_never_seen_energy'), 'Sauna')).toBe(false);
+    const here = house({ 'sensor.sk_oven_energy': meter('Oven') });
+    expect(idNamed(here, resolveEntity(here, 'sensor.sk_oven_energy'), undefined)).toBe(false);
   });
 });

@@ -2,6 +2,8 @@
  * Fluvy's History page (`/history`): what a house measured and what its things did, over a window of time — one chart
  * per measure, the state lines under them, and one cursor that reads every one of them at the same instant.
  */
+// the page's words first: they are here before anything in its chunk says them
+import './english.js';
 import {
   countTargets,
   dateFormat,

@@ -24,6 +24,7 @@ import { FontsSettled } from '../shared/fonts.js';
 import {
   accentField,
   actionField,
+  emptyFields,
   entitiesField,
   entityField,
   fieldRow,
@@ -34,7 +35,8 @@ import {
 } from '../shared/form.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 import { configKeys, ITEM_ALIASES, type AliasSpec } from '../shared/config.js';
-import { listLength } from '../shared/heights.js';
+import { EMPTY, entryCount, rowsOf } from '../shared/heights.js';
+import { EMPTY_KEYS, emptyPanel, itemsOf, listOf, type EmptyList } from '../shared/lists.js';
 
 const s = strings('readouts');
 
@@ -44,7 +46,7 @@ export interface ReadoutConfig {
   tap_action?: ActionConfig;
 }
 
-export interface ReadoutsCardConfig extends FluvyCardConfig {
+export interface ReadoutsCardConfig extends FluvyCardConfig, EmptyList {
   /** The object form, for a per-readout `name` (same shape as the `rows` of `fluvy-entities-card`). Wins over `entities`. */
   rows?: ReadonlyArray<string | ReadoutConfig>;
   /** Window the trend is read from. Default 6 h. */
@@ -67,14 +69,6 @@ const MIN_CELL = 88;
 const POINTS = 48;
 const REFRESH = 5 * 60_000; // `fetchHistory` caches for five minutes; asking sooner is a map lookup
 const TIERS = ['fv-readout--m', 'fv-readout--s', 'fv-readout--xs'] as const;
-
-function toRow(item: unknown): ReadoutConfig | null {
-  if (typeof item === 'string') return item ? { entity: item } : null;
-  if (typeof item !== 'object' || item === null) return null;
-  const { entity, name } = item as { entity?: unknown; name?: unknown };
-  if (typeof entity !== 'string' || !entity) return null;
-  return typeof name === 'string' && name ? { entity, name } : { entity };
-}
 
 function baselineOf(values: readonly number[], min: number, max: number): Baseline | null {
   if (values.length < 4) return null;
@@ -99,8 +93,14 @@ function baselineOf(values: readonly number[], min: number, max: number): Baseli
 export class FluvyReadoutsCard extends Card<ReadoutsCardConfig> {
   /** The card's height at a 360 column, for the automatic dashboard's columns. */
   static override layoutHeight(config: ReadoutsCardConfig): number {
-    const n = listLength(config, ['rows', 'entities']);
-    return n >= 3 && config.variant !== 'row' ? 152 : 88;
+    const n = entryCount(config, ['rows', 'entities']);
+    // none: the empty panel alone in the card (20 + 120 + 20)
+    if (!n) return 40 + EMPTY;
+    // rows of 48 readouts in the card's 20, 16 between rows: as many a row as 88 cells 16 apart hold in a 320 column
+    // (three), four as two by two in the grid
+    const fit = Math.floor((320 + GAP) / (MIN_CELL + GAP));
+    const columns = Math.max(1, Math.min(n === 4 && config.variant !== 'row' ? 2 : n, fit));
+    return 40 + rowsOf(n, columns) * 64 - 16;
   }
 
   static override still = true;
@@ -186,7 +186,12 @@ export class FluvyReadoutsCard extends Card<ReadoutsCardConfig> {
 
   /** A strip of readouts has no entity of its own; its colour is its figures' accent. */
   static override base: readonly BaseKey[] = ['entities', 'color', 'card_color'];
-  static override keys = configKeys<ReadoutsCardConfig>()(['rows', 'hours', 'variant']);
+  static override keys = configKeys<ReadoutsCardConfig>()([
+    'rows',
+    'hours',
+    'variant',
+    ...EMPTY_KEYS,
+  ]);
   static override lists: readonly RowsListSpec[] = [
     {
       key: 'rows',
@@ -206,6 +211,7 @@ export class FluvyReadoutsCard extends Card<ReadoutsCardConfig> {
         fieldRow(numberField('hours', 1, 48), selectField('variant', ['grid', 'row'])),
         accentField(),
         accentField('card_color', { none: true }),
+        emptyFields(),
       ],
       ...formLabels({}),
     };
@@ -221,14 +227,12 @@ export class FluvyReadoutsCard extends Card<ReadoutsCardConfig> {
     return { type: 'custom:fluvy-readouts-card', entities: numeric.slice(0, 3) };
   }
 
-  /** Both spellings end up in `rows`, and `entities` keeps the ids: `- sensor.x` and `- entity: sensor.x` are the same thing. */
+  /**
+   * Both spellings end up in `rows`, and `entities` keeps the ids: `- sensor.x` and `- entity: sensor.x` are the same
+   * thing; four at most.
+   */
   protected override prepare(config: ReadoutsCardConfig): ReadoutsCardConfig {
-    const source: readonly unknown[] = config.rows ?? config.entities ?? [];
-    const rows = source
-      .map(toRow)
-      .filter((row): row is ReadoutConfig => row !== null)
-      .slice(0, MAX);
-    if (rows.length === 0) throw new Error('fluvy-readouts-card: "entities" needs 1 to 4 entities');
+    const rows = itemsOf<ReadoutConfig>(listOf(config, 'rows', ['entities'])).slice(0, MAX);
     const hours = typeof config.hours === 'number' && config.hours > 0 ? config.hours : 6;
     return { ...config, rows, entities: rows.map((row) => row.entity), hours };
   }
@@ -323,10 +327,12 @@ export class FluvyReadoutsCard extends Card<ReadoutsCardConfig> {
 
   protected renderCard(): TemplateResult {
     const items = this.items();
+    const panel = emptyPanel(this, !items.length, 'chart', 'common.no_readings');
     const fit = Math.max(1, Math.floor((this.contentWidth + GAP) / (MIN_CELL + GAP)));
-    const columns = Math.min(
-      items.length === 4 && this.config?.variant !== 'row' ? 2 : items.length,
-      fit,
+    // the panel takes the strip's one column
+    const columns = Math.max(
+      1,
+      Math.min(items.length === 4 && this.config?.variant !== 'row' ? 2 : items.length, fit),
     );
     // three readouts in two columns: the third is centred under the pair, not left under one of them
     const orphan = columns > 1 && items.length % columns === 1 ? items[items.length - 1] : null;
@@ -336,6 +342,7 @@ export class FluvyReadoutsCard extends Card<ReadoutsCardConfig> {
       data-card
       style="grid-template-columns:${this.columns(columns)}"
     >
+      ${panel}
       ${items.map((item) => {
         const view = this.entity(item.entity);
         const label = item.name ?? view.name;

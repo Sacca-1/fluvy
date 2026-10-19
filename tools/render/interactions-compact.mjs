@@ -40,7 +40,7 @@ const distinct = (values) => new Set(values.map((v) => Math.round(v))).size;
 
 /** The card's declared height against the one it measures (its own article, at a 360 column). */
 async function sameHeight(name, card) {
-  const declared = await card.evaluate((el) => el.constructor.layoutHeight(el.config));
+  const declared = await card.evaluate((el) => el.constructor.layoutHeight(el.config, el.hass));
   const box = await card.locator('article').first().boundingBox();
   check(
     `${name}: layoutHeight ${declared} is the height measured`,
@@ -466,20 +466,26 @@ const BAN = await (async () => {
   );
   const named = edges.nth(2);
   check(
-    'weather · compact: a long name ends in an ellipsis once the circle has given way; the second line is never cut',
-    (await named.locator('.fv-card__head .fv-ico').count()) === 0 &&
-      (await named.locator('.fv-card__title').evaluate((el) => el.scrollWidth > el.clientWidth)) &&
+    'weather · compact: a long name no column holds keeps its circle (giving it would not make it whole) and ends in an ellipsis, read whole on hover; the second line is never cut',
+    (await named.locator('.fv-card__head .fv-ico').count()) === 1 &&
+      (await named.locator('.fv-card__tap').evaluate((el) => el.scrollWidth > el.clientWidth)) &&
+      (await named.locator('.fv-card__tap').getAttribute('title')) ===
+        (await named.locator('.fv-card__tap').evaluate((el) => el.textContent.trim())) &&
       (await named.locator('.fv-card__sub').evaluate((el) => el.scrollWidth <= el.clientWidth)) &&
-      (await text(named.locator('.fv-card__sub'))) === 'Sunny · Feels 16° · Wind 12 km/h NW',
+      (await text(named.locator('.fv-card__sub'))) === 'Sunny · Feels 16°',
     await text(named.locator('.fv-card__sub')),
   );
+  // 1.9 (the owner's rule): missing is the dashed card too, its strips kept with nothing forecast
   check(
-    'weather · compact: unknown is a live neutral head, unavailable the dashed card with "—", missing the empty state',
+    'weather · compact: unknown is a live neutral head, unavailable and missing the dashed card with "—" and its strips',
     (await edges.nth(3).locator('.fv-ico--neutral').count()) === 1 &&
       (await text(edges.nth(3).locator('.fv-card__sub'))) === 'Unknown' &&
       (await edges.nth(4).locator('article.is-off').count()) === 1 &&
       (await text(edges.nth(4).locator('.am-weather__temp'))) === '—' &&
-      (await edges.nth(5).locator('.fv-card--empty').count()) === 1,
+      (await edges.nth(5).locator('.fv-card--empty').count()) === 0 &&
+      (await edges.nth(5).locator('article.is-off').count()) === 1 &&
+      (await text(edges.nth(5).locator('.fv-card__sub'))) === 'Not found' &&
+      (await edges.nth(5).locator('.am-hour__v').count()) > 0,
   );
 
   for (const [title, index] of [

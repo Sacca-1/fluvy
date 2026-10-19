@@ -1,7 +1,6 @@
 import { gridHeight } from '../energy-family.js';
 import {
   formatNumber,
-  formatTime,
   strings,
   type FluvyCardConfig,
   type HomeAssistant,
@@ -27,6 +26,7 @@ import {
   type EnergyInfo,
 } from '../energy-model/costs.js';
 import { fetchPrefs } from '../energy-model/house.js';
+import { downLine } from '../energy-model/outage.js';
 import { fetchPeriod, type PeriodEnergy } from '../energy-model/period.js';
 import { readPrefs, type EnergyPrefs, type PrefSource } from '../energy-model/prefs.js';
 import { net, readMeasure, type Directed } from '../energy-model/reading.js';
@@ -37,12 +37,20 @@ import {
   sourceIds,
   type SourceConfig,
 } from '../energy-model/sources.js';
-import { bucketOf, isStale, liveWords, newestReport, Ticker } from '../energy/freshness.js';
+import {
+  bucketOf,
+  isStale,
+  LIVE_TICK,
+  liveWords,
+  newestReport,
+  staleShorter,
+} from '../energy/freshness.js';
 import { HeadFit } from '../energy/head.js';
-import { legendReadouts } from '../energy/legend.js';
+import { legendStats } from '../energy/legend.js';
 import { phaseBlock, phaseStyles, phaseWatts } from '../energy/phases.js';
 import { costParts, scaled, scaleOf, type Scale } from '../energy/power.js';
 import { MEASURE_WORDS, measureFields, PHASES_ALIAS } from '../energy/sources-editor.js';
+import { statsCols, statsStyles, type Stat } from '../energy/stats.js';
 import { Card, type BaseKey } from '../shared/base.js';
 import { toneOf } from '../shared/colour.js';
 import { configKeys, ITEM_ALIASES, type AliasSpec } from '../shared/config.js';
@@ -54,11 +62,13 @@ import {
   entityField,
   fieldRow,
   iconField,
+  showIconField,
   textField,
   titleFields,
 } from '../shared/form.js';
-import { statsColumns, statsSize } from '../shared/readouts.js';
+import { statsSize } from '../shared/readouts.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
+import { Ticker } from '../shared/ticker.js';
 import { connectionOf, gridWay, meanOf, type GridWay } from './grid.js';
 
 const g = strings('grid');
@@ -91,8 +101,6 @@ export interface GridCardConfig extends FluvyCardConfig {
   _now?: string;
 }
 
-/** Three readouts need this much of a column; below it they stand one above the other (the flow's rule). */
-const STACK_BELOW = 240;
 /* the value row (fluvy.css): a 16 gap between the reading and In / Out; In / Out's 12 between word and figure */
 const ROW_GAP = 16;
 const INOUT_GAP = 12;
@@ -112,26 +120,21 @@ interface Model {
   readonly scale: Scale;
 }
 
-interface Stat {
-  readonly label: string;
-  readonly value: string;
-  readonly unit: string;
-}
-
 /**
  * The grid: the net import or export right now in large, what comes in and goes out beside it when the meter can
  * tell them apart (read per phase, or by two sensors), each phase centred on zero with its voltage, the price now,
  * and today's totals — from the grid's own sensors, or from the Energy dashboard's first grid connection.
  */
 export class FluvyGridCard extends Card<GridCardConfig> {
-  static override layoutHeight(config: GridCardConfig): number {
-    return gridHeight(config);
+  static override layoutHeight(config: GridCardConfig, hass?: HomeAssistant): number {
+    return gridHeight(config, hass);
   }
 
   static override styles: CSSResultGroup = [
     ...(Card.styles as CSSResultGroup[]),
     sheetStyles.energy,
     phaseStyles,
+    statsStyles,
     css`
       .ef-card {
         width: 100%;
@@ -154,24 +157,6 @@ export class FluvyGridCard extends Card<GridCardConfig> {
       .en-inout--column {
         grid-template-columns: minmax(0, 1fr);
       }
-      .ef-cols {
-        grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr));
-      }
-      .ef-cols .fv-readout {
-        min-width: 0;
-      }
-      .ef-cols .fv-readout__label {
-        overflow: hidden;
-        white-space: nowrap;
-        text-overflow: ellipsis;
-      }
-      .ef-cols--stack {
-        grid-template-columns: minmax(0, 1fr);
-      }
-      /* fewer columns than readouts: the last one, alone on its row, takes the whole row */
-      .ef-cols--odd > :last-child {
-        grid-column: 1 / -1;
-      }
     `,
   ];
 
@@ -183,6 +168,7 @@ export class FluvyGridCard extends Card<GridCardConfig> {
     'card_color',
     'tap_action',
     'hold_action',
+    'show_icon',
   ];
   static override keys = configKeys<GridCardConfig>()([
     'title',
@@ -218,6 +204,7 @@ export class FluvyGridCard extends Card<GridCardConfig> {
         ...measureFields(),
         entitiesField('voltages', ['sensor']),
         fieldRow(entityField(['sensor'], 'price', false), iconField()),
+        showIconField(),
         entitiesField('readouts', ['sensor']),
         ...colourFields(),
         actionFields(),
@@ -269,6 +256,7 @@ export class FluvyGridCard extends Card<GridCardConfig> {
         !!this.config &&
         ((!this.readouts().length && bucketOf(this.now()) !== this.asked) ||
           (this.config.subtitle === undefined && this.subNow() !== this.shownSub)),
+      LIVE_TICK,
     );
   }
 
@@ -431,19 +419,12 @@ export class FluvyGridCard extends Card<GridCardConfig> {
   /** The head's second line: the card's own, the grid unreadable and since when, stale, the meter, or how fresh. */
   private subNow(m: Model | undefined = this.model): string {
     if (!m?.source) return ''; // nothing read: nothing to be fresh about
-    if (m.dead) {
-      const id = m.source
-        ? sourceIds(m.source).find((i) => this.entity(i).status !== 'ok')
-        : undefined;
-      const changed = id ? Date.parse(this.hass?.states[id]?.last_changed ?? '') : NaN;
-      const name = this.config?.title ?? g(this.hass, 'title');
-      return Number.isFinite(changed)
-        ? f(this.hass, 'unavailable_since', {
-            name,
-            time: formatTime(this.hass, new Date(changed)),
-          })
-        : `${name} · ${this.t('state.unavailable').toLocaleLowerCase(this.hass?.language)}`;
-    }
+    if (m.dead)
+      return downLine(
+        this.hass,
+        this.config?.title ?? g(this.hass, 'title'),
+        sourceIds(m.source).find((i) => this.entity(i).status !== 'ok'),
+      );
     const live = liveWords(this.hass, this.newest(m.source), this.now());
     if (m.stale) return live;
     return this.meterWords(m) || live;
@@ -466,7 +447,17 @@ export class FluvyGridCard extends Card<GridCardConfig> {
     const title = this.config?.title ?? g(this.hass, 'title');
     const sub = this.config?.subtitle ?? this.subNow(m);
     this.shownSub = this.config?.subtitle === undefined ? sub : '';
-    const fitted = this.head.fit({ width: w, title, sub, badge: this.badge(m) });
+    const fitted = this.head.fit({
+      width: w,
+      title,
+      sub,
+      badge: this.badge(m),
+      // stale, "Updated 32 days ago" says its age alone where the column cannot hold it
+      shorter:
+        this.shownSub && m.stale && !m.dead
+          ? staleShorter(this.hass, this.newest(m.source), this.now())
+          : [],
+    });
     const first = m.source ? sourceIds(m.source)[0] : undefined;
     const empty = !m.source && (!!this.own() || this.prefs !== undefined);
     return html`<article class="fv-card ef-card en-card" data-card>
@@ -477,8 +468,8 @@ export class FluvyGridCard extends Card<GridCardConfig> {
         sub: fitted.sub,
         trailing: fitted.badge,
         name: true,
-        onIconTap: () => this.tap(first),
-        onHold: () => this.hold(first),
+        cut: fitted.cut,
+        ...this.headActions(first),
       })}
       ${
         empty
@@ -487,6 +478,8 @@ export class FluvyGridCard extends Card<GridCardConfig> {
               g(this.hass, 'no_grid'),
               g(this.hass, 'no_grid_hint'),
               this.contentWidth,
+              // de's "Noch kein Netzsensor" in half a column: "Keine Sensoren", under the grid's own glyph
+              this.t('common.no_sensors'),
             )
           : html`${this.renderTop(m, w)}${this.renderPhases(m, w)}${this.renderPrice(w)}${this.renderTotals(m, w)}`
       }
@@ -499,12 +492,15 @@ export class FluvyGridCard extends Card<GridCardConfig> {
       v === null
         ? { value: '—', unit: '' }
         : { value: scaled(this.hass, v, m.scale), unit: m.scale.unit };
+    const r = this.head.ruler;
+    const out = m.net !== null && m.net < 0;
+    const long =
+      m.net === null ? g(this.hass, 'net') : g(this.hass, out ? 'net_export' : 'net_import');
+    // "Net import" where it holds one line, else the way alone ("Importación"): a label never wraps onto its figure
     const label =
-      m.net === null
-        ? g(this.hass, 'net')
-        : m.net < 0
-          ? g(this.hass, 'net_export')
-          : g(this.hass, 'net_import');
+      m.net !== null && r.width('fv-readout__label', long) > w
+        ? g(this.hass, out ? 'net_export_short' : 'net_import_short')
+        : long;
     const big = fig(m.net === null ? null : Math.abs(m.net));
     const both = !!m.source && bothWays(m.source);
     const sides = both
@@ -513,7 +509,6 @@ export class FluvyGridCard extends Card<GridCardConfig> {
           { word: g(this.hass, 'out'), ...fig(m.reading.out) },
         ]
       : [];
-    const r = this.head.ruler;
     const bigW = Math.max(
       r.width('fv-readout__label', label),
       r.width('fv-readout fv-readout--l > fv-readout__value', big.value, 'fv-unit', big.unit),
@@ -573,8 +568,11 @@ export class FluvyGridCard extends Card<GridCardConfig> {
     const value = known ? `${parts.value}${parts.unit ? ` ${parts.unit}` : ''}` : '—';
     const title = g(this.hass, 'price_now');
     const titleW = this.head.ruler.width('fv-row__title', title);
-    // below the row's own minimum (its circle and its words): the price as a readout
-    if (this.head.rowRoom(w, '') < titleW)
+    // a column too narrow for the words beside the figure gives the circle to the words, as every list does
+    const keep = this.head.rowsKeepIcon(w, [{ title, value }]);
+    const layout = { icon: keep };
+    // below the row's own minimum (its words, and its circle where it keeps it): the price as a readout
+    if (this.head.rowRoom(w, '', layout) < titleW)
       return html`<div class="ef-rows">
         ${readout({
           label: title,
@@ -584,12 +582,12 @@ export class FluvyGridCard extends Card<GridCardConfig> {
           name: true,
         })}
       </div>`;
-    // too narrow for the words beside the figure: the figure takes the second line
-    const narrow = this.head.rowRoom(w, value) < titleW && known;
+    // too narrow for the words beside the figure even so: the figure takes the second line
+    const narrow = this.head.rowRoom(w, value, layout) < titleW && known;
     const down = view.status === 'unavailable' || view.status === 'missing';
     return html`<div class="ef-rows">
       ${listRow({
-        icon: 'clock',
+        icon: keep ? 'clock' : null,
         tone: down ? 'off' : 'neutral',
         title,
         // a price that cannot be read says so where its sensor's name stood
@@ -601,36 +599,16 @@ export class FluvyGridCard extends Card<GridCardConfig> {
     </div>`;
   }
 
-  /** The readouts asked for, or today's imported, exported and net cost from the Energy dashboard. */
+  /**
+   * The readouts asked for, or today's imported, exported and net cost from the Energy dashboard: as many columns as
+   * hold the widest label and figure (tr's "Net maliyet" on half a column takes two and one).
+   */
   private renderTotals(m: Model, w: number): TemplateResult | typeof nothing {
     const own = this.readouts();
-    if (own.length)
-      return this.cols(
-        legendReadouts(this.hass, own, (id) => this.entity(id)),
-        own.length,
-        w,
-      );
-    const stats = this.todayStats(m);
-    if (!stats.length) return nothing;
-    const stack = w < STACK_BELOW;
-    // as many columns as hold the widest label and figure (tr's "Net maliyet" on half a column takes two and one)
-    const columns = stack ? 1 : statsColumns(this.head.ruler, w, stats);
-    const size = statsSize(this.head.ruler, w, stats, columns);
-    return this.cols(
-      stats.map((stat) => readout({ ...stat, size })),
-      columns,
-      w,
-    );
-  }
-
-  private cols(items: readonly TemplateResult[], count: number, w: number): TemplateResult {
-    return html`<div
-      class="ef-cols fv-cols ${w < STACK_BELOW ? 'ef-cols--stack' : ''} ${items.length % count ? 'ef-cols--odd' : ''}"
-      style="--cols:${count}"
-      data-align="center"
-    >
-      ${items}
-    </div>`;
+    const stats = own.length
+      ? legendStats(this.hass, own, (id) => this.entity(id))
+      : this.todayStats(m);
+    return stats.length ? statsCols(this.head.ruler, w, stats) : nothing;
   }
 
   /** Today on the Energy dashboard's meters of this connection, and its money when it has money statistics. */

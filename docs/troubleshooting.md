@@ -58,6 +58,45 @@ screensaver's time.
 The screen wake lock exists only on a secure page (HTTPS). Over plain HTTP the tablet's own screen timeout rules;
 Fluvy cannot keep it awake.
 
+## A list filled by auto-entities
+
+[auto-entities](https://github.com/thomasloven/lovelace-auto-entities) hands its matches to the card under `entities`,
+each an object with options of its own, and sometimes a section's title or a divider among them. Every Fluvy card of
+a list reads them that way (the bars card takes them as its `rows`, the stat tiles as their `tiles`) and skips the
+titles and dividers. While the filter matches nothing, the card shows its head and an empty panel, then its rows the
+moment something matches; an empty list is never a configuration error. Say what nothing means with `empty_text`, or
+let the card step aside while it is empty with `hide_empty: true` (auto-entities' own `show_empty: false` does the
+same from outside):
+
+```yaml
+type: custom:auto-entities
+filter:
+  include:
+    - domain: binary_sensor
+      attributes:
+        device_class: window
+      state: 'on'
+card:
+  type: custom:fluvy-openings-card
+  title: Open windows
+  empty_text: All closed
+```
+
+A card that showed "add at least one entity" before 1.9 keeps that error until the page is reloaded once.
+
+## The alerts card is not on the dashboard
+
+It hides itself while all is clear (`hide_empty` is on for this card), and comes back the moment an alert applies.
+`hide_empty: false` keeps an "All clear" tile in its place; in the editor's preview it is always drawn. A snoozed
+alert waits in the overview (a long press on any alert), with Wake.
+
+## A card is shorter or taller than it was
+
+Since 1.9 a card out of reach (unavailable, unknown, a missing entity) keeps the size and the anatomy it has live, a
+thermostat in half a section puts its − and + under the temperature, an empty room keeps its photo, and the generated
+dashboards reserve each card its real height. A card stored at four columns whose minimum is now six (compact
+thermostat, light, fan, lock, gauge, room) draws at six: Home Assistant holds a card to its minimum.
+
 ## Collecting a report
 
 **Settings → Devices & services → Fluvy → ⋮ → Download diagnostics** gives the build served, its URLs, the dashboard

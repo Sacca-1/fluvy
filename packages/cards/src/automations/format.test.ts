@@ -1,6 +1,7 @@
 import type { HomeAssistant } from '@fluvy/core';
 import { describe, expect, it } from 'vitest';
 import {
+  changeText,
   clockText,
   daysShort,
   daysText,
@@ -13,6 +14,7 @@ import {
   spanText,
   suggestAlias,
   weekdayShort,
+  whenShort,
 } from './format.js';
 import type { Schedule, Weekday } from './schedule.js';
 
@@ -189,6 +191,32 @@ describe('the next and the last run', () => {
   );
 });
 
+describe('what a target does next', () => {
+  it('says when as a sentence goes on: a wait within the day, the weekday beyond it, the time when it is now', () => {
+    expect(whenShort(en, at(23, 47), NOW)).toBe('in 2 h');
+    expect(whenShort(en, at(6, 45, 1), NOW)).toBe('in 9 h');
+    expect(whenShort(en, at(7, 15, 4), NOW)).toBe('Mon 07:15');
+    expect(whenShort(en, new Date(NOW.getTime() + 20_000), NOW)).toBe('21:47');
+  });
+
+  it('says it by the verb', () => {
+    expect(changeText(en, 'on', at(6, 45, 1), NOW)).toBe('Turns on in 9 h');
+    expect(changeText(en, 'off', at(23, 47), NOW)).toBe('Turns off in 2 h');
+    expect(changeText(en, 'open', at(7, 15, 4), NOW)).toBe('Opens Mon 07:15');
+    expect(changeText(en, 'close', at(22, 22), NOW)).toBe('Closes in 35 min');
+    expect(changeText(en, 'run', at(23, 0), NOW)).toBe('Runs in 1 h');
+  });
+
+  it.each(['de', 'es', 'fr', 'it', 'nl', 'pt-BR', 'tr'])(
+    'speaks %s, the wait where the language puts it',
+    (language) => {
+      const words = changeText(house(language), 'on', at(6, 45, 1), NOW);
+      expect(words).not.toContain('{');
+      expect(words).toMatch(/9/);
+    },
+  );
+});
+
 describe('the name a schedule suggests', () => {
   it('names the first target, its days and its span', () => {
     expect(
@@ -227,5 +255,11 @@ describe('the name a schedule suggests', () => {
     expect(
       suggestAlias(en, ['  Lamp \u0007 one  '], { kind: 'every' }, { kind: 'time', at: '09:00' }),
     ).toBe('Lamp one · Every day 09:00');
+  });
+
+  it('says the days and the time alone while nothing is chosen', () => {
+    expect(suggestAlias(en, [], { kind: 'every' }, { kind: 'time', at: '22:00' })).toBe(
+      'Every day 22:00',
+    );
   });
 });

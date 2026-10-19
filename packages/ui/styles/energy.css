@@ -12,24 +12,7 @@
   justify-content: flex-end;
 }
 
-/* a value row too narrow for its side readout (half a phone's column): the side goes under the value, on the
-   column's start, 12 below */
-.ef-top.is-stacked {
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: flex-start;
-  gap: 12px;
-  height: auto;
-}
-
-.ef-top.is-stacked .ef-top__side {
-  padding-bottom: 0;
-  text-align: left;
-}
-
-.ef-top.is-stacked .ef-top__side .fv-readout__value {
-  justify-content: flex-start;
-}
+/* a value row too narrow for its side readout stacks it under the value: `.fv-value-row.is-stacked` (surfaces) */
 
 /* rows in a column too narrow for their circles: the circle goes and the words take the row (the card puts the
    figure at the head of the second line), the bar under them where the row's own bar is (56), from the row's edge */

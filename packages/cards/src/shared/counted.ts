@@ -13,3 +13,9 @@ export function counted(
     ? localize(hass, 'common.device')
     : localize(hass, 'common.devices', { count: ids.length });
 }
+
+/** "2 of 4 on" in its shorter forms, longest first ("2/4 on", then "2/4"): a line too narrow for the words keeps the count. */
+export const onOfShort = (hass: HomeAssistant | undefined, on: number, count: number): string[] => [
+  localize(hass, 'common.on_of_short', { on, count }),
+  `${on}/${count}`,
+];

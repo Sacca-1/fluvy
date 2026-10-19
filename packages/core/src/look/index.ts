@@ -15,7 +15,8 @@ export {
   tabsOf,
   type Look,
 } from './css.js';
-export { EARLY_KEY, LookEngine, type EarlyLook } from './engine.js';
+export { EARLY_KEY, fallbackCss, LookEngine, type EarlyLook } from './engine.js';
+export { PALETTE_ACCENT } from './accent.js';
 export { lookHandle, startLook, type LookHandle, type LookPreview } from './start.js';
 export { applyZoom, startZoom, ZOOM_VAR } from './zoom.js';
 export {

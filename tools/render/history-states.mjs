@@ -10,7 +10,7 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { chromium } from 'playwright';
-import { parseArgs, launchOptions } from './lib.mjs';
+import { parseArgs, launchOptions, PLAYGROUND } from './lib.mjs';
 
 const args = parseArgs(process.argv.slice(2), {
   viewport: '1440',
@@ -18,7 +18,7 @@ const args = parseArgs(process.argv.slice(2), {
   mode: 'light',
   lang: 'en',
   palette: '',
-  url: 'http://127.0.0.1:5183/',
+  url: PLAYGROUND,
   out: '../../apps/playground/out/history',
   only: '',
   scale: '2',

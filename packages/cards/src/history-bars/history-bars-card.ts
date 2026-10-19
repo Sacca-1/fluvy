@@ -8,13 +8,13 @@ import {
   strings as words,
   type EntityView,
   type FluvyCardConfig,
+  type HaFormSchemaItem,
   type LovelaceConfigForm,
   type LovelaceGridOptions,
   type MessageKey,
 } from '@fluvy/core';
 
 import {
-  bars,
   head,
   ico,
   icon,
@@ -36,39 +36,62 @@ import {
   type TemplateResult,
 } from 'lit';
 
+import {
+  AXIS_GAP,
+  axesStyles,
+  gridLines,
+  tickLabels,
+  UNIT_COLUMN,
+  unitLabel,
+} from '../energy/axes.js';
 import { HeadFit } from '../energy/head.js';
 import { currencySymbol } from '../energy-model/costs.js';
 import { PERIODS, type Period } from '../energy-model/period.js';
+import { RecordedSensors } from '../energy-model/recorded.js';
 import { scaleFor, toBase, type Scale } from '../gauge/units.js';
-import { Card } from '../shared/base.js';
+import { Card, HEAD_BASE } from '../shared/base.js';
 import { toneOf } from '../shared/colour.js';
 import { configKeys, type AliasSpec } from '../shared/config.js';
 import {
+  accentField,
   actionFields,
   boolField,
   colourFields,
   editorLabels,
+  editorLanguage,
   editorWord,
   entityField,
   fieldRow,
   iconField,
   numberField,
   selectField,
+  showIconField,
   textField,
   type FormLabeler,
 } from '../shared/form.js';
 import { TextRuler } from '../shared/fit.js';
 import { statsColumns, statsSize, type StatText } from '../shared/readouts.js';
-import { Refresher } from '../shared/refresh.js';
-import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
+import type { EditorDefaults, FormHelper, RowsListSpec } from '../shared/rows-editor.js';
 import { TemplateTexts } from '../shared/templates.js';
+import { Ticker } from '../shared/ticker.js';
 import {
+  additive,
+  barsKey,
+  bucketStarts,
   CAPS,
   defaultStat,
   fetchBars,
+  kindOf,
+  meterCycle,
+  questionFor,
+  RESETS,
+  SOURCES,
   STATS,
   type BarsRecord,
+  type BarsRequest,
   type Bucket,
+  type Reset,
+  type Source,
   type Stat,
 } from './buckets.js';
 import {
@@ -91,6 +114,8 @@ import {
   type FactKind,
   type Summary,
 } from './facts.js';
+import { countedKey, fetchCounted, withLive, type Counted, type Reading } from './live.js';
+import { Reads } from './reads.js';
 import {
   barGeometry,
   barPath,
@@ -98,8 +123,10 @@ import {
   labelsApart,
   niceTicks,
   thinStep,
+  typical,
   type Placed,
 } from './scale.js';
+import { convert, convertible } from './units.js';
 
 const strings = words('history-bars');
 
@@ -113,14 +140,30 @@ export interface HistoryBarsCardConfig extends FluvyCardConfig {
   days?: number;
   /** What a bar is: a day (default), a week or a month. */
   period?: Period;
-  /** What a bar shows: what the meter gained (`change`, a meter's default), the mean (a measurement's), the highest or the lowest reading. */
+  /**
+   * What a bar shows: what the meter gained (`change`, a meter's default), its reading at the end (`state`, the
+   * default of a sensor with no state class), the mean (a measurement's), the highest or the lowest reading.
+   */
   stat?: Stat;
+  /**
+   * When the counter starts again from zero: as Home Assistant counts it (`auto`, its sum: the Energy dashboard's
+   * numbers, and what an unset reset reads), `never` (a lifetime meter), or every `day`, `week`, `month` or `year` —
+   * the bars then come from its readings, so a reset or a restart is never counted twice. The editor names a utility
+   * meter's own cycle; it is never chosen for it.
+   */
+  reset?: Reset;
+  /** Where the bars are read from: statistics where they can answer, else the history (`auto`), or the history always. */
+  source?: Source;
   /** The bucket in progress (today, this week, this month) as the last bar; off by default, so the bars are finished ones. */
   include_today?: boolean;
   /** Decimals of the figures, 1 by default. */
   decimals?: number;
-  /** The unit asked of the recorder and shown (energy and power convert; anything else is the sensor's own). */
+  /** The unit the figures read in: energy, power, volume and distance convert; any other is ignored (the sensor's own). */
   unit?: string;
+  /** The bars below zero in a colour of their own; the card's by default. */
+  negative_color?: string;
+  /** The bar in progress in a colour of its own; the card's by default. */
+  current_color?: string;
   /** `full` (default): the head, its readouts, the chart and the facts. `compact`: the head, its readouts and the bars with their dates. `mini`: the head and one row of readouts and a sparkline. */
   variant?: BarsVariant;
   show_head?: boolean;
@@ -149,9 +192,6 @@ const PLOT_COMPACT = 80;
 const VALUES = 20;
 const HEADROOM = 4;
 const DATES = 24;
-/** The rotated unit's column beside the scale, and the gap between the tick labels and the plot. */
-const UNIT_COLUMN = 16;
-const AXIS_GAP = 8;
 /** Between the head's readouts: a 1 px divider with 16 each side. */
 const DIVIDER = 33;
 /** The strip's padding, the gap between its cells (a divider in the middle of it) and between its rows. */
@@ -166,6 +206,17 @@ const READOUTS_IN_HEAD = 440;
 const SPARK_MIN = 80;
 const HOUR = 3_600_000;
 const SCALABLE = /^(m|k|M|G)?(Wh|W|VA)$/;
+/**
+ * A value freed of a float's noise, to twelve significant digits (a double carries sixteen; a sensor's figures use no
+ * more than ten): a sum of the recorder's decimals that is 11.05 in truth and 11.049999999999265 in binary rounds as
+ * 11.05 does. Every figure the card writes is rounded from this, so one on a rounding half goes the way its decimals
+ * say, never the way the noise of the sum behind it happens to lean.
+ */
+const exact = (value: number): number => Number(value.toPrecision(12));
+/** A press that travels further than this is a reading of the chart, not a tap on it. */
+const STILL = 8;
+/** A press held longer than this is a reading of the chart, not a tap on it. */
+const TAP = 500;
 
 /** A fact as the card says it: its words and figure, its circle, what a tap does. */
 interface FactCell extends StatText {
@@ -174,6 +225,24 @@ interface FactCell extends StatText {
   readonly tone: Tone;
   readonly accent: string | undefined;
   readonly entity: string | undefined;
+}
+
+/** What Home Assistant has counted of a bucket in progress: the bucket's start, and the count. */
+interface CountedBucket {
+  readonly start: number;
+  readonly counted: Counted;
+}
+
+/** A sensor's reads: its bars, and Home Assistant's count of its bucket in progress. */
+interface Sensor {
+  readonly bars: Reads<BarsRecord | null>;
+  readonly counting: Reads<Counted>;
+}
+
+/** The sensor a share is of, as the card has it: its bars (undefined while they load, null with none), its count. */
+interface ShareBars {
+  readonly record?: BarsRecord | null;
+  readonly counted?: CountedBucket;
 }
 
 /** What the render laid the bars out with, for the pointer's snapping. */
@@ -207,6 +276,79 @@ const listHelpers: FormLabeler = (schema) =>
       ? editorWord('editor.template_helper')
       : undefined;
 
+/** What a bar may show, each by its word: the shared ones, and "The reading at the end" (`option.state` says "State"). */
+const STAT_WORDS: Readonly<Record<Stat, MessageKey>> = {
+  change: 'option.change',
+  state: 'history-bars.stat_state',
+  mean: 'option.mean',
+  max: 'option.max',
+  min: 'option.min',
+};
+const RESET_WORDS: Readonly<Record<Reset, MessageKey>> = {
+  auto: 'history-bars.reset_auto',
+  never: 'history-bars.reset_never',
+  day: 'history-bars.reset_day',
+  week: 'history-bars.reset_week',
+  month: 'history-bars.reset_month',
+  year: 'history-bars.reset_year',
+};
+const SOURCE_WORDS: Readonly<Record<Source, MessageKey>> = {
+  auto: 'history-bars.source_auto',
+  history: 'history-bars.source_history',
+};
+
+/** A choice of the card's own, each value by its word in the editor's language. */
+const wordsField = <V extends string>(
+  name: string,
+  values: readonly V[],
+  wordOf: Readonly<Record<V, MessageKey>>,
+): HaFormSchemaItem => ({
+  name,
+  selector: {
+    select: {
+      mode: 'dropdown',
+      options: values.map((value) => ({ value, label: editorWord(wordOf[value]) })),
+    },
+  },
+});
+
+/**
+ * What is said under the card's own fields, from the sensor the editor shows: when it resets reads a utility meter's
+ * cycle and flags a `total` without `last_reset` (Home Assistant counts its fall below zero); a reading at the end of
+ * a counter says when its bars add up; where it is read from and the unit say what they do.
+ */
+const formHelpers: FormHelper = (schema, _localize, data, hass) => {
+  // an item's form (a fact's own unit) is not the card's: it is told nothing of the card
+  if (!data) return undefined;
+  const id = typeof data['entity'] === 'string' ? data['entity'] : '';
+  const attributes = hass?.states?.[id]?.attributes ?? {};
+  const language = editorLanguage();
+  switch (schema.name) {
+    case 'reset': {
+      if (attributes['state_class'] === 'total' && !attributes['last_reset'])
+        return strings(language, 'reset_help_total');
+      const cycle = meterCycle(hass, attributes);
+      return cycle
+        ? strings(language, 'reset_help_meter', { cycle: editorWord(RESET_WORDS[cycle]) })
+        : strings(language, 'editor_reset_help');
+    }
+    case 'stat': {
+      const period = (data['period'] ?? 'day') as Period;
+      return data['stat'] === 'state' &&
+        kindOf(attributes['state_class'] as string | undefined) === 'counter' &&
+        data['reset'] !== period
+        ? strings(language, 'stat_help_pair', { cycle: editorWord(RESET_WORDS[period]) })
+        : undefined;
+    }
+    case 'source':
+      return strings(language, 'editor_source_help');
+    case 'unit':
+      return strings(language, 'editor_unit_help');
+    default:
+      return undefined;
+  }
+};
+
 /**
  * A sensor's history as bars: its last days, weeks or months from Home Assistant's long-term statistics, each bar
  * with its value above it on a nice scale, the total and the average in the head, and a strip of facts under the
@@ -223,6 +365,7 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
   static override styles: CSSResultGroup = [
     ...(Card.styles as CSSResultGroup[]),
     sheetStyles.energy,
+    axesStyles,
     css`
       /* the readouts: beside the title (right-aligned, a divider between them), or on their own row under the head */
       .hb-readouts {
@@ -237,8 +380,23 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
       .hb-readouts--head .fv-readout__value {
         justify-content: flex-end;
       }
+      /* the divider between readouts is drawn, not a box of its own: a hairline down the gap */
+      .hb-readouts > .hb-readout + .hb-readout {
+        margin-left: 16px;
+        padding-left: 16px;
+      }
+      .hb-readouts > .hb-readout + .hb-readout::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 1px;
+        background: var(--fluvy-border);
+      }
       /* on their own row the readouts share it in equal columns, each centred in its cell (the readout rows' rule),
-         the divider on the cells' edge */
+         the divider on the cells' edge: after the gap's rule, which it takes back (of the same weight, the later
+         wins; a cell that kept the gap would lose 32 of its width) */
       .hb-readouts--row,
       .hb-readouts--first {
         display: grid;
@@ -258,20 +416,6 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
       .hb-readouts--first > .hb-readout + .hb-readout {
         margin-left: 0;
         padding-left: 0;
-      }
-      /* the divider between readouts is drawn, not a box of its own: a hairline down the gap */
-      .hb-readouts > .hb-readout + .hb-readout {
-        margin-left: 16px;
-        padding-left: 16px;
-      }
-      .hb-readouts > .hb-readout + .hb-readout::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        bottom: 0;
-        left: 0;
-        width: 1px;
-        background: var(--fluvy-border);
       }
       .hb-readout {
         position: relative;
@@ -327,6 +471,17 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
       .hb-bar.is-negative {
         transform-origin: 50% 0;
       }
+      /* the bucket in progress is still growing: lighter, edged with a dashed line of its ink */
+      .hb-bar.is-current:not(.is-empty) {
+        fill-opacity: 0.5;
+        stroke: var(--hb-edge, var(--ink));
+        stroke-width: 1;
+        stroke-dasharray: 3 2;
+      }
+      .hb-chart--tap,
+      .hb-spark--tap {
+        cursor: pointer;
+      }
       .hb-bar.is-empty {
         fill: var(--ink);
         opacity: 0.25;
@@ -337,20 +492,6 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
       }
       .hb-chart.is-scrub .hb-bar.is-empty:not(.is-hover) {
         opacity: 0.1;
-      }
-      .hb-grid {
-        stroke: var(--fluvy-border);
-        stroke-width: 1;
-        stroke-dasharray: 3 3;
-      }
-      .hb-tick,
-      .hb-unit {
-        font-size: 11px;
-        font-weight: 500;
-        line-height: 16px;
-        fill: var(--fluvy-text-disabled);
-        color: var(--fluvy-text-disabled);
-        font-variant-numeric: tabular-nums;
       }
       .hb-date {
         font-size: 12px;
@@ -468,6 +609,17 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
       .hb-spark svg {
         display: block;
       }
+      /* a sparkline's bar below zero hangs from the zero line; one in a colour of its own wears it; the one in
+         progress is lighter */
+      .hb-spark .fv-vbar.is-negative {
+        transform-origin: 50% 0;
+      }
+      .hb-spark .fv-vbar.hb-own {
+        fill: var(--fluvy-accent);
+      }
+      .hb-spark .fv-vbar.is-current {
+        fill-opacity: 0.5;
+      }
       .fv-card.is-off .hb-chart,
       .fv-card.is-off .hb-spark {
         --ink: var(--fluvy-text-disabled);
@@ -479,39 +631,62 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
   static override properties = {
     ...Card.properties,
     record_: { state: true },
+    failed_: { state: true },
+    counted_: { state: true },
     shares_: { state: true },
   };
 
   /** undefined while the bars load, null when the recorder knows nothing of the sensor. */
   declare record_: BarsRecord | null | undefined;
-  /** The sensors a share is of, by id: their bars (the same), undefined while they load. */
-  declare shares_: Readonly<Record<string, BarsRecord | null | undefined>>;
+  /** The last read of the bars failed: with none to show, the card says it could not read the recorder. */
+  declare failed_: boolean;
+  /** What Home Assistant has counted of the bucket in progress, for a live bucket as it counts it. */
+  declare counted_: CountedBucket | undefined;
+  /** The sensors a share is of, by id: their bars (the same; undefined while they load) and their count. */
+  declare shares_: Readonly<Record<string, ShareBars>>;
 
   /** The bar under the pointer (its index); null: the whole period. */
   private readonly scrubber = new ScrubController(this, (fraction) => this.barAt(fraction));
-  private readonly history = new Refresher<BarsRecord | null>(HOUR);
-  private readonly shareHistory = new Map<string, Refresher<BarsRecord | null>>();
+  /** The card's sensor's reads, and those of each sensor a share is of. */
+  private readonly own: Sensor = { bars: new Reads(), counting: new Reads() };
+  /** The card's sensor while it is missing from the house: as the recorder describes it. */
+  private readonly recorded = new RecordedSensors(this);
+  private readonly shareSensors = new Map<string, Sensor>();
+  /** The window the bars on screen are of (the sensor and how it is read, not the hour): another one shows the skeleton. */
+  private window = '';
   private readonly head = new HeadFit(this);
   private readonly texts = new TemplateTexts(this);
   private readonly ruler: TextRuler;
   private plot: Plot = { inset: 0, slot: 1, count: 0 };
   private readonly gradient = `hb-g${++gradients}`;
+  /** Where a press on the chart began and when: a still, short one is a tap (the card's, when it has no head). */
+  private press: { x: number; y: number; at: number; moved: boolean } | null = null;
 
   constructor() {
     super();
     this.record_ = undefined;
+    this.failed_ = false;
+    this.counted_ = undefined;
     this.shares_ = {};
     this.ruler = this.head.ruler;
+    // the card's clock: an hour asked again once compiled, the window rolled at midnight, a failed read retried
+    // after a minute — for a quiet sensor too, whose state never changes to ask for it
+    new Ticker(this, () => this.due());
   }
 
+  static override base = HEAD_BASE;
   static override keys = configKeys<HistoryBarsCardConfig>()([
     'subtitle',
     'days',
     'period',
     'stat',
+    'reset',
+    'source',
     'include_today',
     'decimals',
     'unit',
+    'negative_color',
+    'current_color',
     'variant',
     'show_head',
     'show_values',
@@ -556,11 +731,19 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
     const entity = typeof config['entity'] === 'string' ? config['entity'] : '';
     const stateClass = hass?.states?.[entity]?.attributes['state_class'];
     const stat = defaultStat(typeof stateClass === 'string' ? stateClass : undefined);
+    // the head the card draws: by the stat and the reset it reads with, as given or by default
+    const shown = STATS.includes(config['stat'] as Stat) ? (config['stat'] as Stat) : stat;
+    const resets = RESETS.includes(config['reset'] as Reset) ? (config['reset'] as Reset) : 'auto';
+    const period = PERIODS.includes(config['period'] as Period)
+      ? (config['period'] as Period)
+      : 'day';
     return {
       variant: 'full',
       period: 'day',
       days: 7,
       stat,
+      reset: 'auto',
+      source: 'auto',
       include_today: false,
       decimals: 1,
       date_format: 'date',
@@ -571,7 +754,7 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
       show_dates: true,
       show_facts: true,
       co2_factor: FACTORS.co2,
-      head: defaultHead(stat),
+      head: defaultHead(shown, additive(shown, resets, period)),
       facts: [...DEFAULT_FACTS],
     };
   };
@@ -581,13 +764,16 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
         entityField(['sensor']),
         fieldRow(textField('name'), textField('subtitle')),
         fieldRow(iconField(), selectField('variant', ['full', 'compact', 'mini'])),
+        showIconField(),
         ...colourFields(),
         fieldRow(numberField('days', 1, 92), selectField('period', PERIODS)),
+        fieldRow(wordsField('stat', STATS, STAT_WORDS), wordsField('reset', RESETS, RESET_WORDS)),
         fieldRow(
-          selectField('stat', STATS),
+          wordsField('source', SOURCES, SOURCE_WORDS),
           selectField('date_format', ['date', 'weekday', 'short']),
         ),
         fieldRow(numberField('decimals', 0, 3), textField('unit')),
+        fieldRow(accentField('negative_color'), accentField('current_color')),
         fieldRow(boolField('include_today'), boolField('show_head')),
         fieldRow(boolField('show_values'), boolField('show_axis')),
         fieldRow(boolField('show_grid'), boolField('show_dates')),
@@ -606,6 +792,10 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
           days: 'editor_days',
           period: 'editor_period',
           stat: 'editor_stat',
+          reset: 'editor_reset',
+          source: 'editor_source',
+          negative_color: 'editor_negative_color',
+          current_color: 'editor_current_color',
           include_today: 'editor_include_today',
           decimals: 'editor_decimals',
           unit: 'editor_unit',
@@ -621,6 +811,7 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
         },
         {},
       ),
+      computeHelper: formHelpers,
     };
   }
 
@@ -670,6 +861,15 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
     const s = this.config?.stat;
     return s && STATS.includes(s) ? s : defaultStat(view.attr<string>('state_class'));
   }
+  /** When the sensor's counter starts again: as configured, else as Home Assistant counts it. */
+  private resetOf(): Reset {
+    const r = this.config?.reset;
+    return r && RESETS.includes(r) ? r : 'auto';
+  }
+  /** Whether the sensor's bars add up (a total, money and the equivalents mean something). */
+  private additiveOf(view: EntityView): boolean {
+    return additive(this.statOf(view), this.resetOf(), this.period);
+  }
   private get decimals(): number {
     const d = Number(this.config?.decimals ?? 1);
     return Number.isFinite(d) ? Math.max(0, Math.min(3, Math.round(d))) : 1;
@@ -683,19 +883,21 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
   ): boolean {
     return this.config?.[key] !== false;
   }
-  private headItems(stat: Stat): FactItem[] {
+  private headItems(view: EntityView): FactItem[] {
     const own = this.config?.head;
-    return own === undefined ? defaultHead(stat).map((kind) => ({ kind })) : factsOf(own);
+    return own === undefined
+      ? defaultHead(this.statOf(view), this.additiveOf(view)).map((kind) => ({ kind }))
+      : factsOf(own);
   }
   private factItems(): FactItem[] {
     const own = this.config?.facts;
     return own === undefined ? DEFAULT_FACTS.map((kind) => ({ kind })) : factsOf(own);
   }
   /** The sensors a share is of. */
-  private shareIds(stat: Stat): string[] {
+  private shareIds(view: EntityView): string[] {
     return [
       ...new Set(
-        [...this.headItems(stat), ...this.factItems()]
+        [...this.headItems(view), ...this.factItems()]
           .filter((item) => item.kind === 'share' && typeof item.of === 'string' && item.of)
           .map((item) => item.of as string),
       ),
@@ -704,7 +906,7 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
 
   protected override watched(): readonly string[] {
     const view = this.entity();
-    return [view.id, ...this.shareIds(this.statOf(view))].filter(Boolean);
+    return [view.id, ...this.shareIds(view)].filter(Boolean);
   }
 
   private now(): Date {
@@ -723,47 +925,157 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
     this.loadBars();
   }
 
-  /** The unit the recorder is asked for: the card's own, else the sensor's. */
-  private askedUnit(view: EntityView): string {
-    return this.config?.unit ?? view.unit;
+  /**
+   * The card's sensor as it is read: one no longer in the house as the recorder describes it (its unit, its state
+   * class), so its bars are asked and drawn as they were.
+   */
+  protected override entity(id: string | undefined = this.config?.entity): EntityView {
+    const view = super.entity(id);
+    return id === this.config?.entity ? this.recorded.view(view) : view;
   }
 
-  /** Once per sensor, window and hour, and again when the hour turns; the bars on screen stay until the new ones arrive. */
-  private loadBars(): void {
+  /**
+   * The unit the figures read in: the card's own where the sensor's converts to it (energy, power, volume, distance),
+   * else the sensor's — a unit that cannot be reached is ignored rather than written on figures it does not measure.
+   */
+  private unitOf(view: EntityView): string {
+    const own = this.config?.unit;
+    return own && convertible(view.unit, own) ? own : view.unit;
+  }
+
+  /** The bucket in progress counts: drawn, or a readout or a fact says it. */
+  private readsCurrent(view: EntityView): boolean {
+    return (
+      Boolean(this.config?.include_today) ||
+      [...this.headItems(view), ...this.factItems()].some((item) => item.kind === 'today')
+    );
+  }
+
+  /** How a sensor's bars are asked: by what it is, the card's stat and window, its counter's reset and the unit. */
+  private requestOf(view: EntityView, reset: Reset, now: Date, unit: string): BarsRequest {
+    return {
+      id: view.id,
+      period: this.period,
+      count: this.count,
+      stat: this.statOf(this.entity()),
+      reset,
+      source: this.config?.source === 'history' ? 'history' : 'auto',
+      kind: kindOf(view.attr<string>('state_class')),
+      unit,
+      own: view.unit,
+      now,
+    };
+  }
+
+  /**
+   * The reads the card makes now, each with its key: its sensor's bars, what Home Assistant has counted of the bucket
+   * in progress where the bars are its count and that bucket is read live, and the bars of each sensor a share is of
+   * (each by its own reset, the bucket in progress counted where it is drawn).
+   */
+  private reads(): Array<{ readonly due: () => boolean; readonly run: () => void }> {
     const hass = this.hass;
     const view = this.entity();
-    if (!hass || view.status === 'missing') return;
+    // a sensor out of reach, even one no longer there, keeps what the recorder holds of it
+    if (!hass || !this.recorded.ready(view)) return [];
     const now = this.now();
-    const stat = this.statOf(view);
-    const hour = Math.floor(now.getTime() / HOUR);
-    const unit = this.askedUnit(view);
-    const window = `${view.id}|${this.period}|${this.count}|${stat}|${unit}`;
-    const previous = this.history.request(
-      `${window}|${hour}`,
-      () =>
-        fetchBars(hass, { id: view.id, period: this.period, count: this.count, stat, unit, now }),
-      (record) => (this.record_ = record),
+    const live = !this.config?._now;
+    const out: Array<{ due: () => boolean; run: () => void }> = [];
+    const sensor = (
+      of: EntityView,
+      [reset, unit]: readonly [Reset, string],
+      memory: Sensor,
+      counts: boolean,
+      onBars: (record: BarsRecord | null) => void,
+      onCounted: (counted: CountedBucket) => void,
+      onFail: () => void = () => undefined,
+    ): void => {
+      const request = this.requestOf(of, reset, now, unit);
+      const key = barsKey(hass, request);
+      out.push({
+        due: () => memory.bars.due(key),
+        run: () => memory.bars.ask(key, () => fetchBars(hass, request), onBars, onFail),
+      });
+      const plan = questionFor(request.kind, request.stat, reset, request.period, request.source);
+      if (!counts || !live || plan.from !== 'rows' || plan.stat !== 'change') return;
+      const start = bucketStarts(hass, now, request.period, 0).current;
+      const withReset = of.attr('last_reset') !== undefined;
+      const counted = countedKey(request.id, request.unit, start, now);
+      out.push({
+        due: () => memory.counting.due(counted),
+        run: () =>
+          memory.counting.ask(
+            counted,
+            () => fetchCounted(hass, request.id, request.unit, start, now, withReset),
+            (answer) => onCounted({ start, counted: answer }),
+          ),
+      });
+    };
+    sensor(
+      view,
+      [this.resetOf(), this.unitOf(view)],
+      this.own,
+      this.readsCurrent(view),
+      (record) => {
+        this.record_ = record;
+        this.failed_ = false;
+      },
+      (counted) => (this.counted_ = counted),
+      () => (this.failed_ = true),
     );
-    if (previous !== null && !previous.startsWith(`${window}|`)) this.record_ = undefined;
-    for (const id of this.shareIds(stat)) {
-      let refresher = this.shareHistory.get(id);
-      if (!refresher) {
-        refresher = new Refresher<BarsRecord | null>(HOUR);
-        this.shareHistory.set(id, refresher);
-      }
-      refresher.request(
-        `${id}|${this.period}|${this.count}|${stat}|${unit}|${hour}`,
-        () => fetchBars(hass, { id, period: this.period, count: this.count, stat, unit, now }),
-        (record) => (this.shares_ = { ...this.shares_, [id]: record }),
+    const drawn = Boolean(this.config?.include_today);
+    for (const id of this.shareIds(view)) {
+      const of = this.entity(id);
+      if (of.status === 'missing') continue;
+      let memory = this.shareSensors.get(id);
+      if (!memory)
+        this.shareSensors.set(id, (memory = { bars: new Reads(), counting: new Reads() }));
+      sensor(
+        of,
+        ['auto', this.shareUnit(of)],
+        memory,
+        drawn,
+        (record) => (this.shares_ = { ...this.shares_, [id]: { ...this.shares_[id], record } }),
+        (counted) => (this.shares_ = { ...this.shares_, [id]: { ...this.shares_[id], counted } }),
       );
     }
+    return out;
+  }
+
+  /** Whether the card must ask again: an hour compiled, the window rolled, five minutes counted, a failed read's minute up. */
+  private due(): boolean {
+    return this.reads().some((read) => read.due());
+  }
+
+  /**
+   * Once per sensor, window and hour (asked again a minute after the hour turns, and when the window rolls at
+   * midnight); the bars on screen stay until the new ones arrive, unless the window itself changed.
+   */
+  private loadBars(): void {
+    const view = this.entity();
+    if (!this.hass || !this.recorded.ready(view)) return;
+    const request = this.requestOf(view, this.resetOf(), this.now(), this.unitOf(view));
+    const window = `${view.id}|${this.period}|${this.count}|${request.stat}|${request.reset}|${request.source}|${request.unit}`;
+    if (window !== this.window) {
+      if (this.window) {
+        this.record_ = undefined;
+        this.counted_ = undefined;
+        this.failed_ = false;
+      }
+      this.window = window;
+    }
+    for (const read of this.reads()) read.run();
   }
 
   /* ---------- words and figures ---------- */
 
+  /**
+   * A figure as the locale writes it, to its decimals, rounded from the value freed of a float's noise (`exact`):
+   * today's count carried on to the reading now is a sum, and a sum of 10.45 that reads 10.5 must read 11.1 once the
+   * sensor is 0.6 on, not 11.0 for the 1e-12 the binary sum fell short of 11.05 by.
+   */
   private figure(value: number | null, decimals = this.decimals): string {
     if (value === null || !Number.isFinite(value)) return '—';
-    return formatNumber(this.hass, value, { digits: decimals, minDigits: decimals }).replace(
+    return formatNumber(this.hass, exact(value), { digits: decimals, minDigits: decimals }).replace(
       /^-/,
       '−',
     );
@@ -847,15 +1159,67 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
     }
   }
 
-  /** The total of the sensor a share is of, in the card's unit: null when it cannot be read, undefined while it loads. */
+  /**
+   * The total of the sensor a share is of, summed as the card's own (its bucket in progress live where it is drawn;
+   * none where its bars do not add up), in the card's unit: null when it cannot be read, undefined while it loads.
+   */
   private shareTotal(item: FactItem, drawn: boolean, scale: Scale): number | null | undefined {
     if (!item.of) return null;
-    const record = this.shares_[item.of];
-    if (record === undefined) return undefined;
-    if (record === null) return null;
-    const values = [...record.buckets, ...(drawn ? [record.current] : [])].map((b) => b.value);
-    const total = summarise(values, null).total;
+    const share = this.shares_[item.of];
+    if (share?.record === undefined) return undefined;
+    if (share.record === null) return null;
+    const of = this.entity(item.of);
+    const record = share.record;
+    const current = this.liveCurrent(record, of, share.counted, this.shareUnit(of));
+    const total = summarise(
+      record.buckets.map((b) => b.value),
+      current,
+      {
+        drawn,
+        additive: additive(this.statOf(this.entity()), 'auto', this.period),
+      },
+    ).total;
     return total === null ? null : this.scaled(total, scale);
+  }
+
+  /** The unit a share's sensor is asked in: the card's sensor's, where its own converts to it. */
+  private shareUnit(of: EntityView): string {
+    const unit = this.unitOf(this.entity());
+    return convertible(of.unit, unit) ? unit : of.unit;
+  }
+
+  /**
+   * The bucket in progress as it is now: as compiled, carried on to the sensor's reading now — from Home Assistant's
+   * count of it (as it counts it) or from the last compiled reading.
+   */
+  private liveCurrent(
+    record: BarsRecord,
+    view: EntityView,
+    counted: CountedBucket | undefined,
+    unit: string,
+  ): number | null {
+    return withLive(
+      record.current,
+      record.live,
+      this.readingOf(view, unit),
+      this.now().getTime(),
+      counted && counted.start === record.current.start
+        ? { counted: counted.counted, stateClass: view.attr<string>('state_class') }
+        : undefined,
+    );
+  }
+
+  /**
+   * The sensor's reading now, in the unit its bars are in: none under a test's frozen clock (it has no now to read),
+   * nor for a sensor whose state is not a number — the compiled value stays.
+   */
+  private readingOf(view: EntityView, unit: string): Reading | null {
+    if (this.config?._now || view.number === null || !isUsable(view)) return null;
+    const lastReset = Date.parse(String(view.attr('last_reset') ?? ''));
+    return {
+      value: convert(view.number, view.unit, unit),
+      lastReset: Number.isFinite(lastReset) ? lastReset : null,
+    };
   }
 
   /** A raw statistic in the shown unit (a Wh series read in kWh). */
@@ -898,32 +1262,33 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
   protected renderCard(): TemplateResult {
     const view = this.entity();
     const name = this.config?.name ?? view.name;
-    if (view.status === 'missing')
-      return this.renderEmpty(`${name} · ${stateText(this.hass, view)}`);
-
+    // out of reach, the card is the live one in the off skin (the owner's rule, 1.9): its head opens its line with the
+    // state, its bars are the recorder's and stay
     const unusable = !isUsable(view);
     const tone: Tone = unusable ? 'off' : toneOf(this.config, 'accent');
-    const stat = this.statOf(view);
     const variant = this.variant;
     const width = this.contentWidth;
     const record = this.record_;
-    const loading = record === undefined;
+    const failed = record === undefined && this.failed_;
+    const loading = record === undefined && !failed;
     const drawn = Boolean(this.config?.include_today);
 
-    // the buckets drawn, in the unit shown: a Wh series reads in kWh when its figures ask for it
+    // the bucket in progress, live; the buckets drawn in the unit shown (a Wh series reads in kWh when its figures
+    // ask for it), the one in progress last where it is drawn
+    const asked = this.unitOf(view);
+    const live = record ? this.liveCurrent(record, view, this.counted_, asked) : null;
     const buckets: readonly Bucket[] = record
-      ? [...record.buckets, ...(drawn ? [record.current] : [])]
+      ? [...record.buckets, ...(drawn ? [{ ...record.current, value: live }] : [])]
       : [];
-    const asked = this.askedUnit(view);
-    const scale = this.scaleOf(buckets, asked);
+    const scale = this.scaleOf(buckets, record?.buckets.length ?? 0, asked);
     const values = buckets.map((b) => (b.value === null ? null : this.scaled(b.value, scale)));
-    const current = record
-      ? record.current.value === null
-        ? null
-        : this.scaled(record.current.value, scale)
-      : null;
-    const summary = summarise(values, current);
+    const current = live === null ? null : this.scaled(live, scale);
+    const summary = summarise(values.slice(0, record?.buckets.length ?? 0), current, {
+      drawn,
+      additive: this.additiveOf(view),
+    });
     const unit = scale.unit;
+    const running = drawn && buckets.length ? buckets.length - 1 : null;
 
     const context: Omit<FactContext, 'shareOf'> = {
       unit,
@@ -934,7 +1299,7 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
       currency: currencySymbol(this.hass),
       trees: strings(this.hass, 'unit_trees'),
     };
-    const readouts = this.headItems(stat).map((item) =>
+    const readouts = this.headItems(view).map((item) =>
       this.factText(item, summary, context, scale, drawn),
     );
     const facts =
@@ -942,14 +1307,15 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
         ? this.factItems().map((item) => this.factText(item, summary, context, scale, drawn))
         : [];
 
-    // the readout under the pointer: the bar's day and its value, in place of the row
+    // the readout under the pointer: the bar's day (the one in progress by its word, "Today") and its value, in
+    // place of the row
     const hovered = record && buckets.length ? this.scrubber.value : null;
     const hoveredBucket = hovered === null ? undefined : buckets[hovered];
     const hoveredValue = hovered === null ? null : (values[hovered] ?? null);
     const shownReadouts: StatText[] = hoveredBucket
       ? [
           {
-            label: this.dateLabel(hoveredBucket.start, 'date'),
+            label: this.barLabel(hoveredBucket, hovered === running),
             value: this.figure(hoveredValue),
             unit: hoveredValue === null ? '' : unit,
           },
@@ -964,14 +1330,20 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
     // the readouts sit beside the title only on a wide card where nothing of the head gives way for them
     const tryHead =
       showHead && variant !== 'mini' && readouts.length > 0 && width >= READOUTS_IN_HEAD;
+    // "Last 7 days" is "7 days" where half a section cannot hold it (nl "Afgelopen 7 dagen")
+    const shorter =
+      sub === this.periodLine() && this.period === 'day' && this.count > 1
+        ? [this.t('page.days', { n: this.count })]
+        : [];
     let fitted = this.head.fit({
       width,
       title: name,
       sub,
+      shorter,
       ...(tryHead ? { trailing: this.readoutsWidth(readouts) } : {}),
     });
     const inHead = tryHead && fitted.icon && fitted.sub === sub;
-    if (tryHead && !inHead) fitted = this.head.fit({ width, title: name, sub });
+    if (tryHead && !inHead) fitted = this.head.fit({ width, title: name, sub, shorter });
 
     const chart =
       variant === 'mini'
@@ -981,33 +1353,31 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
               class="fv-skeleton hb-skeleton"
               style="height:${this.chartHeight(variant)}px"
             ></div>`
-          : record === null
-            ? html`<div class="hb-empty">
-                ${this.head.empty('chart', strings(this.hass, 'no_stats'), strings(this.hass, 'no_stats_hint'), width)}
-              </div>`
-            : this.renderChart(buckets, values, unit, tone, unusable, hovered, name, variant);
+          : record === null || record === undefined
+            ? html`<div class="hb-empty">${this.renderNone(view, failed, width)}</div>`
+            : this.renderChart(buckets, values, unit, tone, unusable, { hovered, running }, name);
 
     return html`<article class="fv-card ${unusable ? 'is-unavailable is-off' : ''}" data-card>
       ${
         showHead
           ? head({
               icon: fitted.icon ? (this.config?.icon ?? 'chart') : null,
+              small: fitted.small,
               tone,
               title: name,
               sub: fitted.sub,
               trailing: inHead
                 ? this.renderReadouts(shownReadouts, readouts, 'head')
                 : fitted.badge,
-              onIconTap: () => this.tap(view.id),
-              onHold: () => this.hold(view.id),
-              iconLabel: name,
+              cut: fitted.cut,
+              ...this.headActions(view.id),
               name: true,
             })
           : nothing
       }
       ${
         variant === 'mini'
-          ? this.renderMini(shownReadouts, readouts, values, tone, loading, record === null)
+          ? this.renderMini(shownReadouts, readouts, values, running, tone, loading, !record)
           : inHead || !readouts.length
             ? nothing
             : this.renderReadouts(shownReadouts, readouts, showHead ? 'row' : 'first')
@@ -1017,14 +1387,44 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
   }
 
   /**
-   * The unit the figures read in: the recorder's answer as asked, or a scalable unit brought up to the size its
-   * largest figure asks for (a Wh meter's days read in kWh); never down — a kWh meter's small days stay in kWh.
+   * The chart's place when there are no bars: the recorder could not be read (asked again in a minute), or it knows
+   * nothing yet of the sensor — no statistics, or, read from the history, none recorded.
    */
-  private scaleOf(buckets: readonly Bucket[], asked: string): Scale {
-    if (this.config?.unit || !SCALABLE.test(asked)) return { unit: asked, divisor: 1 };
+  private renderNone(view: EntityView, failed: boolean, width: number): TemplateResult {
+    const plan = questionFor(
+      kindOf(view.attr<string>('state_class')),
+      this.statOf(view),
+      this.resetOf(),
+      this.period,
+      this.config?.source === 'history' ? 'history' : 'auto',
+    );
+    const [title, hint] = failed
+      ? (['read_failed', 'read_failed_hint'] as const)
+      : plan.from === 'history'
+        ? (['no_history', 'no_history_hint'] as const)
+        : (['no_stats', 'no_stats_hint'] as const);
+    return this.head.empty('chart', strings(this.hass, title), strings(this.hass, hint), width);
+  }
+
+  /** A bar's name as the scrub reads it: its date ("Oct 03"), the one in progress by its word ("Today"). */
+  private barLabel(bucket: Bucket, running: boolean): string {
+    return running ? this.currentWord() : this.dateLabel(bucket.start, 'date');
+  }
+
+  /**
+   * The unit the figures read in: the recorder's answer as asked, or a scalable unit brought up to the size a typical
+   * bar asks for (a Wh meter's days read in kWh): the finished bars' (the one in progress where none has anything),
+   * so one spike — Home Assistant counting a meter's whole reading again after a restart — reads in the days' unit
+   * ("18,280.2 kWh") and never writes them "0.0 MWh". Never down: a kWh meter's small days stay in kWh.
+   */
+  private scaleOf(buckets: readonly Bucket[], finished: number, asked: string): Scale {
+    if (this.config?.unit === asked || !SCALABLE.test(asked)) return { unit: asked, divisor: 1 };
     const base = toBase(1, asked);
-    const peak = Math.max(0, ...buckets.map((b) => Math.abs(b.value ?? 0) * base.value));
-    const scale = scaleFor(peak, base.unit);
+    const values = buckets.map((b) => b.value);
+    const scale = scaleFor(
+      (typical(values.slice(0, finished)) || typical(values)) * base.value,
+      base.unit,
+    );
     // the recorder answered in the asked unit: the divisor brings that unit to the one chosen
     const divisor = scale.divisor / base.value;
     return divisor > 1 ? { unit: scale.unit, divisor } : { unit: asked, divisor: 1 };
@@ -1141,6 +1541,7 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
     shown: readonly StatText[],
     resting: readonly FactCell[],
     values: ReadonlyArray<number | null>,
+    running: number | null,
     tone: Tone,
     loading: boolean,
     none: boolean,
@@ -1151,19 +1552,54 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
       kept -= 1;
     const sparkWidth = width - (kept ? this.readoutsWidth(resting.slice(0, kept)) + 12 : 0);
     const spark = sparkWidth >= SPARK_MIN && !none;
-    const data = values.map((v) => ({ value: v === null ? 0 : Math.max(0, v) }));
+    // without a head the sparkline is the card's button
+    const tap = this.shows('show_head') ? null : this.chartTap;
     return html`<div class="hb-mini">
       ${kept ? this.renderReadouts(shown.slice(0, shown.length === 1 ? 1 : kept), resting.slice(0, kept), 'head') : nothing}
       ${
         spark
           ? loading
             ? html`<div class="fv-skeleton hb-spark"></div>`
-            : html`<div class="hb-spark fv-tone--${tone}">
-                ${bars(data, { w: Math.floor(sparkWidth / 4) * 4, h: 48, gap: 4 })}
+            : html`<div
+                class="hb-spark fv-tone--${tone} ${tap ? 'hb-spark--tap' : ''}"
+                @click=${tap ?? nothing}
+              >
+                ${this.renderSpark(values, running, Math.floor(sparkWidth / 4) * 4)}
               </div>`
           : nothing
       }
     </div>`;
+  }
+
+  /**
+   * The mini row's sparkline: a bar per bucket on a zero line that sits where the values put it — the bars below
+   * zero hang from it in their own colour rather than being cut to nothing — the one in progress lighter.
+   */
+  private renderSpark(
+    values: ReadonlyArray<number | null>,
+    running: number | null,
+    width: number,
+  ): TemplateResult {
+    const h = 48;
+    const gap = 4;
+    const count = Math.max(1, values.length);
+    const bar = Math.max(2, Math.floor((width - gap * (count - 1)) / count));
+    const x0 = Math.floor((width - (bar * count + gap * (count - 1))) / 2);
+    const known = values.filter((v): v is number => v !== null && Number.isFinite(v));
+    const above = Math.max(0, ...known);
+    const below = Math.max(0, ...known.map((v) => -v));
+    const span = Math.max(0.0001, above + below);
+    const zero = Math.round((above / span) * h);
+    const negative = this.accents.item(this.config?.negative_color);
+    const current = this.accents.item(this.config?.current_color);
+    return html`<svg width=${width} height=${h} viewBox="0 0 ${width} ${h}" aria-hidden="true">
+      ${values.map((v, i) => {
+        const tall = v === null || v === 0 ? 2 : Math.max(4, Math.round((Math.abs(v) / span) * h));
+        const down = v !== null && v < 0;
+        const own = i === running ? current : down ? negative : undefined;
+        return svg`<rect class="fv-vbar fv-vbar--on ${down ? 'is-negative' : ''} ${i === running ? 'is-current' : ''} ${own ? 'hb-own' : ''}" data-accent=${own ?? nothing} x=${x0 + i * (bar + gap)} y=${down ? zero : Math.max(0, zero - tall)} width=${bar} height=${tall} rx=${Math.min(3, bar / 2)} style="animation-delay:${i * 18}ms"></rect>`;
+      })}
+    </svg>`;
   }
 
   /** The bar a pointer at `fraction` of the chart's width is over (the scale's column counts as the first bar's). */
@@ -1174,8 +1610,38 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
     return Math.max(0, Math.min(count - 1, Math.floor(x / slot)));
   }
 
-  /** The keys that read the chart without a pointer: ← → a bar, Home and End its ends, Escape lets go. */
+  /** A press on the chart begins: where and when, for telling a tap from a reading. */
+  private readonly onPress = (event: PointerEvent): void => {
+    this.press = { x: event.clientX, y: event.clientY, at: event.timeStamp, moved: false };
+  };
+
+  private readonly onPressMove = (event: PointerEvent): void => {
+    const press = this.press;
+    if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > STILL)
+      press.moved = true;
+  };
+
+  /**
+   * A tap on the chart of a card without a head runs the card's `tap_action`: a still and short press only — one that
+   * travelled or was held was a reading of the bars.
+   */
+  private readonly chartTap = (event: MouseEvent): void => {
+    const press = this.press;
+    this.press = null;
+    if (press && (press.moved || event.timeStamp - press.at > TAP)) return;
+    this.tap();
+  };
+
+  /**
+   * The keys that read the chart without a pointer: ← → a bar, Home and End its ends, Escape lets go; Enter and Space
+   * tap a chart that is the card's button (no head).
+   */
   private readonly onKey = (event: KeyboardEvent): void => {
+    if ((event.key === 'Enter' || event.key === ' ') && !this.shows('show_head')) {
+      event.preventDefault();
+      this.tap();
+      return;
+    }
     const count = this.plot.count;
     if (!count) return;
     const from = this.scrubber.value ?? count;
@@ -1208,8 +1674,10 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
   };
 
   /**
-   * The chart: the bars in the card's ink with a soft gradient, their values above them (all or none), a nice scale
-   * with its unit rotated beside it and dashed gridlines across, the dates under them thinned to what the row holds.
+   * The chart: the bars in the card's ink with a soft gradient (those below zero and the one in progress in colours
+   * of their own where asked; the one in progress lighter, edged with a dashed line), their values above them (all or
+   * none), a nice scale with its unit rotated beside it and dashed gridlines across, the dates under them thinned to
+   * what the row holds.
    */
   private renderChart(
     buckets: readonly Bucket[],
@@ -1217,12 +1685,11 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
     unit: string,
     tone: Tone,
     unusable: boolean,
-    hovered: number | null,
+    { hovered, running }: { readonly hovered: number | null; readonly running: number | null },
     name: string,
-    variant: BarsVariant,
   ): TemplateResult {
     const width = this.contentWidth;
-    const full = variant === 'full';
+    const full = this.variant === 'full';
     const showValues = full && this.shows('show_values');
     const showAxis = full && this.shows('show_axis');
     const showGrid = full && this.shows('show_grid');
@@ -1234,7 +1701,7 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
     const ticks = niceTicks(Math.min(0, ...known), Math.max(0, ...known));
     const tickTexts = ticks.ticks.map((t) => this.figure(t, ticks.decimals));
     const tickWidth = showAxis
-      ? Math.max(0, ...tickTexts.map((t) => this.ruler.width('hb-tick', t)))
+      ? Math.max(0, ...tickTexts.map((t) => this.ruler.width('ax-tick', t)))
       : 0;
     const inset = showAxis ? (unit ? UNIT_COLUMN : 0) + tickWidth + AXIS_GAP : 0;
     const plotWidth = Math.max(1, width - inset);
@@ -1273,22 +1740,35 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
     while (dateStep < count && !labelsApart(placedDates())) dated = labelled(count, ++dateStep);
     const dateY = top + plotHeight + 8 + 12;
 
+    // the colours of their own: the bars below zero, the one in progress (each its gradient, as the bars' is)
+    const negative = this.accents.item(this.config?.negative_color);
+    const current = this.accents.item(this.config?.current_color);
+    const own = (accent: string | undefined, id: string) =>
+      accent
+        ? svg`<linearGradient id=${id} x1="0" y1="0" x2="0" y2="1" data-accent=${accent} style="--ink:var(--fluvy-accent)">${this.stops()}</linearGradient>`
+        : nothing;
+
     const drawn = buckets.map((_bucket, i) => {
       const v = values[i] ?? null;
       const cx = inset + i * slot + slot / 2;
       const x = (cx - bar / 2).toFixed(1);
       const empty = v === null || v === 0 || span === 0;
-      const negative = v !== null && v < 0;
+      const below = v !== null && v < 0;
       const hover = hovered === i ? 'is-hover' : '';
+      const now = running === i ? 'is-current' : '';
+      const accent = now ? current : below ? negative : undefined;
+      const fill = accent
+        ? `;--hb-fill:url(#${this.gradient}-${now ? 'current' : 'negative'});--hb-edge:var(--fluvy-accent)`
+        : '';
       // a bar is at least 2 px tall, rounded at its far end and flat on the zero line; a bucket with nothing in it
       // is a quiet 2 px stub on the line
       const tall = empty ? 0 : Math.max(2, Math.round(Math.abs(y(v) - zero)));
       const rect = empty
-        ? svg`<rect class="hb-bar is-empty ${hover}" x=${x} y=${(zero - 2).toFixed(1)} width=${bar} height="2" rx=${Math.min(1, radius)}></rect>`
-        : svg`<path class="hb-bar ${negative ? 'is-negative' : ''} ${hover}" d=${barPath(cx - bar / 2, negative ? zero : zero - tall, bar, tall, radius, negative ? 'bottom' : 'top')} style="--bar-delay:${i * 18}ms"></path>`;
+        ? svg`<rect class="hb-bar is-empty ${hover} ${now}" x=${x} y=${(zero - 2).toFixed(1)} width=${bar} height="2" rx=${Math.min(1, radius)}></rect>`
+        : svg`<path class="hb-bar ${below ? 'is-negative' : ''} ${hover} ${now}" data-accent=${accent ?? nothing} d=${barPath(cx - bar / 2, below ? zero : zero - tall, bar, tall, radius, below ? 'bottom' : 'top')} style="--bar-delay:${i * 18}ms${fill}"></path>`;
       const label =
         valuesHold && !empty
-          ? svg`<text class="hb-value" x=${this.clampedX(cx, this.ruler.width('hb-value', valueTexts[i] ?? ''), inset, width)} y=${negative ? zero + tall + 13 : zero - tall - 4} text-anchor="middle">${valueTexts[i]}</text>`
+          ? svg`<text class="hb-value" x=${this.clampedX(cx, this.ruler.width('hb-value', valueTexts[i] ?? ''), inset, width)} y=${below ? zero + tall + 13 : zero - tall - 4} text-anchor="middle">${valueTexts[i]}</text>`
           : nothing;
       const date =
         showDates && dated[i]
@@ -1297,48 +1777,46 @@ export class FluvyHistoryBarsCard extends Card<HistoryBarsCardConfig> {
       return svg`${rect}${label}${date}`;
     });
 
-    const grid = showGrid
-      ? ticks.ticks.map((t) => {
-          const yy = Math.round(y(t)) + 0.5;
-          return svg`<line class="hb-grid" x1=${inset} x2=${width} y1=${yy} y2=${yy}></line>`;
-        })
-      : nothing;
+    const grid = showGrid ? gridLines(ticks.ticks.map(y), inset, width) : nothing;
     const axis = showAxis
-      ? svg`${ticks.ticks.map((t, i) => svg`<text class="hb-tick" x=${inset - AXIS_GAP} y=${Math.round(y(t)) + 4} text-anchor="end">${tickTexts[i]}</text>`)}${
-          unit
-            ? svg`<text class="hb-unit" transform="rotate(-90)" x=${-(top + plotHeight / 2)} y="11" text-anchor="middle">${unit}</text>`
-            : nothing
-        }`
+      ? svg`${tickLabels(
+          ticks.ticks.map((t, i) => [y(t), tickTexts[i] ?? ''] as const),
+          inset - AXIS_GAP,
+        )}${unit ? unitLabel(unit, top, top + plotHeight) : nothing}`
       : nothing;
 
-    const reading =
-      hovered !== null && buckets[hovered]
-        ? `${this.dateLabel(buckets[hovered].start, 'date')} · ${this.figure(values[hovered] ?? null)}${values[hovered] === null ? '' : ` ${unit}`}`
-        : name;
+    const hoveredBucket = hovered === null ? undefined : buckets[hovered];
+    const reading = hoveredBucket
+      ? `${this.barLabel(hoveredBucket, hovered === running)} · ${this.figure(values[hovered as number] ?? null)}${values[hovered as number] === null ? '' : ` ${unit}`}`
+      : name;
+    // without a head the chart is the card's button: a still tap on it runs the card's tap
+    const tap = !this.shows('show_head');
     return html`<div
-      class="hb-chart fv-tone--${unusable ? 'neutral' : tone} ${hovered !== null ? 'is-scrub' : ''}"
-      role="img"
+      class="hb-chart fv-tone--${unusable ? 'neutral' : tone} ${hovered !== null ? 'is-scrub' : ''} ${tap ? 'hb-chart--tap' : ''}"
+      role=${tap ? 'button' : 'img'}
       aria-label=${reading}
       tabindex="0"
       @keydown=${this.onKey}
+      @pointerdown=${tap ? this.onPress : nothing}
+      @pointermove=${tap ? this.onPressMove : nothing}
+      @click=${tap ? this.chartTap : nothing}
       ${scrub(this.scrubber)}
     >
       <svg width=${width} height=${height} viewBox="0 0 ${width} ${height}" data-measure="drawn">
         <defs>
           <linearGradient id=${this.gradient} x1="0" y1="0" x2="0" y2="1">
-            <stop
-              offset="0"
-              style="stop-color:color-mix(in srgb, var(--ink) 60%, var(--fluvy-card))"
-            ></stop>
-            <stop
-              offset="1"
-              style="stop-color:color-mix(in srgb, var(--ink) 48%, var(--fluvy-card))"
-            ></stop>
+            ${this.stops()}
           </linearGradient>
+          ${own(negative, `${this.gradient}-negative`)} ${own(current, `${this.gradient}-current`)}
         </defs>
         <g style="--hb-fill:url(#${this.gradient})">${grid}${axis}${drawn}</g>
       </svg>
     </div>`;
+  }
+
+  /** A bar's soft gradient: its ink at 60 % over the card at the top, 48 % at the foot. */
+  private stops(): TemplateResult {
+    return svg`<stop offset="0" style="stop-color:color-mix(in srgb, var(--ink) 60%, var(--fluvy-card))"></stop><stop offset="1" style="stop-color:color-mix(in srgb, var(--ink) 48%, var(--fluvy-card))"></stop>`;
   }
 
   /** A label centred on its bar, kept inside the plot at the ends. */

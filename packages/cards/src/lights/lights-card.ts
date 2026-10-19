@@ -1,6 +1,8 @@
 import type { Tint } from '../shared/colour.js';
 import {
+  actionRuns,
   areaEntities,
+  areasInOrder,
   formatNumber,
   isActive,
   isUsable,
@@ -9,6 +11,10 @@ import {
   type FluvyCardConfig,
   type LovelaceConfigForm,
   type LovelaceGridOptions,
+  type Registries,
+  type HomeAssistant,
+  entriesOf,
+  idsOf,
 } from '@fluvy/core';
 import {
   chips,
@@ -29,6 +35,7 @@ import { HeadFit, SWITCH_SLOT } from '../energy/head.js';
 import type { BaseKey } from '../shared/base.js';
 import { toneOf } from '../shared/colour.js';
 import { configKeys, ITEM_ALIASES, type AliasSpec } from '../shared/config.js';
+import { onOfShort } from '../shared/counted.js';
 import { glyphFor } from '../shared/domain.js';
 import {
   accentField,
@@ -36,17 +43,20 @@ import {
   areaField,
   boolField,
   colourFields,
+  emptyFields,
   entityField,
   fieldRow,
   formLabels,
   iconField,
   nameIconFields,
   selectField,
+  showIconField,
   textField,
   tintField,
 } from '../shared/form.js';
-import { rowsOf } from '../shared/heights.js';
-import { bulbHex, DIMMABLE } from '../shared/light.js';
+import { attrOf, chipRows, EMPTY, entryCount, HEAD, rowsOf } from '../shared/heights.js';
+import { EMPTY_KEYS, hideEmpty, itemsOf, listOf, type EmptyList } from '../shared/lists.js';
+import { DIMMABLE, glowOf } from '../shared/light.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 import { FluvyTileCard } from '../tile/tile-card.js';
 import { fittedColumns } from '../shared/chips.js';
@@ -65,7 +75,7 @@ export interface LightItem {
   color?: string;
 }
 
-export interface LightsCardConfig extends FluvyCardConfig {
+export interface LightsCardConfig extends FluvyCardConfig, EmptyList {
   /** The room: its lights, in name order, when `lights` lists none. */
   area?: string;
   /** `tiles`: each lamp shows its colour at rest too (`always`), or only when on (`on`, the default). */
@@ -100,10 +110,11 @@ const CHIP_LINE = 44;
 const RULER = 80;
 /** An inner tile narrower than this has no room for its circle and a name: the tiles take one a row. */
 const TILE_MIN = 120;
+/** The empty panel with its hint under the line (8 + 20 more). */
+const EMPTY_HINT = EMPTY + 12;
 
-/** The columns a row of light chips may take, most first: every line as full as the count allows. */
-const chipCandidates = (count: number): number[] =>
-  count <= 2 ? [count, 1] : count === 3 ? [3, 2, 1] : count === 4 ? [4, 2, 1] : [3, 2, 1];
+/** Five lamps and more take three a line at most (names are long): fewer keep the chips' own columns. */
+const chipCandidates = (count: number): number[] | undefined => (count > 4 ? [3, 2] : undefined);
 
 /** One light as the card reads it. */
 interface Lamp {
@@ -119,21 +130,40 @@ interface Lamp {
   readonly accent: string | undefined;
 }
 
-const itemOf = (raw: string | LightItem): LightItem =>
-  typeof raw === 'string' ? { entity: raw } : raw;
-
 /**
  * A room's lights on one card: the whole room is one tap (on when every light is off, off when any is on), and each
  * light is its own control — a round on the room's line, a chip with its name, or a compact tile — that a tap turns
  * on and off and a hold opens. A light that is on wears its bulb's own colour, and its round a ring of its level.
  */
 export class FluvyLightsCard extends FluvyTileCard {
-  static override layoutHeight(config: LightsCardConfig): number {
-    const n = Math.max(1, config.lights?.length ?? 3);
+  static override layoutHeight(config: LightsCardConfig, hass?: HomeAssistant): number {
+    const listed = entryCount(config, ['lights', 'entities']);
+    // no lights and no room to find them in: the panel under the head (its hint, unless the card has its own words)
+    if (!listed && !config.area) return HEAD + (config.empty_text ? EMPTY : EMPTY_HINT);
+    // the room's lights, as the house lists them (three where the house is not there to say); a room with none is
+    // the panel under the head, an administrator's hint with it
+    const area =
+      !listed && hass?.states && config.area
+        ? areaEntities(hass, config.area, { domains: ['light'] })
+        : undefined;
+    if (area && !area.length)
+      return HEAD + (config.empty_text || !hass?.user?.is_admin ? EMPTY : EMPTY_HINT);
+    const n = listed || area?.length || 3;
     const ruler = config.show_brightness ? RULER : 0;
     if (config.variant === 'tiles')
       return 20 + 44 + ruler + 16 + rowsOf(n, 2) * (INNER + 8) - 8 + 20;
-    if (config.variant === 'chips') return 20 + 44 + ruler + 16 + rowsOf(n, 2) * CHIP_LINE + 20;
+    if (config.variant === 'chips') {
+      // filled chips in the rows their names take: as many a row as hold, three or two past four
+      const items = entriesOf<LightItem>(config.lights ?? config.entities);
+      const names = (area ?? idsOf(items)).map((id, i) => {
+        const item = items[i];
+        const name =
+          (typeof item === 'object' ? item.name : undefined) ?? attrOf(hass, id, 'friendly_name');
+        return typeof name === 'string' ? name : 'Light';
+      });
+      const rows = chipRows(names, 'full', 320, chipCandidates(n));
+      return 20 + 44 + ruler + 16 + rows * CHIP_LINE + 20;
+    }
     // a 320 column holds four rounds beside the name (the icon gives way); more take their own line, six a line
     return (n <= 4 ? 84 : 20 + 44 + 16 + rowsOf(n, 6) * (ROUND + 8) - 8 + 20) + ruler;
   }
@@ -158,6 +188,7 @@ export class FluvyLightsCard extends FluvyTileCard {
     'card_color',
     'tap_action',
     'hold_action',
+    'show_icon',
   ];
   static override keys = configKeys<LightsCardConfig>()([
     'area',
@@ -168,6 +199,7 @@ export class FluvyLightsCard extends FluvyTileCard {
     'show_brightness',
     'light_colors',
     'tint',
+    ...EMPTY_KEYS,
   ]);
   static override lists: readonly RowsListSpec[] = [
     {
@@ -195,17 +227,18 @@ export class FluvyLightsCard extends FluvyTileCard {
       schema: [
         areaField(),
         nameIconFields(),
+        showIconField(),
         fieldRow(selectField('variant', LIGHTS_VARIANTS), boolField('show_brightness')),
         fieldRow(boolField('show_count'), boolField('show_level')),
         boolField('light_colors'),
         ...colourFields(),
         tintField(),
+        emptyFields(),
         actionFields(),
       ],
       ...formLabels({
         show_level: 'lights.editor_show_level',
         show_brightness: 'lights.editor_show_brightness',
-        light_colors: 'lights.editor_light_colors',
         // the tiles' colour at rest: the row and the chips have no surface to wash
         tint: 'lights.editor_tint',
       }),
@@ -214,16 +247,20 @@ export class FluvyLightsCard extends FluvyTileCard {
 
   static override getStubConfig(hass: unknown, entities: readonly string[]): LightsCardConfig {
     const lights = entities.filter((id) => id.startsWith('light.')).slice(0, 3);
-    const registry = hass as { areas?: Record<string, { area_id: string }> } | undefined;
-    const area = registry?.areas ? Object.keys(registry.areas)[0] : undefined;
+    const house = hass as Registries | undefined;
+    // the first room with a light, in the house's order
+    const areas = house?.states ? areasInOrder(house) : [];
+    const area = (
+      areas.find((room) => house && areaEntities(house, room.area_id, { domains: ['light'] })[0]) ??
+      areas[0]
+    )?.area_id;
     return lights.length
       ? { type: 'custom:fluvy-lights-card', lights }
       : { type: 'custom:fluvy-lights-card', ...(area ? { area } : {}) };
   }
 
   protected override prepare(config: LightsCardConfig): LightsCardConfig {
-    if (!config.area && !config.lights?.length)
-      throw new Error('fluvy-lights-card: give it an "area" or a list of "lights"');
+    listOf(config, 'lights');
     return config;
   }
 
@@ -238,8 +275,8 @@ export class FluvyLightsCard extends FluvyTileCard {
 
   /** The lights asked for, else the area's in name order. */
   private items(): LightItem[] {
-    const asked = this.room?.lights;
-    if (asked?.length) return asked.map(itemOf).filter((item) => Boolean(item.entity));
+    const asked = itemsOf<LightItem>(this.room?.lights);
+    if (asked.length) return asked;
     const area = this.room?.area;
     if (!area || !this.hass) return [];
     return areaEntities(this.hass, area, { domains: ['light'] })
@@ -272,8 +309,9 @@ export class FluvyLightsCard extends FluvyTileCard {
       const dims = modes.some((m) => DIMMABLE.has(m));
       const level =
         on && dims && typeof raw === 'number' ? Math.max(1, Math.round((raw / 255) * 100)) : null;
-      // its own colour, else its bulb's (a coloured bulb, not a white one), else the palette's light
-      const bulb = colours ? bulbHex(view, on) : undefined;
+      // its own colour, else its bulb's (a coloured bulb, not a white one) — the one it last glowed while a flip waits
+      // for Home Assistant — else the palette's light
+      const bulb = colours ? glowOf(view, on) : undefined;
       const accent = this.accents.item(item.color || bulb);
       return {
         item,
@@ -335,6 +373,14 @@ export class FluvyLightsCard extends FluvyTileCard {
     return levels.length ? Math.round(levels.reduce((sum, v) => sum + v, 0) / levels.length) : null;
   }
 
+  /** The count's shorter forms ("2/3 on", "2/3") for a head too narrow for "2 of 3 on"; none without a count. */
+  private short(lamps: readonly Lamp[]): string[] {
+    const on = lamps.filter((lamp) => lamp.on).length;
+    return on && lamps.some((lamp) => lamp.usable) && this.room?.show_count !== false
+      ? onOfShort(this.hass, on, lamps.length)
+      : [];
+  }
+
   /** "2 of 3 on · 70 %", "Off", "Unavailable". */
   private line(lamps: readonly Lamp[]): string {
     if (!lamps.some((lamp) => lamp.usable)) return this.t('state.unavailable');
@@ -358,10 +404,13 @@ export class FluvyLightsCard extends FluvyTileCard {
     const name = this.config?.name ?? area?.name ?? s(this.hass, 'title');
     // the room's own glyph — never a light's, so the room's circle is never taken for one of its lights
     const glyph = this.config?.icon ?? area?.icon ?? 'home';
+    hideEmpty(this, !lamps.length);
+    const own = this.room?.empty_text;
+    // the card's own words for an empty room say what it means here: the hint on how to fill it goes with ours
     if (!lamps.length)
       return html`<article class="fv-card lt-card" data-card>
         ${head({ icon: glyph, tone: 'neutral', title: name, name: true })}
-        ${this.head.empty('bulb', s(this.hass, 'no_lights'), s(this.hass, 'no_lights_hint'), w)}
+        ${this.head.empty('bulb', own ?? s(this.hass, 'no_lights'), own ? '' : s(this.hass, 'no_lights_hint'), w)}
       </article>`;
     const any = lamps.some((lamp) => lamp.on);
     const dead = !lamps.some((lamp) => lamp.usable);
@@ -369,24 +418,26 @@ export class FluvyLightsCard extends FluvyTileCard {
     const sub = this.line(lamps);
     if (this.variant === 'row') return this.renderRow(lamps, name, glyph, tone, sub, w);
 
+    // out of reach, the room keeps its switch where it stands, disabled (1.9)
     const fitted = this.head.fit({
       width: w,
       title: name,
       sub,
-      ...(dead ? {} : { trailing: SWITCH_SLOT }),
+      shorter: this.short(lamps),
+      trailing: SWITCH_SLOT,
     });
     return html`<article class="fv-card lt-card ${dead ? 'is-unavailable is-off' : ''}" data-card>
       ${head({
         icon: fitted.icon ? glyph : null,
+        small: fitted.small,
         tone,
         title: name,
         name: true,
         sub: fitted.sub,
-        trailing: dead
-          ? nothing
-          : toggle(any, toneOf(this.config, 'light'), () => this.flipRoom(lamps), name),
-        onIconTap: () => this.roomTap(lamps),
-        ...(this.config?.hold_action ? { onHold: () => this.hold(undefined) } : {}),
+        trailing: toggle(any, toneOf(this.config, 'light'), () => this.flipRoom(lamps), name, dead),
+        cut: fitted.cut,
+        ...(this.roomActs(dead) ? { onTap: () => this.roomTap(lamps) } : {}),
+        ...(actionRuns(this.config?.hold_action) ? { onHold: () => this.hold(undefined) } : {}),
       })}
       ${this.room?.show_brightness ? this.renderRuler(lamps, name, w) : nothing}
       ${this.variant === 'tiles' ? this.renderTiles(lamps) : this.renderChips(lamps, w)}
@@ -397,6 +448,12 @@ export class FluvyLightsCard extends FluvyTileCard {
   private roomTap(lamps: readonly Lamp[]): void {
     if (this.config?.tap_action) this.tap(undefined);
     else this.flipRoom(lamps);
+  }
+
+  /** Whether the card's tap can run: its own action when it has one, else while a light of the room can be switched. */
+  private roomActs(dead: boolean): boolean {
+    const own = this.config?.tap_action;
+    return own ? actionRuns(own) : !dead;
   }
 
   /**
@@ -421,10 +478,11 @@ export class FluvyLightsCard extends FluvyTileCard {
       width: w,
       title: name,
       sub,
+      shorter: this.short(lamps),
       ...(inline ? { trailing: rounds } : {}),
     });
     const dead = tone === 'off';
-    const acts = !dead || Boolean(this.config?.tap_action);
+    const acts = this.roomActs(dead);
     const bulbs = inline
       ? html`<div class="lt-bulbs">${lamps.map((lamp) => this.renderBulb(lamp))}</div>`
       : this.renderLine(lamps, w);
@@ -434,21 +492,19 @@ export class FluvyLightsCard extends FluvyTileCard {
       role="group"
       aria-label=${name}
     >
-      ${
-        acts
-          ? html`<button
-              class="lt-room"
-              aria-label=${`${name} · ${sub}`}
-              .fvTap=${() => this.roomTap(lamps)}
-              .fvHold=${this.config?.hold_action ? () => this.hold(undefined) : undefined}
-              @pointerdown=${startPress}
-              @click=${clickPress}
-              @contextmenu=${preventMenu}
-            ></button>`
-          : nothing
-      }
+      <button
+        class="lt-room"
+        aria-label=${`${name} · ${sub}`}
+        ?disabled=${!acts}
+        .fvTap=${() => this.roomTap(lamps)}
+        .fvHold=${actionRuns(this.config?.hold_action) ? () => this.hold(undefined) : undefined}
+        @pointerdown=${startPress}
+        @click=${clickPress}
+        @contextmenu=${preventMenu}
+      ></button>
       ${head({
         icon: fitted.icon ? glyph : null,
+        small: fitted.small,
         tone,
         title: name,
         name: true,
@@ -587,6 +643,11 @@ export class FluvyLightsCard extends FluvyTileCard {
           : tile;
       })}
     </div>`;
+  }
+
+  /** Its tiles are given their lamp's colour (`lamps`): a tile does not look for it again. */
+  protected override glow(): undefined {
+    return undefined;
   }
 
   /** An inner tile's column: two on the 4 grid, whole pixels, the remainder between them; one under 120 each. */

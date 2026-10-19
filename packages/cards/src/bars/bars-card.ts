@@ -31,6 +31,7 @@ import {
   boolField,
   colourFields,
   editorLabels,
+  emptyFields,
   entitiesField,
   entityField,
   fieldRow,
@@ -39,6 +40,7 @@ import {
   idsOnly,
   nameIconFields,
   selectField,
+  showIconField,
   textField,
   titleFields,
   toneField,
@@ -46,7 +48,8 @@ import {
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 import { configKeys, ITEM_ALIASES, type AliasSpec } from '../shared/config.js';
 import { toneOf } from '../shared/colour.js';
-import { HEAD, ROW, ROW_BAR, ROW_COMPACT } from '../shared/heights.js';
+import { EMPTY, HEAD, ROW, ROW_BAR, ROW_COMPACT } from '../shared/heights.js';
+import { EMPTY_KEYS, emptyPanel, itemsOf, listOf, type EmptyList } from '../shared/lists.js';
 import { PENDING_LINE, TemplateTexts } from '../shared/templates.js';
 
 const strings = words('bars');
@@ -83,7 +86,7 @@ export interface BarRowConfig {
   tap_action?: ActionConfig;
 }
 
-export interface BarsCardConfig extends FluvyCardConfig {
+export interface BarsCardConfig extends FluvyCardConfig, EmptyList {
   title?: string;
   subtitle?: string;
   rows?: ReadonlyArray<string | BarRowConfig>;
@@ -124,9 +127,6 @@ const subEntities = (row: BarRowConfig): string[] =>
       ? [row.sub_entity]
       : [...row.sub_entity];
 
-const rowsOf = (config: BarsCardConfig): BarRowConfig[] =>
-  (config.rows ?? []).map((row) => (typeof row === 'string' ? { entity: row } : row));
-
 /** A row's height: a bar row 76 and a plain one 60; every compact row 48. */
 const rowHeight = (row: BarRowConfig, compact: boolean): number =>
   compact ? ROW_COMPACT : row.plain ? ROW : ROW_BAR;
@@ -141,7 +141,10 @@ export class FluvyBarsCard extends Card<BarsCardConfig> {
   /** The card's height at a 360 column, for the automatic dashboard's columns. */
   static override layoutHeight(config: BarsCardConfig): number {
     const compact = config.variant === 'compact';
-    return rowsOf(config).reduce((height, row) => height + rowHeight(row, compact), HEAD);
+    // auto-entities hands its rows over as `entities` (read as `rows` once the card has them)
+    const rows = itemsOf<BarRowConfig>(config.rows ?? config.entities);
+    if (!rows.length) return HEAD + EMPTY;
+    return rows.reduce((height, row) => height + rowHeight(row, compact), HEAD);
   }
 
   static override styles: CSSResultGroup = [
@@ -161,6 +164,7 @@ export class FluvyBarsCard extends Card<BarsCardConfig> {
     'card_color',
     'tap_action',
     'hold_action',
+    'show_icon',
   ];
   static override keys = configKeys<BarsCardConfig>()([
     'title',
@@ -169,6 +173,7 @@ export class FluvyBarsCard extends Card<BarsCardConfig> {
     'variant',
     'badge_ok',
     'badge_warn',
+    ...EMPTY_KEYS,
   ]);
   static override lists: readonly RowsListSpec[] = [
     {
@@ -202,16 +207,21 @@ export class FluvyBarsCard extends Card<BarsCardConfig> {
       computeLabel: formLabels({ sub_entity: 'editor.sub_entity' }).computeLabel,
     },
   ];
-  static override aliases: AliasSpec = { items: { rows: ITEM_ALIASES } };
+  static override aliases: AliasSpec = {
+    keys: [{ from: 'entities', to: 'rows' }],
+    items: { rows: ITEM_ALIASES },
+  };
   static override defaults: EditorDefaults = () => ({ variant: 'full' });
   static override getConfigForm(): LovelaceConfigForm {
     return {
       schema: [
         titleFields(),
         fieldRow(iconField(), selectField('variant', VARIANTS)),
+        showIconField(),
         ...colourFields(),
         entitiesField('rows', undefined, true),
         fieldRow(textField('badge_ok'), textField('badge_warn')),
+        emptyFields(),
         actionFields(),
       ],
       ...idsOnly('rows'),
@@ -239,7 +249,7 @@ export class FluvyBarsCard extends Card<BarsCardConfig> {
   }
 
   private rows(): BarRowConfig[] {
-    return this.config ? rowsOf(this.config) : [];
+    return itemsOf(this.config?.rows);
   }
 
   private compact(): boolean {
@@ -247,7 +257,7 @@ export class FluvyBarsCard extends Card<BarsCardConfig> {
   }
 
   protected override prepare(config: BarsCardConfig): BarsCardConfig {
-    if (!config.rows?.length) throw new Error('fluvy-bars-card: add at least one entity to "rows"');
+    listOf(config, 'rows');
     return config;
   }
 
@@ -298,7 +308,10 @@ export class FluvyBarsCard extends Card<BarsCardConfig> {
           : lower(stateText(this.hass, other)).split(' · ');
       for (const text of texts) segments.push({ text, optional: true });
     }
-    const state = usable ? '' : stateText(this.hass, view);
+    // a state too long for the room says its one word ("Not found")
+    const said = usable ? '' : stateText(this.hass, view);
+    const state =
+      said && this.head.ruler.width('fv-row__sub', said) > room ? stateWord(this.hass, view) : said;
     if (state) segments.push({ text: lower(state) });
     const first = segments[0];
     if (first && usable) segments[0] = { text: first.text }; // the row's first word of context stays
@@ -366,7 +379,17 @@ export class FluvyBarsCard extends Card<BarsCardConfig> {
           : figure;
       return { row, view, usable, quantity, min, max, warn, title, value };
     });
-    const keepIcon = this.head.rowsKeepIcon(width, items, compact);
+    // the line under a name keeps its room as the name does: the circles give way to "6 panels" too
+    const keepIcon = this.head.rowsKeepIcon(
+      width,
+      items.map((item) => ({
+        ...item,
+        sub: compact
+          ? ''
+          : (this.context(item.row, item.view, item.usable, Infinity).split(' · ')[0] ?? ''),
+      })),
+      compact,
+    );
     const body = items.map(({ row, view, usable, quantity, min, max, warn, title, value }) => {
       // a row's own tone, or its colour as the accent; without either the circle stays neutral and the bar takes the measure's tone
       const own: Tone | undefined = row.tone ?? (row.color ? 'accent' : undefined);
@@ -383,6 +406,8 @@ export class FluvyBarsCard extends Card<BarsCardConfig> {
         sub: compact
           ? ''
           : this.context(row, view, usable, this.head.rowRoom(width, value, { icon: keepIcon })),
+        // the owner's own words lead the line: a name, that may end in its ellipsis
+        subName: Boolean(row.secondary) && usable,
         value,
         valueTone,
         compact,
@@ -403,14 +428,18 @@ export class FluvyBarsCard extends Card<BarsCardConfig> {
         ? (this.config?.badge_warn ?? this.t('battery.low', { count: warnings }))
         : (this.config?.badge_ok ?? this.t('battery.all_good'));
     const title = this.config?.title ?? strings(this.hass, 'levels');
+    // nothing measured is nothing to call good: the badge waits for a row
+    const panel = emptyPanel(this, !rows.length, 'sliders', 'common.no_readings');
     const fitted = this.head.fit({
       width,
       title,
       sub: this.config?.subtitle ?? '',
-      badge: {
-        text: template.replace(/\{count\}/g, String(warnings)),
-        tone: warnings > 0 ? 'warning' : tone,
-      },
+      badge: panel
+        ? null
+        : {
+            text: template.replace(/\{count\}/g, String(warnings)),
+            tone: warnings > 0 ? 'warning' : tone,
+          },
     });
 
     return html`<article class="fv-card so-card" data-card>
@@ -421,10 +450,10 @@ export class FluvyBarsCard extends Card<BarsCardConfig> {
         sub: fitted.sub,
         trailing: fitted.badge,
         name: Boolean(this.config?.title),
-        onIconTap: () => this.tap(),
-        onHold: () => this.hold(),
+        cut: fitted.cut,
+        ...this.headActions(),
       })}
-      <div class="so-rows" @keydown=${this.onRowsKey}>${body}</div>
+      <div class="so-rows" @keydown=${this.onRowsKey}>${panel ?? body}</div>
     </article>`;
   }
 }

@@ -1,11 +1,13 @@
 import {
   formatNumber,
   languageOf,
+  localize,
   numberAttr,
   speaks,
   stateText,
   strings,
   type EntityView,
+  type HassEntity,
   type HomeAssistant,
   type UnsubscribeFunc,
 } from '@fluvy/core';
@@ -21,7 +23,10 @@ export interface Sky {
   /** False when the entity is unavailable, unknown or missing: `text` then says which. */
   readonly ok: boolean;
   readonly text: string;
-  /** `text` where room is short: the weather card's own word ("Clear" for the clock's "Clear night"). */
+  /**
+   * `text` where room is short: the weather card's own word ("Clear" for the clock's "Clear night"); out of reach, the
+   * house's word for it.
+   */
   readonly short: string;
   /** `text` as a segment after "·": lowercase where fluvy owns the copy, untouched where Home Assistant translated it. */
   readonly inline: string;
@@ -33,7 +38,7 @@ export interface Sky {
   readonly wind: string;
 }
 
-const lowerFirst = (text: string): string => text.charAt(0).toLowerCase() + text.slice(1);
+export const lowerFirst = (text: string): string => text.charAt(0).toLowerCase() + text.slice(1);
 
 const finite = (value: unknown): number | null =>
   typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -58,7 +63,8 @@ export function readSky(hass: HomeAssistant | undefined, view: EntityView): Sky 
     return {
       ok: false,
       text,
-      short: text,
+      // "Entity not found" is the longest thing a weather can say: a narrow line says the house's word ("Offline")
+      short: localize(hass, 'state.unavailable'),
       inline: lowerFirst(text),
       glyph: 'ban',
       night: isNight(hass),
@@ -101,6 +107,15 @@ export type Forecast =
 
 const FORECAST_DAILY = 1;
 
+/**
+ * Whether a weather offers the daily forecast, as its features say (they stay written while it is out of reach); an
+ * entity that writes none is asked, and one gone from the house is taken at the card's word: its row keeps its place.
+ */
+export function offersDaily(state: HassEntity | undefined): boolean {
+  const features = state?.attributes.supported_features;
+  return typeof features !== 'number' || (features & FORECAST_DAILY) !== 0;
+}
+
 /** `forecast[0].templow` is tonight, `forecast[1].temperature` is tomorrow — both, or there is no row. */
 function summarise(items: readonly ForecastItem[] | null | undefined): Forecast {
   const tonight = finite(items?.[0]?.templow);
@@ -126,9 +141,7 @@ export class ForecastFeed {
 
   sync(hass: HomeAssistant | undefined, entityId: string): void {
     const state = entityId ? hass?.states[entityId] : undefined;
-    const features = state?.attributes.supported_features;
-    const wanted =
-      state && (typeof features !== 'number' || (features & FORECAST_DAILY) !== 0) ? entityId : '';
+    const wanted = state && offersDaily(state) ? entityId : '';
     if (entityId !== this.entity) {
       this.entity = entityId;
       this.forecast = { status: wanted ? 'pending' : 'none' };

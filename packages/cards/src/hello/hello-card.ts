@@ -13,7 +13,15 @@ import {
   type MessageKey,
 } from '@fluvy/core';
 
-import { clickPress, glyph, preventMenu, sheetStyles, startPress } from '@fluvy/ui';
+import {
+  clickPress,
+  glyph,
+  holdKey,
+  pressCover,
+  preventMenu,
+  sheetStyles,
+  startPress,
+} from '@fluvy/ui';
 import {
   css,
   html,
@@ -126,6 +134,10 @@ export class FluvyHelloCard extends Card<HelloCardConfig> {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+      /* the greeting as the card's button (no avatar to be one): laid over its words, which stay in place */
+      .hm-hello__text {
+        position: relative;
       }
       .hm-hello__meta {
         gap: 12px;
@@ -447,7 +459,8 @@ export class FluvyHelloCard extends Card<HelloCardConfig> {
           >${initialsOf(person && person.status !== 'missing' ? person.name : name)}</span
         >`;
 
-    if (!id)
+    const { onTap, onHold } = id ? this.headActions(id) : {};
+    if (!onTap && !onHold)
       return html`<span class="hm-avatar" data-icon role="img" aria-label=${label}>${body}</span>`;
     // the avatar is the greeting's icon: a tap is the tap action, a still press the hold action
     return html`<button
@@ -455,14 +468,26 @@ export class FluvyHelloCard extends Card<HelloCardConfig> {
       data-icon
       data-target
       aria-label=${label}
-      .fvTap=${() => this.tap(id)}
-      .fvHold=${() => this.hold(id)}
+      .fvTap=${onTap}
+      .fvHold=${onHold}
       @pointerdown=${startPress}
-      @contextmenu=${preventMenu}
+      @contextmenu=${onHold ? preventMenu : nothing}
       @click=${clickPress}
+      @keydown=${holdKey(onHold)}
     >
       ${body}
     </button>`;
+  }
+
+  /**
+   * The greeting as the card's button, where the avatar is not one (hidden, or no person to be): the card's tap and
+   * hold over the whole block of words, which stay where they are.
+   */
+  private greetingTap(said: string): TemplateResult | typeof nothing {
+    const id = this.personId();
+    if (this.config?.show_avatar !== false && id) return nothing;
+    const { onTap, onHold } = this.headActions(id);
+    return onTap || onHold ? pressCover(said, onTap, onHold) : nothing;
   }
 
   protected renderCard(): TemplateResult {
@@ -478,6 +503,7 @@ export class FluvyHelloCard extends Card<HelloCardConfig> {
     const greet = at > 0 ? said.slice(0, at).replace(/[\s,]+$/, '') : said;
     return html`<section class="hm-hello">
       <div class="hm-hello__text">
+        ${this.greetingTap(said)}
         <h1 class="hm-hello__title">
           <span class="hm-hello__greet">${greet}</span
           >${at > 0 ? html`<span class="hm-hello__name">${said.slice(greet.length)}</span>` : nothing}<span

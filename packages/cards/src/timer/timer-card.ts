@@ -1,6 +1,7 @@
 import {
   formatDuration,
   formatTime,
+  isUsable,
   stateText,
   strings,
   type EntityView,
@@ -9,11 +10,11 @@ import {
   type LovelaceGridOptions,
 } from '@fluvy/core';
 
-import { badge, head, label, readout, round, sheetStyles, type Tone } from '@fluvy/ui';
+import { head, label, readout, round, sheetStyles, type Tone } from '@fluvy/ui';
 
 import { html, nothing, type CSSResultGroup, type PropertyValues, type TemplateResult } from 'lit';
 
-import { Card } from '../shared/base.js';
+import { Card, HEAD_BASE } from '../shared/base.js';
 
 import { glyphFor } from '../shared/domain.js';
 
@@ -25,12 +26,18 @@ import {
   entityField,
   fieldRow,
   nameIconFields,
+  showIconField,
 } from '../shared/form.js';
 import { configKeys } from '../shared/config.js';
 import { toneOf } from '../shared/colour.js';
+import { HeadFit } from '../energy/head.js';
 import type { EditorDefaults } from '../shared/rows-editor.js';
+import { fitValueRow, valueRowClass } from '../shared/value-row.js';
 
 const s = strings('timer');
+
+/** A running timer's two rounds (44 each) and the 8 between them: the commands' widest. */
+const COMMANDS = 96;
 
 export interface TimerCardConfig extends FluvyCardConfig {
   /** The elapsed gauge under the readout (on by default, as the sheet draws it). */
@@ -80,12 +87,15 @@ export class FluvyTimerCard extends Card<TimerCardConfig> {
   private tick = 0;
   /** Seconds left when Pause was tapped: shown until Home Assistant reports its own `remaining`. */
   private held: number | null = null;
+  /** The head and the value row, measured in the card's own classes: in half a section the circle gives way to the name. */
+  private readonly head = new HeadFit(this);
 
   constructor() {
     super();
     this.tick_ = 0;
   }
 
+  static override base = HEAD_BASE;
   static override keys = configKeys<TimerCardConfig>()(['show_gauge', 'show_actions']);
   /** What the editor shows where the config says nothing: what the card does then. */
   static override defaults: EditorDefaults = () => ({ show_gauge: true, show_actions: true });
@@ -94,6 +104,7 @@ export class FluvyTimerCard extends Card<TimerCardConfig> {
       schema: [
         entityField(['timer']),
         nameIconFields(),
+        showIconField(),
         ...colourFields(),
         fieldRow(boolField('show_gauge'), boolField('show_actions')),
         actionFields(),
@@ -195,9 +206,9 @@ export class FluvyTimerCard extends Card<TimerCardConfig> {
   protected renderCard(): TemplateResult {
     const view = this.entity();
     const name = this.config?.name ?? view.name;
-    if (view.status === 'missing')
-      return this.renderEmpty(`${name} · ${stateText(this.hass, view)}`);
-    const unusable = view.status === 'unavailable';
+    // out of reach (unavailable, missing) it keeps its anatomy and its size, its controls disabled: only the colours
+    // change (1.9)
+    const unusable = !isUsable(view);
     const state = this.stateOf(view);
     const active = !unusable && state === 'active';
     const paused = !unusable && state === 'paused';
@@ -231,30 +242,48 @@ export class FluvyTimerCard extends Card<TimerCardConfig> {
         : `${status} · ${context.charAt(0).toLocaleLowerCase()}${context.slice(1)}`;
 
     // the marker moves a pixel at a time: a finer value would only wake the ruler's spring every second for nothing
+    const timed = duration !== null && duration > 0;
     const elapsed =
-      duration !== null && duration > 0 && left !== null
-        ? Math.min(duration, Math.max(0, duration - left))
-        : null;
-    const grain = duration !== null && duration > 0 ? Math.max(1, duration / this.contentWidth) : 1;
-    const gauge =
-      this.config?.show_gauge !== false && !unusable && duration !== null && duration > 0;
+      timed && left !== null ? Math.min(duration, Math.max(0, duration - left)) : null;
+    const grain = timed ? Math.max(1, duration / this.contentWidth) : 1;
+    // the gauge keeps its place while the timer cannot be read or has no length yet, at rest
+    const gauge = this.config?.show_gauge !== false;
+
+    // the time left beside its commands, laid out for the whole length (it only counts down) and the two rounds a
+    // running timer shows, never for the one it shows now: else the rounds centred under it, and in a column too
+    // narrow for them the readout alone, the card's tap
+    const remaining = this.t('timer.remaining');
+    const value = left === null ? '—' : formatDuration(left);
+    const fit = fitValueRow(this.head.ruler, {
+      width: this.contentWidth,
+      control: this.config?.show_actions === false ? 0 : COMMANDS,
+      labels: [remaining],
+      figures: [{ value: formatDuration(duration ?? 0) }],
+    });
+
+    const fitted = this.head.fit({
+      width: this.contentWidth,
+      title: name,
+      sub,
+      badge: narrow ? null : { text: status, tone },
+    });
 
     return html`<article class="fv-card ${unusable ? 'is-unavailable is-off' : ''}" data-card>
       ${head({
-        icon: this.config?.icon ?? glyphFor(view),
+        icon: fitted.icon ? (this.config?.icon ?? glyphFor(view)) : null,
         tone,
         title: name,
-        sub,
-        trailing: narrow ? nothing : badge(status, tone),
-        onIconTap: () => this.tap(view.id),
-        onHold: () => this.hold(view.id),
-        iconLabel: name,
+        name: true,
+        sub: fitted.sub,
+        trailing: fitted.badge,
+        cut: fitted.cut,
+        ...this.headActions(view.id),
       })}
-      <div class="in-timer fv-value-row">
-        ${readout({ label: this.t('timer.remaining'), value: left === null ? '—' : formatDuration(left), size: 'l' })}
+      <div class="in-timer ${valueRowClass(fit.layout)}">
+        ${readout({ label: remaining, value, size: fit.size })}
         ${
-          this.config?.show_actions === false
-            ? nothing
+          fit.layout === 'alone'
+            ? this.readoutTap(view.id, `${name} · ${remaining} ${value}`)
             : html`<div class="in-timer__cmds">
                 ${
                   active
@@ -284,10 +313,11 @@ export class FluvyTimerCard extends Card<TimerCardConfig> {
                 <fluvy-ruler
                   .value=${Math.round((elapsed ?? 0) / grain) * grain}
                   .min=${0}
-                  .max=${duration}
+                  .max=${timed ? duration : 1}
                   .step=${1}
                   .length=${this.contentWidth}
                   .tone=${active || paused ? 'accent' : 'neutral'}
+                  ?disabled=${unusable || !timed}
                   marker
                   .label=${`${name} · ${s(this.hass, 'elapsed')}`}
                   .format=${(value: number) => formatDuration(value)}

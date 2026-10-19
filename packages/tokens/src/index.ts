@@ -82,6 +82,16 @@ export {
   type PaletteFile,
 } from './palettes/file.js';
 export { meshOf, type Mesh } from './build/mesh.js';
-export { accentFamily, type AccentFamily } from './build/accent-family.js';
+export { accentFamily, paletteAccent, type AccentFamily } from './build/accent-family.js';
+export {
+  parseStatuses,
+  splitStatuses,
+  STATUS_NAMES,
+  statusesKey,
+  statusFamily,
+  withStatuses,
+  type StatusColours,
+  type StatusName,
+} from './build/statuses.js';
 export { HA_GROUPS, haModeVars, haSharedVars, type HaGroup } from './ha/groups.js';
 export { RELEASE_VERSION } from './release.js';

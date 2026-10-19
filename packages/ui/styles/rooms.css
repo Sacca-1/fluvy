@@ -35,9 +35,16 @@
   padding: 0 16px 0 12px;
 }
 
-/* the hero as a button: the whole picture opens the room */
-.rm-hero--tap {
-  cursor: pointer;
+/* a name the hero cannot hold whole, even without its glyph: a pill as wide as the hero allows, 14 a side, the name
+   ending in an ellipsis at its edge as a chip's name does (`fv-chip__name`) */
+.rm-hero .am-area__badge.is-cut {
+  padding: 0 14px;
+}
+
+/* the hero as a button: laid over the whole picture, its scrim and its pill, its ring drawn inside (the hero clips) */
+.rm-hero > .fv-tile__tap {
+  z-index: 3;
+  outline-offset: -2px;
 }
 
 /* the tile variant: a compact tile's anatomy with the room's icon and its count */
@@ -179,8 +186,9 @@
   scale: 0.985;
 }
 
-/* a card whose lights cannot be read keeps its own controls reachable: the room's action, a round's details */
-.lt-card--row.is-unavailable .lt-room,
+/* a card whose lights cannot be read keeps its own controls reachable: the room's action (where it has one: else
+   its button keeps its place, disabled), a round's details */
+.lt-card--row.is-unavailable .lt-room:enabled,
 .lt-card--row.is-unavailable .lt-bulb {
   pointer-events: auto;
 }
@@ -313,7 +321,13 @@
   grid-column: 1 / -1;
 }
 
-/* an empty card's panel keeps the body's rhythm: 16 under its head */
-.lt-card > .fv-empty-state {
+/* an empty card's panel keeps the body's rhythm: 16 under its head (the room lights', a room's tile) */
+.lt-card > .fv-empty-state,
+.am-card > .fv-empty-state {
   margin-top: 16px;
+}
+
+/* an empty room keeps its anatomy: its panel stands where the readouts would be, 20 under the hero */
+.rm-hero + .fv-empty-state {
+  margin-top: 20px;
 }

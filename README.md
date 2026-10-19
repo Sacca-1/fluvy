@@ -22,7 +22,7 @@
   <img src="https://raw.githubusercontent.com/acosta290/fluvy/main/docs/images/hero-light.png" width="960" alt="Four Fluvy cards: tiles, a thermostat, energy and a media player">
 </p>
 
-Fluvy brings one design to the whole of Home Assistant: a theme, fifty-two cards, five automatic dashboards, a
+Fluvy brings one design to the whole of Home Assistant: a theme, fifty-five cards, five automatic dashboards, a
 settings panel, the Activity and History pages, and Home Assistant's own pages restyled to match — all from one
 set of design tokens, installed as one integration through HACS. Every card is drawn on a 4 px grid, checked
 by an alignment measurer, and holds from a phone to a wall tablet, in light and dark, in eight languages.
@@ -42,7 +42,7 @@ one (as here), as pills, as icons, Home Assistant's own, or none at all.
   <img src="https://raw.githubusercontent.com/acosta290/fluvy/main/docs/images/app-tablet.png" width="640" alt="The same dashboard on a wall tablet">
 </p>
 
-## Fifty-two cards
+## Fifty-five cards
 
 Every card has an editor form and a live preview in the card picker; every option is documented in
 [the cards](docs/cards.md). Sliders and dials are precision controls: relative drag, slide away to slow down,
@@ -71,8 +71,10 @@ filament unit's trays, the camera, pause and stop), tiles and lists.
 a house that imports and exports at once shows both, every lane in the colour of where its energy came from, with
 the Energy dashboard's own sources when you give it none. Beside it: the balance of what comes in and goes out, the
 grid by phase, batteries, a car charger, where a day's energy went (a sankey), the score, water and gas, the house's
-power by source, the whole house on one chart with its batteries' charge, solar by array, consumption by device and
-gauges for anything. [How they read a house](docs/energy.md).
+power by source, the whole house on one chart with its batteries' charge (a power scale and gridlines on both), solar
+by array, consumption by device, gauges for anything, and a sensor's last days, weeks or months as bars from its
+long-term statistics — a counter read by its own readings when Home Assistant's sum is not the truth, today live.
+[How they read a house](docs/energy.md).
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/acosta290/fluvy/main/docs/images/cards-energy.png" width="960" alt="The energy cards: the flow of a three-phase house and the flow as a cross, the balance, the grid by phase, two batteries, a car charger, where the day's energy went and the energy score">
@@ -86,12 +88,21 @@ gauges, sensor tiles, and up to three sensors on one chart.
 </p>
 
 **Home, time and helpers** — weather and forecasts, who is home, scenes and actions, calendars (month, week,
-timeline, upcoming), clocks (analog, digital, world), readouts and trends, safety, helpers, updates, timers,
-schedules and to-do lists.
+timeline, upcoming), clocks (analog, digital, world), readouts and trends, safety, helpers, updates, timers, to-do
+lists, and the house's automations: every one as a row with its switch and last run, and schedules written in a
+sheet as native Home Assistant automations — for the whole house, or for the one lamp a popup is about.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/acosta290/fluvy/main/docs/images/cards-home.png" width="960" alt="Home, time and helper cards">
 </p>
+
+**Appliances and alerts** — a washer, a dryer, a dishwasher, an oven, a hob, a fridge, a coffee machine or a kettle
+on a plug, read from LG ThinQ, Home Connect, Miele, SmartThings, Matter, Whirlpool, Tuya, hOn and Electrolux, or
+from a smart plug's power: a picture of the appliance, what it is doing, the time left over a bar, three rows for
+its programme, water, energy or the filter to clean, the reminders, "Tell me when it's done" — the design a reader
+drew for us (#47) — and the house's appliances in one list or as whole cards side by side. An alerts card gathers
+what needs a look — low batteries, devices gone, doors left open, leaks and smoke, updates, repairs — each alert one
+line, as tiles, chips, rows or a banner, hidden while all is clear, with a snooze that follows you to every device.
 
 ## Activity and History
 
@@ -132,8 +143,9 @@ preferences — language, motion, haptics, a palette of their own. Changes apply
 ## The automatic dashboards
 
 One line — `strategy: { type: custom:fluvy-home }` — and Fluvy reads your areas, devices, entities and energy
-preferences and builds Home, Rooms, Lights, Climate, Energy, Security, Media, Agenda and Sensors: lights grouped by
-room, a card a room that opens the room's own page, appliances with their readings, the running thermostat first,
+preferences and builds Home, Rooms, Lights, Climate, Energy, Security, Media, Agenda and Sensors: what needs
+attention first (hidden while all is clear), lights grouped by room, a card a room that opens the room's own page,
+the large appliances as whole cards side by side and the small ones as rows, the running thermostat first,
 the home's forecast, the whole Energy dashboard read (every grid connection, the battery's charge, water and gas),
 batteries and phones told apart. Four more templates build
 a dashboard each — **Rooms** (a tab a floor), **Energy**, **Security** and a **Wall** for a tablet — and the panel
@@ -143,8 +155,8 @@ creates any of them with one tap. Every one is rebuilt every time it opens, so a
 ## What you get
 
 - **One theme, light and dark**, generated from the same tokens the cards are drawn with.
-- **Fifty-two cards** with editor forms, picker previews, and `unavailable`, `unknown` and missing states
-  drawn on purpose.
+- **Fifty-five cards** with editor forms, picker previews, and `unavailable`, `unknown` and missing states
+  drawn on purpose, at the size and in the anatomy the card has live.
 - **Energy as your meters read it**: a house that imports and exports at once shows both, per phase; with nothing
   configured the cards read the Energy dashboard, and a day, a week or a month add up to its own figures.
 - **Five automatic dashboards** built from your registries: the home, the rooms, the energy, the security, a wall.
@@ -171,7 +183,10 @@ frontend:
 
 1. Until Fluvy is listed in HACS's default store, add it once: in HACS, open the menu (⋮) → **Custom
    repositories**, add `https://github.com/acosta290/fluvy` with the type **Integration** — or click the button
-   above, which fills the dialog in.
+   above, which fills the dialog in. In HACS (and in Home Assistant's Marketplace from 2026.11, which reads the same catalogue)
+   Fluvy is listed under **Integration**, not Theme: a HACS theme can only be a YAML file, and Fluvy is the theme plus
+   the cards, the dashboards, the settings panel and the restyling of Home Assistant's own pages, which only an
+   integration can install. Search for "Fluvy" or "theme" with no type filter.
 2. Search for **Fluvy** in HACS and download it.
 3. Restart Home Assistant.
 4. Go to **Settings → Devices & services → Add integration**, search for **Fluvy** and add it. There is nothing to
@@ -209,7 +224,7 @@ options.
 | --- | --- |
 | [Installation](docs/installation.md) | HACS or the release zip, updating, uninstalling, what the integration registers, the Repairs it can raise |
 | [Getting started](docs/getting-started.md) | the first ten minutes |
-| [The settings panel](docs/settings-panel.md) | the six tabs, house and personal settings, where they are stored |
+| [The settings panel](docs/settings-panel.md) | the five tabs, house and personal settings, where they are stored |
 | [The theme](docs/theme.md) | palettes, custom accents, shapes, the tokens |
 | [The cards](docs/cards.md) | every card, with its configuration |
 | [The automatic dashboards](docs/automatic-dashboard.md) | what the five templates build from your home, and how to steer them |

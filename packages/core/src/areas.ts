@@ -46,26 +46,31 @@ export function usableEntity(
 
 interface Index {
   readonly devices: unknown;
-  readonly areas: unknown;
   readonly byArea: ReadonlyMap<string, readonly string[]>;
 }
-/** One index per entity registry (the object Home Assistant hands over), rebuilt when the devices or areas are new objects. */
+/** One index per entity registry (the object Home Assistant hands over), rebuilt when the devices are a new object. */
 const indexes = new WeakMap<object, Index>();
+/** A house without an entity registry: always this object, so its (empty) index is kept too. */
+const NO_ENTITIES: Readonly<Record<string, EntityRegistryDisplayEntry>> = Object.freeze({});
 
-/** Entity ids by area, in id order; built in one pass and kept while the registries are the same objects. */
+/**
+ * Every entity of each area, in id order, from the registries alone: whether it has a state is asked when it is read,
+ * so an entity whose state comes after the index was built (a restart's slow integration) is in it already. Built in
+ * one pass (`areaOf` reads the entity and device registries, nothing else) and kept while they are the same objects.
+ */
 export function areaIndex(hass: Registries): ReadonlyMap<string, readonly string[]> {
-  const entities = hass.entities ?? {};
+  const entities = hass.entities ?? NO_ENTITIES;
   const kept = indexes.get(entities);
-  if (kept && kept.devices === hass.devices && kept.areas === hass.areas) return kept.byArea;
+  if (kept && kept.devices === hass.devices) return kept.byArea;
   const byArea = new Map<string, string[]>();
-  for (const id of Object.keys(hass.states).sort()) {
+  for (const id of Object.keys(entities).sort()) {
     const area = areaOf(hass, id);
     if (!area) continue;
     const list = byArea.get(area);
     if (list) list.push(id);
     else byArea.set(area, [id]);
   }
-  indexes.set(entities, { devices: hass.devices, areas: hass.areas, byArea });
+  indexes.set(entities, { devices: hass.devices, byArea });
   return byArea;
 }
 
@@ -97,48 +102,105 @@ const ON_STATES: Readonly<Record<string, string>> = {
   cover: 'open',
 };
 
-export interface AreaSummary {
-  /** Entities the area shows. */
-  readonly total: number;
+/** A room's readings, each an entity: a sensor's state, or a thermostat's or humidifier's own (`climateAttribute`). */
+export interface AreaClimate {
+  readonly temperature?: string | undefined;
+  readonly humidity?: string | undefined;
+}
+export type ClimateKind = keyof AreaClimate;
+
+/** The domains that carry a room's reading as an attribute of their own. */
+const CARRIERS: Readonly<Record<ClimateKind, readonly string[]>> = {
+  temperature: ['climate'],
+  humidity: ['climate', 'humidifier'],
+};
+
+/** Where a reading is on its entity: a thermostat's (or a humidifier's) `current_temperature` / `current_humidity`; a sensor's is its state. */
+export const climateAttribute = (entityId: string, kind: ClimateKind): string | undefined =>
+  CARRIERS[kind].includes(entityId.slice(0, entityId.indexOf('.'))) ? `current_${kind}` : undefined;
+
+/** A state ("21.4") or an attribute (21.4) that is a number — not "unavailable", null or "". */
+const numeric = (value: unknown): boolean => Number.isFinite(parseFloat(String(value)));
+
+/**
+ * A room's temperature and humidity among what it shows (`shown`), as Home Assistant's own area card finds them:
+ * 1. the sensor the area names, while it has a state — even hidden or diagnostic, as the area's settings offer them;
+ * 2. a sensor of that class, the first that reads a number (a dead one never hides a working one), else the first
+ *    (its readout then a dash);
+ * 3. a thermostat's own: its temperature (every thermostat says one), a thermostat's or a humidifier's humidity where
+ *    it measures one — or where it cannot say, being unavailable: the room keeps that reading's place, a dash (1.9).
+ * Never by a unit alone: a "%" is a battery as often as a humidity.
+ */
+function climateOf(hass: Registries, areaId: string, shown: readonly string[]): AreaClimate {
+  const area = hass.areas?.[areaId];
+  const attributes = (id: string) => hass.states[id]?.attributes ?? {};
+  const best = (ids: readonly string[], read: (id: string) => unknown): string | undefined =>
+    ids.find((id) => numeric(read(id))) ?? ids[0];
+  const find = (kind: ClimateKind): string | undefined => {
+    const named = area?.[`${kind}_entity_id` as const];
+    if (named && hass.states[named]) return named;
+    const current = `current_${kind}`;
+    return (
+      best(
+        shown.filter((id) => id.startsWith('sensor.') && attributes(id)['device_class'] === kind),
+        (id) => hass.states[id]?.state,
+      ) ??
+      best(
+        shown.filter(
+          (id) =>
+            climateAttribute(id, kind) &&
+            (kind === 'temperature' ||
+              current in attributes(id) ||
+              hass.states[id]?.state === 'unavailable'),
+        ),
+        (id) => attributes(id)[current],
+      )
+    );
+  };
+  return { temperature: find('temperature'), humidity: find('humidity') };
+}
+
+/** The area's temperature and humidity: the sensors it names, else the ones it shows, else its thermostat's own. */
+export const areaClimate = (hass: Registries, areaId: string): AreaClimate =>
+  climateOf(hass, areaId, areaEntities(hass, areaId));
+
+/** What an area holds, counted once: what its room card draws, and what the automatic dashboard decides a room by. */
+export interface AreaContents {
+  /** The entities it shows, in id order. */
+  readonly entities: readonly string[];
+  /** Its controls: the lights, then the switches, covers and fans. */
+  readonly controls: readonly string[];
   /** Controls that are on (a cover: open). */
   readonly on: number;
-  /** The controls, lights first, then switches, covers and fans. */
-  readonly controls: readonly string[];
+  readonly climate: AreaClimate;
+  /** Entities with a state that dashboards keep out, hidden or diagnostic (a config entity is not counted). */
+  readonly keptOut: number;
 }
 
-/** What an area holds, counted once. */
-export function areaSummary(hass: Registries, areaId: string): AreaSummary {
-  const ids = areaEntities(hass, areaId);
+export function areaContents(hass: Registries, areaId: string): AreaContents {
+  const entities = areaEntities(hass, areaId);
   const controls = CONTROL_DOMAINS.flatMap((domain) =>
-    ids.filter((id) => id.startsWith(`${domain}.`)),
+    entities.filter((id) => id.startsWith(`${domain}.`)),
   );
-  const on = controls.filter((id) => {
-    const domain = id.slice(0, id.indexOf('.'));
-    return hass.states[id]?.state === ON_STATES[domain];
-  }).length;
-  return { total: ids.length, on, controls };
-}
-
-export interface AreaClimate {
-  readonly temperature?: string;
-  readonly humidity?: string;
-}
-
-/** The area's temperature and humidity: the ones the registry names, else the first sensor of that class in it. */
-export function areaClimate(hass: Registries, areaId: string): AreaClimate {
-  const area = hass.areas?.[areaId];
-  const sensors = areaEntities(hass, areaId, { domains: ['sensor'] });
-  const first = (deviceClass: string): string | undefined =>
-    sensors.find((id) => hass.states[id]?.attributes['device_class'] === deviceClass);
-  const named = (id: string | null | undefined): string | undefined =>
-    id && hass.states[id] ? id : undefined;
-  const temperature = named(area?.temperature_entity_id) ?? first('temperature');
-  const humidity = named(area?.humidity_entity_id) ?? first('humidity');
+  const on = controls.filter(
+    (id) => hass.states[id]?.state === ON_STATES[id.slice(0, id.indexOf('.'))],
+  ).length;
+  const all = areaEntities(hass, areaId, { hidden: true, diagnostic: true });
   return {
-    ...(temperature ? { temperature } : {}),
-    ...(humidity ? { humidity } : {}),
+    entities,
+    controls,
+    on,
+    climate: climateOf(hass, areaId, entities),
+    keptOut: all.length - entities.length,
   };
 }
+
+/** Whether a room has anything to show, an entity or a reading: one rule for the room card and the automatic dashboard. */
+export const holdsSomething = ({
+  entities,
+  climate,
+}: Pick<AreaContents, 'entities' | 'climate'>): boolean =>
+  entities.length > 0 || Boolean(climate.temperature ?? climate.humidity);
 
 const byName = (a: { name: string }, b: { name: string }): number => a.name.localeCompare(b.name);
 

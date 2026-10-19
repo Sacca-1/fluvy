@@ -34,6 +34,9 @@ describe('a list of facts', () => {
     expect(defaultHead('change')).toEqual(['total', 'average']);
     expect(defaultHead('mean')).toEqual(['average', 'highest']);
     expect(defaultHead('max')).toEqual(['average', 'highest']);
+    // a reading at the end adds up where the counter starts again with each bar (a monthly gauge by month)
+    expect(defaultHead('state', true)).toEqual(['total', 'average']);
+    expect(defaultHead('state', false)).toEqual(['average', 'highest']);
     expect(DEFAULT_FACTS).toEqual(['highest', 'lowest', 'average']);
   });
 });
@@ -48,6 +51,41 @@ describe('the summary of the bars', () => {
       lowest: 9.5,
       current: 12.3,
     });
+  });
+
+  it('averages, ranges and finds the lowest over the finished buckets only: a day still running is no low day', () => {
+    // #45 as Home Assistant counts it: five days before the sensor, 17.0, and today's 51.2 drawn
+    const summary = summarise([null, null, null, null, null, 17], 51.2, { drawn: true });
+    expect(summary).toEqual({
+      count: 7,
+      total: 68.2,
+      average: 17,
+      highest: 17,
+      lowest: 17,
+      current: 51.2,
+    });
+    // not drawn, the bucket in progress is not in the total either
+    expect(summarise([null, 17], 51.2).total).toBe(17);
+    // only the bucket in progress, drawn: the total is it alone
+    expect(summarise([null, null], 3, { drawn: true }).total).toBe(3);
+  });
+
+  it('has no total for bars that do not add up, and nothing worked out from one', () => {
+    const means = summarise([14, 16], 15, { drawn: true, additive: false });
+    expect(means.total).toBeNull();
+    expect(means.average).toBe(15);
+    const context: FactContext = {
+      unit: '°C',
+      decimals: 1,
+      kwh: null,
+      price: 0.3,
+      co2Factor: 0.4,
+      currency: '€',
+      shareOf: 30,
+      trees: 'trees',
+    };
+    for (const kind of ['total', 'money', 'co2', 'trees', 'km', 'share'] as const)
+      expect(factFigure({ kind }, means, context).value, kind).toBeNull();
   });
 
   it('averages a measurement over the days that have one, and knows nothing of an empty set', () => {

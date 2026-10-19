@@ -42,7 +42,27 @@ describe('the balance: what comes in against what goes out', () => {
     expect(b.inTotal).toBeNull();
     expect(b.house).toBeNull();
     expect(b.outTotal).toBeNull();
-    expect(b.going.map((i) => [i.kind, i.value])).toEqual([
+    // its way not known, it is listed once, among what comes in (1.9: the card keeps its rows)
+    expect(b.going.map((i) => [i.kind, i.value])).toEqual([['house', null]]);
+  });
+
+  it('a battery that cannot be read is listed once, where a live one is listed once either way', () => {
+    const rows = (flows: Flow[]) => {
+      const b = balanceOf(flows);
+      return [b.coming.length, b.going.length];
+    };
+    const away = rows([
+      flow('solar', 3200, 0),
+      flow('grid', 1900, 400),
+      flow('battery', null, null),
+    ]);
+    expect(away).toEqual([3, 2]);
+    expect(
+      rows([flow('solar', 3200, 0), flow('grid', 1900, 400), flow('battery', 0, 600)]),
+    ).toEqual([2, 3]);
+    // the export alone unreadable: the import says what it knows, the export its "—"
+    const half = balanceOf([flow('solar', 1000, 0), flow('grid', 500, null)]);
+    expect(half.going.map((i) => [i.kind, i.value])).toEqual([
       ['house', null],
       ['grid', null],
     ]);

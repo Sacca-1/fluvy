@@ -66,6 +66,8 @@ export interface AccentFamily {
   readonly primary: { readonly fill: Hex; readonly hover: Hex; readonly on: Hex };
   readonly ramp: Ramp;
   readonly graph: readonly Hex[];
+  /** A resting circle as pale as the card draws this hairline round it (white, on the grey ladder). */
+  readonly ring?: Hex;
 }
 
 /**
@@ -145,9 +147,15 @@ export function deriveAccent(ctx: AccentContext, input: AccentInput): AccentFami
     accentInkOklch,
   );
   const accentFill = toHex(accentFillOklch);
+  // the hairline starts a step towards the ink on the fill, the way it is fitted (a near-black plate's goes lighter)
   const accentFillBorder = toHex(
     ensureContrast(
-      { ...accentFillOklch, l: accentFillOklch.l + p.fillBorderDelta },
+      {
+        ...accentFillOklch,
+        l:
+          accentFillOklch.l +
+          (inkOn(accentFillOklch) === 'darker' ? -1 : 1) * Math.abs(p.fillBorderDelta),
+      },
       accentFill,
       GATES.borderVsCard,
       inkOn(accentFillOklch),

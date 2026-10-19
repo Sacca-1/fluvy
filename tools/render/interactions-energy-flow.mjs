@@ -9,6 +9,7 @@
  * unreadable source is a hairline; the cross bridges its crossing; narrow columns list; the Energy dashboard's own
  * sources and a day's totals are read; 1.3's YAML still draws.
  */
+import { contrastRatio, toHex } from './lib/colour.mjs';
 import { BASE, frame, startSuite } from './lib/suite.mjs';
 
 const suite = await startSuite();
@@ -23,6 +24,23 @@ async function open(sheet = 'flow', width = 360, options = {}) {
 }
 
 const card = (page, title, n = 0) => frame(page, title).locator('fluvy-energy-flow-card').nth(n);
+
+/**
+ * A stacked energy chart's plot on the page: its left edge and width (the scales stand outside it, `data-plot`), its
+ * middle height, and where an hour of the day is on it.
+ */
+async function plotOf(energy) {
+  const chart = energy.locator('.en-chart');
+  await chart.scrollIntoViewIfNeeded();
+  const box = await chart.boundingBox();
+  const [left, width] = (await chart.getAttribute('data-plot')).split(' ').map(Number);
+  return {
+    left,
+    width,
+    y: box.y + box.height / 2,
+    x: (hour) => box.x + left + (width * hour) / 24,
+  };
+}
 
 /** Every lane group: its ink, its way, rest / hidden, and its pulses. */
 const lanes = (flow) =>
@@ -411,11 +429,9 @@ const pulses = (flow) =>
     .locator('fluvy-energy-card')
     .first();
   const h = await read(hybrid);
-  const plot = hybrid.locator('.en-chart');
-  await plot.scrollIntoViewIfNeeded();
-  const box = await plot.boundingBox();
+  const plot = await plotOf(hybrid);
   const at = async (hour) => {
-    await page.mouse.move(box.x + (box.width * hour) / 24, box.y + box.height / 2);
+    await page.mouse.move(plot.x(hour), plot.y);
     await page.waitForTimeout(150);
     return (await read(hybrid)).reading;
   };
@@ -451,8 +467,7 @@ const pulses = (flow) =>
     .slice(1)
     .map((x, i) => x - (xs[i] ?? 0))
     .filter((d) => d > 0);
-  const width = (await meters.locator('.en-chart > svg:not(.en-chart__dots)').boundingBox()).width;
-  const block = (width * 30) / 1440;
+  const block = ((await plotOf(meters)).width * 30) / 1440;
   check(
     'without power sensors: the meters, half an hour a point for a 0.1 kWh step (no zigzag); at rest the last half hour that has closed, as the whole house reads it',
     /^\d{1,2}:\d{2} [\d.,]+ ?k?W$/.test(m.reading) &&
@@ -532,9 +547,8 @@ const pulses = (flow) =>
         'Solar11.2kWh | Battery2.4kWh | Grid4.1kWh | Charged3.0kWh | Exported1.3kWh',
     JSON.stringify(chart),
   );
-  const plot = card.locator('.en-chart');
-  const box = await plot.boundingBox();
-  await page.mouse.move(box.x + (box.width * 12.5) / 24, box.y + box.height / 2);
+  const plot = await plotOf(card);
+  await page.mouse.move(plot.x(12.5), plot.y);
   await page.waitForTimeout(200);
   const noon = await read(card);
   await page.mouse.move(0, 0);
@@ -555,8 +569,8 @@ const pulses = (flow) =>
     .first();
   await hybrid.scrollIntoViewIfNeeded();
   const h = await read(hybrid);
-  const hbox = await hybrid.locator('.en-chart').boundingBox();
-  await page.mouse.move(hbox.x + (hbox.width * 3.25) / 24, hbox.y + hbox.height / 2);
+  const hplot = await plotOf(hybrid);
+  await page.mouse.move(hplot.x(3.25), hplot.y);
   await page.waitForTimeout(200);
   const gap = await read(hybrid);
   await page.mouse.move(0, 0);
@@ -607,6 +621,273 @@ const pulses = (flow) =>
     'without a battery and with show_house off: no charge, no house line, the sources and the export alone',
     bare.soc === null && bare.house === null && bare.level === '' && bare.below.join() === 'grid',
     JSON.stringify(bare),
+  );
+  await page.close();
+}
+
+/* ---------- issue #49: the scales, the gridlines, each source's own value, thin lines ---------- */
+{
+  const page = await open('flow', 360);
+  const energy = (title, n = 0) => frame(page, title).locator('fluvy-energy-card').nth(n);
+  /** A stacked chart's scales as drawn: the ticks (text, y, x), the gridlines, the zero line, the tags, the dots. */
+  const scales = (c) =>
+    c.evaluate((el) => {
+      const root = el.shadowRoot;
+      const svg = root.querySelector('.en-chart > svg:not(.en-chart__dots)');
+      const num = (node, name) => Number(node.getAttribute(name));
+      const ticks = [...root.querySelectorAll('.ax-tick')].map((t) => ({
+        text: t.textContent.trim(),
+        x: num(t, 'x'),
+        y: num(t, 'y'),
+      }));
+      const zero = root.querySelector('line.en-zero');
+      const hours = [...root.querySelectorAll('.fv-axis span')].map((s) => {
+        const box = s.getBoundingClientRect();
+        return { text: s.textContent.trim(), left: box.left, right: box.right };
+      });
+      const chart = root.querySelector('.en-chart').getBoundingClientRect();
+      return {
+        width: svg ? num(svg, 'width') : 0,
+        plot: (root.querySelector('.en-chart')?.dataset.plot ?? '').split(' ').map(Number),
+        // the power's ticks end on the plot's start; the charge's on the card's edge
+        power: ticks.filter((t) => t.text.endsWith('%') === false),
+        charge: ticks.filter((t) => t.text.endsWith('%')),
+        unit: root.querySelector('.ax-unit')?.textContent.trim() ?? '',
+        grid: [...root.querySelectorAll('.ax-grid')].map((g) => ({
+          y: num(g, 'y1'),
+          x1: num(g, 'x1'),
+          x2: num(g, 'x2'),
+        })),
+        zero: zero ? { y: num(zero, 'y1'), dash: getComputedStyle(zero).strokeDasharray } : null,
+        tags: [...root.querySelectorAll('.en-chart__tag')].map((t) => t.textContent.trim()),
+        hours: hours.map((h) => ({ ...h, left: h.left - chart.left, right: h.right - chart.left })),
+        soc: [...root.querySelectorAll('path.en-soc')].flatMap((p) =>
+          [...p.getAttribute('d').matchAll(/[\d.]+,([\d.]+)/g)].map((m) => Number(m[1])),
+        ),
+        dots: [...root.querySelectorAll('.en-band-dot')].map((d) => ({
+          ink: [...d.classList].find((k) => k.startsWith('en-ink--')),
+          y: num(d, 'cy'),
+          r: num(d, 'r'),
+          ring: d.classList.contains('is-ring'),
+        })),
+        charged: root.querySelector('.en-soc-dot')
+          ? num(root.querySelector('.en-soc-dot'), 'cy')
+          : null,
+        // the scale's words and the card under them
+        inks: {
+          card: getComputedStyle(root.querySelector('.fv-card')).backgroundColor,
+          ticks: [...root.querySelectorAll('.ax-tick, .ax-unit')].map(
+            (t) => getComputedStyle(t).fill,
+          ),
+          hours: getComputedStyle(root.querySelector('.fv-axis')).color,
+        },
+        ring: root.querySelector('.en-cursor-dot')
+          ? num(root.querySelector('.en-cursor-dot'), 'cy')
+          : null,
+        own: root.querySelectorAll('.en-area.is-own').length,
+        areas: root.querySelectorAll('.en-area').length,
+        line: getComputedStyle(root.querySelector('.en-area-line')).strokeWidth,
+        house: root.querySelector('.en-house')
+          ? getComputedStyle(root.querySelector('.en-house')).strokeWidth
+          : '',
+        reading: (root.querySelector('.ef-top .fv-readout')?.textContent ?? '')
+          .replace(/\s+/g, ' ')
+          .trim(),
+        legend: [...root.querySelectorAll('.en-legend__item')].map((i) =>
+          i.textContent.replace(/\s+/g, ''),
+        ),
+      };
+    });
+  /** A power's y on a chart, from its ticks (a tick's label sits 4 under its line). */
+  const yOf = (s, kw) => {
+    const [a, b] = s.power;
+    const ka = Number(a.text.replace('−', '-'));
+    const kb = Number(b.text.replace('−', '-'));
+    return a.y - 4 + ((kw - ka) * (b.y - a.y)) / (kb - ka);
+  };
+
+  const wide = energy('Issue #49 · the whole house, scaled');
+  const w = await scales(wide);
+  const [left, width] = w.plot;
+  check(
+    'issue #49: the power’s scale at the start (nice steps, negatives, kW rotated) and the charge’s 0–100 % at the end, on the same gridlines',
+    w.power.map((t) => t.text).join() === '−5,0,5,10' &&
+      w.power.every((t) => t.x === left - 8) &&
+      w.unit === 'kW' &&
+      w.charge.map((t) => t.text).join() === '0 %,50 %,100 %' &&
+      w.charge.every((t) => t.x === w.width) &&
+      // the charge's 0 % on the zero line, 50 % and 100 % on the power's 5 and 10
+      w.charge.every((t, i) => t.y === w.power[i + 1]?.y),
+    JSON.stringify([w.power, w.charge, w.unit, w.plot]),
+  );
+  const words = [...w.inks.ticks, w.inks.hours].map(toHex);
+  check(
+    'issue #49: the scale reads in one ink — ticks, unit and hours — at 4.5:1 or more on the card (11 px words)',
+    words.every((ink) => ink !== null && ink === words[0]) &&
+      contrastRatio(words[0], toHex(w.inks.card)) >= 4.5,
+    JSON.stringify(w.inks),
+  );
+  check(
+    'issue #49: dashed gridlines across the plot at every tick but zero, whose line is the solid baseline',
+    w.grid.length === 3 &&
+      w.grid.every((g) => g.x1 === left && Math.abs(g.x2 - (left + width)) < 0.01) &&
+      w.zero?.dash === 'none' &&
+      Math.abs(w.zero.y - (w.power[1].y - 4)) <= 0.5,
+    JSON.stringify([w.grid, w.zero]),
+  );
+  check(
+    'issue #49: the charge’s scale takes the "100 %" tag’s place; the scale says what is below the line (no tag there)',
+    w.tags.join() === 'Sources' &&
+      w.soc.length > 0 &&
+      Math.max(...w.soc) <= (w.zero?.y ?? 0) + 0.5 &&
+      Math.min(...w.soc) >= yOf(w, 10) - 0.5,
+    JSON.stringify([w.tags, Math.min(...w.soc), Math.max(...w.soc), w.zero]),
+  );
+  check(
+    'issue #49: 00:00 · 06:00 · 12:00 · 18:00 · 24:00 under the plot, each centred on its hour',
+    w.hours.map((h) => h.text).join() === '00:00,06:00,12:00,18:00,24:00' &&
+      w.hours.every((h, i) => Math.abs((h.left + h.right) / 2 - (left + (width * i) / 4)) <= 1),
+    JSON.stringify(w.hours),
+  );
+
+  // the reporter's moment: 11:57, the sun 5.6 kW and the battery 4.2 on top of it
+  const wplot = await plotOf(wide);
+  await page.mouse.move(wplot.x(11.95), wplot.y);
+  await page.waitForTimeout(200);
+  const noon = await scales(wide);
+  check(
+    'issue #49: read at 11:57, the house’s 9.8 kW is the sun’s 5.6 and the battery’s 4.2, each source its own value in the legend',
+    /^11:5\d 9\.8 ?kW$/.test(noon.reading) &&
+      noon.legend.join(' | ') ===
+        'Solar5.6kW | Battery4.2kW | Grid0.0kW | Charged0.0kW | Exported0.0kW',
+    JSON.stringify([noon.reading, noon.legend]),
+  );
+  const solarDot = noon.dots.find((d) => d.ink === 'en-ink--solar');
+  check(
+    'issue #49: stacked, a dot marks the sun’s own edge (5.6) under the battery’s, whose top is the stack’s 9.8 (the ring)',
+    solarDot !== undefined &&
+      Math.abs(solarDot.y - yOf(noon, 5.6)) < 1.5 &&
+      noon.ring !== null &&
+      Math.abs(noon.ring - yOf(noon, 9.8)) < 1.5,
+    JSON.stringify([noon.dots, noon.ring, yOf(noon, 5.6), yOf(noon, 9.8)]),
+  );
+  check(
+    'issue #49: at 11:57 the charge’s dot (56 %) sits on the sun’s edge (5.6): the sun’s is a ring round it, so both read',
+    solarDot !== undefined &&
+      noon.charged !== null &&
+      Math.abs(solarDot.y - noon.charged) < 4.5 &&
+      solarDot.ring &&
+      solarDot.r === 5 &&
+      noon.dots.every((d) => d.ring === Math.abs(d.y - noon.charged) < 4.5),
+    JSON.stringify([noon.dots, noon.charged]),
+  );
+  await page.mouse.move(0, 0);
+
+  // stack: false — every source from zero, the battery's 4.2 under the sun's 5.6; thin lines
+  const own = energy('Issue #49 · each source from zero, thin lines');
+  const oplot = await plotOf(own);
+  await page.mouse.move(oplot.x(11.95), oplot.y);
+  await page.waitForTimeout(200);
+  const o = await scales(own);
+  await page.mouse.move(0, 0);
+  const dot = (ink) => o.dots.find((d) => d.ink === ink)?.y ?? Number.NaN;
+  check(
+    'issue #49: `stack: false` draws every source from zero, seen through: the battery’s 4.2 under the sun’s 5.6',
+    o.own === o.areas &&
+      o.areas > 0 &&
+      Math.abs(dot('en-ink--battery') - yOf(o, 4.2)) < 1.5 &&
+      Math.abs(dot('en-ink--solar') - yOf(o, 5.6)) < 1.5 &&
+      o.legend[0] === 'Solar5.6kW' &&
+      o.legend[1] === 'Battery4.2kW',
+    JSON.stringify([o.own, o.areas, o.dots, o.legend]),
+  );
+  check(
+    'issue #49: `line_width: thin` draws the bands’ edges and the house’s line 1 px (2 px by default)',
+    o.line === '1px' && o.house === '1px' && w.line === '2px' && w.house === '2px',
+    JSON.stringify([o.line, o.house, w.line, w.house]),
+  );
+
+  // a phone keeps both scales and the five hours; half a column folds the charge's into its readout
+  const phone = await scales(energy('Issue #49 · a phone'));
+  const apart = (hours) =>
+    hours.every((h, i) => i === 0 || h.left - (hours[i - 1]?.right ?? 0) >= 11.5);
+  check(
+    'issue #49: on a phone both scales and the five hours, 12 apart',
+    phone.power.length === 4 &&
+      phone.charge.length === 3 &&
+      phone.hours.length === 5 &&
+      apart(phone.hours) &&
+      phone.plot[1] >= 200,
+    JSON.stringify([phone.plot, phone.hours]),
+  );
+  const half = await scales(energy('Issue #49 · half a column'));
+  check(
+    'issue #49: in half a column the charge’s scale folds into its readout ("100 %" back as a tag), the power’s stays',
+    half.charge.length === 0 &&
+      half.power.length === 4 &&
+      half.tags.join() === 'Sources,100 %' &&
+      half.plot[0] + half.plot[1] === half.width &&
+      apart(half.hours),
+    JSON.stringify([half.plot, half.tags, half.hours]),
+  );
+
+  // by source: the same scale, and the legend lists each origin's power while read
+  const sources = energy('Issue #49 · by source');
+  const splot = await plotOf(sources);
+  await page.mouse.move(splot.x(11.95), splot.y);
+  await page.waitForTimeout(200);
+  const s = await scales(sources);
+  await page.mouse.move(0, 0);
+  check(
+    'issue #49: by source, the same scale and gridlines, and each origin’s power while read',
+    s.power.map((t) => t.text).join() === '−5,0,5,10' &&
+      s.charge.length === 0 &&
+      s.grid.length === 3 &&
+      /^11:5\d 9\.8 ?kW$/.test(s.reading) &&
+      s.legend.slice(0, 2).join(' | ') === 'Solar5.6kW | Battery4.2kW',
+    JSON.stringify([s.power, s.reading, s.legend]),
+  );
+
+  // both off: the chart as before, on the day's own extremes, the tag under the line back
+  const bare = await scales(energy('Issue #49 · no scale, no gridlines'));
+  check(
+    '`show_axis: false` and `show_grid: false`: no scale, no gridlines, the whole width, the tags as before',
+    bare.power.length === 0 &&
+      bare.grid.length === 0 &&
+      bare.plot[0] === 0 &&
+      bare.plot[1] === bare.width &&
+      bare.tags.length === 3 &&
+      bare.zero?.dash !== 'none',
+    JSON.stringify([bare.plot, bare.tags, bare.zero]),
+  );
+
+  // A7: an unavailable or missing sensor keeps the card's size and anatomy
+  const heights = (title) =>
+    frame(page, title)
+      .locator('fluvy-energy-card')
+      .evaluateAll((cards) => cards.map((c) => c.getBoundingClientRect().height));
+  for (const title of [
+    'Energy · live and unavailable',
+    'Energy · live and not found',
+    'The whole house · live and unavailable',
+  ]) {
+    const [live, dead] = await heights(title);
+    check(
+      `A7: ${title} — the same height`,
+      live > 0 && Math.abs(live - dead) <= 0.5,
+      JSON.stringify([live, dead]),
+    );
+  }
+  const missing = await energy('Energy · live and not found', 1).evaluate((el) => ({
+    empty: el.shadowRoot.querySelector('.fv-card--empty') !== null,
+    chart: el.shadowRoot.querySelector('.ef-chart') !== null,
+    axis: el.shadowRoot.querySelector('.fv-axis') !== null,
+    value: (el.shadowRoot.querySelector('.fv-readout__value')?.textContent ?? '').trim(),
+  }));
+  check(
+    'A7: a sensor that is not there keeps the card’s anatomy (its reading "—", the chart’s room, the hours)',
+    !missing.empty && missing.chart && missing.axis && missing.value === '—',
+    JSON.stringify(missing),
   );
   await page.close();
 }

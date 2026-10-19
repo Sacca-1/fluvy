@@ -22,6 +22,16 @@ const sensor = (
   },
 ];
 
+/** Home Assistant's six greys, darkest first, as its picker names them. */
+const GREYS = [
+  ['black', 'Black'],
+  ['dark-grey', 'Dark grey'],
+  ['blue-grey', 'Blue grey'],
+  ['grey', 'Grey'],
+  ['light-grey', 'Light grey'],
+  ['white', 'White'],
+] as const;
+
 const walk = (from: number, step: number, n = 24): number[] =>
   Array.from({ length: n }, (_, i) =>
     Number((from + Math.sin(i / 3) * step + (i % 5) * step * 0.1).toFixed(1)),
@@ -290,6 +300,20 @@ export const sheet: SheetSpec = {
           entity: 'sensor.co_humidity',
           hours: 6,
           color: 'cyan',
+        },
+      ],
+    },
+    // the grey ladder (#40): black, the greys and white, each lamp on (its plate) beside one off (its resting circle)
+    {
+      title: 'Greys',
+      cards: [
+        {
+          type: 'custom:fluvy-tiles-card',
+          size: 'compact',
+          tiles: GREYS.flatMap(([color, name]) => [
+            { entity: 'light.co_lamp', color, name },
+            { entity: 'light.co_hall', color, name },
+          ]),
         },
       ],
     },

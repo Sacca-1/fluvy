@@ -38,6 +38,23 @@ export function fitLightness(options: FitOptions): Oklch {
   return candidate;
 }
 
+/**
+ * Walks lightness from `from`, a step at a time (`most` steps at the most), until `ok` holds or the scale runs out: a
+ * fit by any rule, where `ensureContrast` fits by one ratio.
+ */
+export function walkLightness(
+  from: Oklch,
+  direction: FitDirection,
+  ok: (hex: Hex) => boolean,
+  most = 500,
+): Oklch {
+  const step = direction === 'darker' ? -STEP : STEP;
+  let color = from;
+  for (let i = 0; i < most && !ok(toHex(color)) && color.l + step >= 0 && color.l + step <= 1; i++)
+    color = { ...color, l: color.l + step };
+  return color;
+}
+
 /** Convenience wrapper that keeps the "nudge the anchor" intent readable at call sites. */
 export function ensureContrast(
   color: Oklch,

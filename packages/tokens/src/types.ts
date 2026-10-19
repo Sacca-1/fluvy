@@ -151,6 +151,16 @@ export interface PaletteModeColors {
   readonly neutralRamp: Ramp;
   readonly accentRamp: Ramp;
   readonly semantic: Readonly<Record<SemanticRole, RoleColors>>;
+  /**
+   * Information as a tone (an alert of severity info): the accent where it can never be read as a warning or a
+   * danger, else the status `info`. One choice for the palette, the same in both modes (`derivePalette`).
+   */
+  readonly notice: RoleColors;
+  /**
+   * The palette's own statuses where the house picked colours of its own (`withStatuses`, 1.9): what Home Assistant's
+   * colour names stand for (red, orange, green are colours, not roles, and stay the palette's). Absent: `semantic`.
+   */
+  readonly named?: Readonly<Record<SemanticRole, RoleColors>>;
   readonly state: Readonly<Record<StateKey, RoleColors>>;
   readonly unavailable: UnavailableColors;
   readonly graph: readonly Hex[];

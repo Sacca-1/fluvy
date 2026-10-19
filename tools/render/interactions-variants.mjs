@@ -56,7 +56,7 @@ const heightOf = async (card) =>
         (await card.locator(selector).count()) === 0,
       );
     const grid = await gridOf(card);
-    const least = tag === 'fluvy-fan-card' ? 4 : 6; // a command row needs half a section, a ruler a third
+    const least = 6; // half a section at the least: in a third the head left its name no room (1.9)
     check(
       `${title}: half a section, ${least} columns at the least`,
       grid.columns === 6 && grid.min_columns === least,
@@ -84,12 +84,13 @@ const heightOf = async (card) =>
     ['Compact · off', 'compact'],
   ])
     grids[key] = await gridOf(frame(page, title).locator('fluvy-thermostat-card').first());
+  // the compact card takes half a section and never less (#46: in a third its stepper was wider than the column)
   check(
-    'the dial asks for two thirds, the ruler half, the compact a quarter',
+    'the dial asks for two thirds, the ruler and the compact half a section at the least',
     grids.dial.min_columns === 8 &&
       grids.ruler.min_columns === 6 &&
       grids.compact.columns === 6 &&
-      grids.compact.min_columns === 4,
+      grids.compact.min_columns === 6,
     JSON.stringify(grids),
   );
   await page.close();
@@ -130,8 +131,8 @@ const heightOf = async (card) =>
   );
   const lockGrid = await gridOf(lock);
   check(
-    'Lock · compact: half a section, a third at the least',
-    lockGrid.columns === 6 && lockGrid.min_columns === 4,
+    'Lock · compact: half a section, and never less',
+    lockGrid.columns === 6 && lockGrid.min_columns === 6,
     JSON.stringify(lockGrid),
   );
   const alarm = frame(page, 'Alarm · compact').locator('fluvy-alarm-card').first();
@@ -372,8 +373,8 @@ const heightOf = async (card) =>
   );
   const barGrid = await gridOf(bar);
   check(
-    "a gauge's bar asks for half a section, a third at the least",
-    barGrid.columns === 6 && barGrid.min_columns === 4,
+    "a gauge's bar asks for half a section, and never less",
+    barGrid.columns === 6 && barGrid.min_columns === 6,
     JSON.stringify(barGrid),
   );
   const production = frame(page, 'Production').locator('fluvy-production-card').first();

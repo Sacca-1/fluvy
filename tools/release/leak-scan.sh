@@ -19,7 +19,7 @@ files() {
 
 # 1. Words that belong to a private installation, to the paid-product past, or to the developer's machine.
 #    Home Assistant's own vocabulary is allowed where the code speaks it (the allow-list below).
-WORDS='192\.168\.|proxmox|qm guest|vokse|/tmp/claude|\.local/|\.context/|\bbuyers?\b|19\.99|licen[cs]e key|\bstripe\b|railway|fluvy-casa|dashboard-home2|aerotermia|lampara_sala|fuga_agua|precio_luz|secadora|person\.alex|ha-theme-premium|fluvy\.io|sold as|signed artefact|\bthe client\b|design/(candidates|reviews)|tools/deploy|ha-session|ha-shell-health|co-authored-by|anthropic|\bclaude\b'
+WORDS='192\.168\.|proxmox|qm guest|vokse|/tmp/claude|\.local/|\.context/|\bbuyers?\b|19\.99|licen[cs]e key|\bstripe\b|railway|fluvy-casa|dashboard-home2|aerotermia|lampara_sala|fuga_agua|precio_luz|\.secadora|secadora_|person\.alex|ha-theme-premium|fluvy\.io|sold as|signed artefact|\bthe client\b|design/(candidates|reviews)|tools/deploy|ha-session|ha-shell-health|co-authored-by|anthropic|\bclaude\b'
 say "1. forbidden words"
 if files | grep -vE '^\./(tools/release/leak-scan\.sh|\.gitignore|\.prettierignore|eslint\.config\.js)$' | xargs grep -nIiE "$WORDS"; then fail=1; fi
 

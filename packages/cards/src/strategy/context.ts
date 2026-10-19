@@ -26,7 +26,8 @@ export const withCards = (sections: readonly Section[]): Section[] =>
 
 /**
  * The template's frame: the greeting first in the first section, the views as chips under it when the dashboard
- * asks for them (and has more than one; a wall opens with neither), then empty sections up to the template's columns.
+ * asks for them (and has more than one; a wall opens with neither), then empty sections up to the template's columns;
+ * a band across them (a section spanning the columns: the appliances) after the columns, on a row of its own.
  */
 export function framed(
   view: View,
@@ -42,12 +43,13 @@ export function framed(
           ...(ctx.greetingTabs && tabs.length > 1 ? [tabsCard(ctx.base, views)] : []),
         ]
       : [];
-  const [first, ...rest] = view.sections;
+  const across = view.sections.filter((section) => section.column_span);
+  const [first, ...rest] = view.sections.filter((section) => !section.column_span);
   const sections: Section[] = first
     ? [{ ...first, cards: [...header, ...first.cards] }, ...rest]
     : [{ type: 'grid', cards: header }];
   while (sections.length < template.columns) sections.push({ type: 'grid', cards: [] });
-  return { ...view, sections };
+  return { ...view, sections: [...sections, ...across] };
 }
 
 /** A grid meter found by its words (not given by the energy preferences) takes the sign its last day shows. */
@@ -98,6 +100,7 @@ export async function buildContext(
     },
     areas: config.areas,
     greetingTabs: config.greeting_tabs === 'show',
+    hass,
     header: HELLO_HEIGHT + (config.greeting_tabs === 'show' ? TABS_HEIGHT : 0),
   };
   return ctx;

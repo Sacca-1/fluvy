@@ -138,28 +138,44 @@ export const pretty = (raw: string): string => {
  * An action row is equal cells that fill the content column — never a left-hugging strip. For the
  * cells to land on the 4 px grid at any card width the gap gives way before the cells do: 16 at the
  * design widths (3 × 96 and 4 × 68 in a 320 column), otherwise the nearest gap that makes them whole
- * (down to 4: three 44 cells in a half-section card). The columns stay `minmax(0, 1fr)`; the card only
- * hands the gap to CSS (`--dv-action-gap`).
+ * (down to 4: three 44 cells in a half-section card). Where not even 4 keeps every cell a finger's 44,
+ * the row wraps into two full rows (3 + 2, 2 + 2, 2 + 1 with the last cell across) rather than go under it.
+ * The columns stay `minmax(0, 1fr)`; the card hands the gap to CSS (`--dv-action-gap`) and the columns to
+ * `actions()`.
  */
 const GAPS = [16, 12, 20, 24, 8, 4] as const;
 
-export function actionGap(contentWidth: number, count: number): number {
-  return sharedGap(contentWidth, [count]);
+/** Rows of equal cells laid out: the gap between them, and how many cells each row takes. */
+export interface Cells {
+  readonly gap: number;
+  /** A row's columns: its count, or fewer where its count would leave a cell under 44 (it wraps into full rows). */
+  readonly columns: readonly number[];
+}
+
+export function actionGap(
+  contentWidth: number,
+  count: number,
+): { readonly gap: number; readonly columns: number } {
+  const { gap, columns } = sharedGap(contentWidth, [count]);
+  return { gap, columns: columns[0] ?? count };
 }
 
 /**
  * One gap for rows of equal cells that stand one over another (a printer's trays over its buttons): the first of
  * `gaps` that lands every row's cells on whole 4 px and keeps them touchable; else the one nearest 16, within `gaps`'
- * range, that lands them on whole pixels; else the design's 16 (8 where that would not).
+ * range, that lands them on whole pixels; else the design's 16 where it keeps them touchable, else the narrowest of
+ * `gaps` (which does). A row whose cells stay under 44 even at the narrowest gap wraps, half its cells a row, and the
+ * rows are laid out again.
  */
 export function sharedGap(
   contentWidth: number,
   counts: readonly number[],
   gaps: readonly number[] = GAPS,
-): number {
+): Cells {
   const cell = (gap: number, count: number): number => (contentWidth - gap * (count - 1)) / count;
   for (const gap of gaps)
-    if (counts.every((n) => cell(gap, n) >= 44 && cell(gap, n) % 4 === 0)) return gap;
+    if (counts.every((n) => cell(gap, n) >= 44 && cell(gap, n) % 4 === 0))
+      return { gap, columns: counts };
   // no gap of the grid lands them on the 4 grid (an odd wide column): the nearest to 16 that lands them on whole pixels
   const low = Math.min(...gaps);
   const high = Math.max(...gaps);
@@ -170,8 +186,14 @@ export function sharedGap(
         gap <= high &&
         counts.every((n) => cell(gap, n) >= 44 && Number.isInteger(cell(gap, n)))
       )
-        return gap;
-  return counts.every((n) => cell(16, n) >= 44) ? 16 : 8;
+        return { gap, columns: counts };
+  // not one gap keeps a row's cells a finger's: it takes two rows (or more, in a column under two cells)
+  const wrapped = counts.map((n) => (cell(low, n) < 44 ? Math.ceil(n / 2) : n));
+  if (wrapped.some((n, index) => n !== counts[index]))
+    return sharedGap(contentWidth, wrapped, gaps);
+  // a finger's, but on whole pixels at no gap of the range: the design's 16 where it keeps them so (a caller with a
+  // range of its own reads it as "none of mine": the printer then tries its narrow one), else the narrowest
+  return { gap: counts.every((n) => cell(16, n) >= 44) ? 16 : low, columns: counts };
 }
 
 /**
@@ -183,7 +205,8 @@ export const actionsThatFit = (contentWidth: number): number =>
 
 /** The CSS the three cards add on top of the sheet: the fluid action row and its unavailable skin. Tokens only. */
 export const motionStyles = css`
-  /* equal cells that fill the column; the card hands over the gap that keeps them on the 4 px grid (actionGap) */
+  /* equal cells that fill the column, in two rows where one would go under 44; the card hands over the gap that keeps
+     them on the 4 px grid (actionGap), between the rows too */
   .fv-actions {
     gap: var(--dv-action-gap, 16px);
   }

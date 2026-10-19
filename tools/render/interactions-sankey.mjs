@@ -158,7 +158,7 @@ const drawing = (card) =>
   await page.waitForTimeout(300);
   check(
     'a meter that stops reading, live: the head says which and since when',
-    /^Grid unavailable since \d\d:\d\d$/.test(await text(card.locator('.fv-card__sub'))),
+    /^Grid · unavailable · since \d\d:\d\d$/.test(await text(card.locator('.fv-card__sub'))),
     await text(card.locator('.fv-card__sub')),
   );
   await page.close();
@@ -231,7 +231,7 @@ const drawing = (card) =>
   check(
     'a meter down: the head says which and since when',
     (await text(sankey(page, 'A meter down').locator('.fv-card__sub'))) ===
-      'Grid unavailable since 21:35',
+      'Grid · unavailable · since 21:35',
   );
   const missing = sankey(page, 'A device that is not there');
   check(
@@ -405,7 +405,7 @@ const drawing = (card) =>
   check(
     'a meter down: the score’s head says so too',
     (await text(score(page, 'The score with a meter down').locator('.fv-card__sub'))) ===
-      'Grid unavailable since 21:35',
+      'Grid · unavailable · since 21:35',
   );
   await page.close();
 }

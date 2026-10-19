@@ -9,6 +9,7 @@ import {
   type PropertyValues,
   type TemplateResult,
 } from 'lit';
+import { HeadFit } from '../energy/head.js';
 
 const k = strings('keypad');
 
@@ -45,6 +46,16 @@ const LEAVE_MS = 200;
 const KEYS: readonly string[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'backspace'];
 
 /**
+ * What the dialog keeps to itself, sitting in a popup (Bubble Card's) that closes on a window's Escape and slides
+ * closed from a touch on itself: Escape closes the keypad alone (the dialog's own cancel still runs), and a touch that
+ * starts in it is the keypad's.
+ */
+const keepEscape = (event: KeyboardEvent): void => {
+  if (event.key === 'Escape') event.stopPropagation();
+};
+const keepTouch = { handleEvent: (event: Event): void => event.stopPropagation(), passive: true };
+
+/**
  * The keypad sheet of the devices sheet: title, prompt and countdown, code dots, 72 × 56 keys and the
  * paired buttons — in a modal bottom sheet. Without a code to ask for it is the same sheet minus the
  * keys: a confirmation, so that a disarm or an unlatch is never one tap.
@@ -60,6 +71,12 @@ export class FluvyKeypad extends LitElement {
     css`
       :host(:not([docked])) {
         display: contents;
+      }
+      /* a title of words takes a second line at its words in a narrow sheet (tr "Devre dışı bırak"), and the head
+         grows with it */
+      .fv-sheet__head {
+        height: auto;
+        min-height: 44px;
       }
       dialog {
         position: fixed;
@@ -195,6 +212,7 @@ export class FluvyKeypad extends LitElement {
     busy_: { state: true },
     refused_: { state: true },
     leaving_: { state: true },
+    room_: { state: true },
   };
 
   declare hass?: HomeAssistant;
@@ -207,11 +225,19 @@ export class FluvyKeypad extends LitElement {
   declare busy_: boolean;
   declare refused_: boolean;
   declare leaving_: boolean;
+  /** The room the head gives its line (its titles' box, as the sheet is laid out): the line is fitted to it. */
+  declare room_: number;
 
   #code = '';
   private ticker = 0;
   private leaveTimer = 0;
   private openedAt = 0;
+  /** Fits the head's line in the sheet's own class (measured again when a font lands). */
+  private readonly head = new HeadFit(this);
+  private readonly sizer = new ResizeObserver(([entry]) => {
+    if (entry) this.room_ = entry.contentRect.width;
+  });
+  private titles: Element | null = null;
 
   constructor() {
     super();
@@ -222,6 +248,7 @@ export class FluvyKeypad extends LitElement {
     this.busy_ = false;
     this.refused_ = false;
     this.leaving_ = false;
+    this.room_ = 0;
   }
 
   get isOpen(): boolean {
@@ -258,6 +285,8 @@ export class FluvyKeypad extends LitElement {
   override disconnectedCallback(): void {
     super.disconnectedCallback();
     this.finishClose();
+    this.sizer.disconnect();
+    this.titles = null;
   }
 
   /** The end of every way out: nothing typed, nothing ticking, nothing listening, no dialog. */
@@ -304,24 +333,14 @@ export class FluvyKeypad extends LitElement {
     const dialog = this.renderRoot.querySelector('dialog');
     if (dialog && !dialog.open && this.request_ && !this.leaving_) dialog.showModal();
     if (changed.has('request_') || changed.has('hass')) this.fitPair();
-    this.fitSub();
-  }
-
-  /**
-   * The head's line gives way from its end ("Enter your code · 29 s" keeps "Enter your code" in a 211 column): the
-   * segments after the first go, one at a time, until the line holds — never a word cut.
-   */
-  private fitSub(): void {
-    const line = this.renderRoot.querySelector<HTMLElement>('.fv-sheet__head .fv-card__sub');
-    if (!line) return;
-    const full = line.textContent ?? '';
-    let text = full;
-    while (line.scrollWidth > line.clientWidth && text.includes(' · ')) {
-      text = text.slice(0, text.lastIndexOf(' · '));
-      line.textContent = text;
+    // the head's room is watched while the sheet is drawn (a new sheet each time it opens): its size, measured as it is
+    // laid out and again when it changes, draws the line again before anything is painted
+    const titles = this.renderRoot.querySelector('.fv-sheet__head .fv-card__titles');
+    if (titles !== this.titles) {
+      this.sizer.disconnect();
+      if (titles) this.sizer.observe(titles);
+      this.titles = titles;
     }
-    if (text !== full) line.setAttribute('aria-label', full);
-    else line.removeAttribute('aria-label');
   }
 
   /**
@@ -438,14 +457,20 @@ export class FluvyKeypad extends LitElement {
     const keys = this.showsKeys(request);
     const dots = request.length ?? Math.max(4, this.count_);
     const empty = this.count_ === 0;
+    const prompt = (key: 'alarm.enter_code' | 'alarm.enter_code_short'): string =>
+      k(this.hass, 'countdown', { label: localize(this.hass, key), seconds: this.left_ });
+    const asks = keys && !this.refused_;
     const sub = this.refused_
       ? k(this.hass, 'refused')
-      : keys
-        ? k(this.hass, 'countdown', {
-            label: localize(this.hass, 'alarm.enter_code'),
-            seconds: this.left_,
-          })
+      : asks
+        ? prompt('alarm.enter_code')
         : request.sub;
+    // the line gives way from its end ("Enter your code · 29 s" keeps "Enter your code" at 211), then the prompt takes
+    // its short form ("Code eingeben"); fitted before it is drawn and drawn by this template alone — never a word cut
+    const fit = (text: string): string => (this.room_ ? this.head.fitSub(text, this.room_) : text);
+    let line = fit(sub);
+    if (asks && this.room_ && this.head.ruler.width('fv-card__sub', line) > this.room_)
+      line = fit(prompt('alarm.enter_code_short'));
     const secondary = request.secondary;
     return html`<div
       class="fv-sheet dv-sheet ${this.busy_ ? 'is-busy' : ''}"
@@ -459,7 +484,7 @@ export class FluvyKeypad extends LitElement {
       <div class="fv-sheet__head">
         <div class="fv-card__titles">
           <h2 class="fv-sheet__title" id="kp-title">${request.title}</h2>
-          <p class="fv-card__sub">${sub}</p>
+          <p class="fv-card__sub" aria-label=${line === sub ? nothing : sub}>${line}</p>
         </div>
         ${round('close', 'quiet', k(this.hass, 'close'), () => this.close())}
       </div>
@@ -548,6 +573,8 @@ export class FluvyKeypad extends LitElement {
       }}
       @close=${() => this.finishClose()}
       @click=${(event: MouseEvent) => this.onDialogClick(event)}
+      @keydown=${keepEscape}
+      @touchstart=${keepTouch}
     >
       ${this.renderSheet(request)}
     </dialog>`;

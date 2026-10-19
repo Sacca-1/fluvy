@@ -525,5 +525,13 @@ export const sheet: SheetSpec = {
         { type: 'custom:fluvy-timer-card', entity: 'timer.ghost' },
       ],
     },
+    // half a section: the time left over its rounds (an hour's "1:00:00" too)
+    {
+      title: 'Timer · half a section',
+      cards: [
+        { type: 'custom:fluvy-timer-card', entity: 'timer.kitchen', cols: 6 },
+        { type: 'custom:fluvy-timer-card', entity: 'timer.idle', cols: 6 },
+      ],
+    },
   ],
 };

@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   aggregate,
+  bandEdges,
   BELOW_ROOM,
   chargeLine,
   crosses,
+  flowExtent,
   flowShape,
   flowsOf,
   integrate,
   integrateFlows,
+  LAYERS,
   meterBlock,
+  OUTFLOWS,
+  stackExtent,
   stackOf,
   stackShape,
 } from './stack.js';
@@ -66,6 +71,23 @@ describe('the house by source', () => {
     expect(shape.below.map((b) => b.key)).toEqual(['charged', 'exported']);
     // 1.2 kW used, 3.6 kW charged and 1.2 kW exported: one scale for 1.2 up and 4.8 down
     expect(shape.zero).toBeCloseTo(12 + (147 * 1.2) / 6);
+  });
+
+  it('unstacked, the export starts on the line beside the charge, not under it', () => {
+    const points = stackOf(
+      [
+        bucket(720, { solar: 0.5, toBattery: 0.3, toGrid: 0.1 }),
+        bucket(725, { solar: 0.5, toBattery: 0.3, toGrid: 0.1 }),
+      ],
+      DAY,
+    );
+    expect(stackExtent(points)).toEqual({ up: expect.closeTo(1.2), down: expect.closeTo(4.8) });
+    expect(stackExtent(points, false).down).toBeCloseTo(3.6);
+    const shape = stackShape(points, 320, 160, 12, 5 / 1440, { stacked: false, range: [-4, 2] });
+    const exported = shape.below.find((b) => b.key === 'exported');
+    const ys = [...(exported?.area ?? '').matchAll(/[\d.]+,([\d.]+)/g)].map((m) => Number(m[1]));
+    expect(Math.min(...ys)).toBeCloseTo(shape.zero, 0);
+    expect(Math.max(...ys)).toBeCloseTo(shape.y(-1.2), 0);
   });
 
   it('a day with nothing out keeps its line at the bottom', () => {
@@ -314,6 +336,72 @@ describe('the whole house', () => {
         shape.zero,
       ).y(0),
     ).toBe(183);
+  });
+
+  it('lays the areas on a scale’s range, in a plot that starts after the scale’s labels (issue #49)', () => {
+    const points = flowsOf(
+      [
+        bucket(720, { solar: 5.6, fromBattery: 4.2 }),
+        bucket(725, { solar: 5.6, fromBattery: 4.2 }),
+      ],
+      DAY,
+      5,
+      'kW',
+    );
+    const shape = flowShape(points, 240, 184, 28, 5 / 1440, { left: 44, range: [-5, 10] });
+    // 10 kW on the top tick (28), −5 on the foot (183), zero two thirds down
+    expect(shape.y(10)).toBeCloseTo(28);
+    expect(shape.y(-5)).toBeCloseTo(183);
+    expect(shape.zero).toBeCloseTo(28 + (155 * 10) / 15);
+    expect(shape.x(0)).toBe(44);
+    expect(shape.x(1)).toBe(284);
+    // the charge on the same plot: 100 % on the top tick, 0 % on the zero line
+    const line = chargeLine(
+      [
+        { at: 0, level: 0 },
+        { at: 1, level: 100 },
+      ],
+      240,
+      28,
+      shape.zero,
+      1,
+      44,
+    );
+    expect(line.runs[0]?.xy).toEqual([
+      [44, shape.zero],
+      [284, 28],
+    ]);
+  });
+
+  it('stacked, the battery sits on the sun; unstacked, every band starts on zero', () => {
+    const points = flowsOf(
+      [
+        bucket(720, { solar: 5.6, fromBattery: 4.2, toGrid: 1 }),
+        bucket(725, { solar: 5.6, fromBattery: 4.2, toGrid: 1 }),
+      ],
+      DAY,
+      5,
+      'kW',
+    );
+    expect(flowExtent(points)).toEqual({ up: 9.8, down: 1 });
+    // unstacked, the house's own line (9.8 in less 1 out) is the highest thing drawn
+    expect(flowExtent(points, false)).toEqual({ up: expect.closeTo(8.8), down: 1 });
+    const own = flowShape(points, 320, 184, 28, 5 / 1440, { stacked: false });
+    const battery = own.above.find((a) => a.key === 'battery');
+    // its band runs from its own 4.2 kW down to zero, not from 9.8 down to the sun's 5.6
+    const ys = [...(battery?.area ?? '').matchAll(/[\d.]+,([\d.]+)/g)].map((m) => Number(m[1]));
+    expect(Math.min(...ys)).toBeCloseTo(own.y(4.2), 0);
+    expect(Math.max(...ys)).toBeCloseTo(own.zero, 0);
+    // each band's edge at a point: the stack's top through it, or its own value
+    expect(bandEdges(points[0]!.into, LAYERS, true, 1)).toEqual([
+      ['solar', 5.6],
+      ['battery', 9.8],
+    ]);
+    expect(bandEdges(points[0]!.into, LAYERS, false, 1)).toEqual([
+      ['solar', 5.6],
+      ['battery', 4.2],
+    ]);
+    expect(bandEdges(points[0]!.out, OUTFLOWS, true, -1)).toEqual([['grid', -1]]);
   });
 
   it('knows whether the charge runs through a tag’s box, between its points too', () => {

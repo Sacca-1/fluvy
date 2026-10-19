@@ -93,6 +93,40 @@ describe('normaliseConfig', () => {
       kept: 1,
     });
   });
+
+  // a YAML-mode dashboard reads an unquoted on or off as true or false (Home Assistant's loader speaks YAML 1.1)
+  it('reads true and false as on and off where a key’s values are words', () => {
+    expect(
+      normaliseConfig({ ...base, tint: true, motion: false, snooze: false }, COMMON_ALIASES),
+    ).toEqual({ ...base, tint: 'on', motion: 'off', snooze: 'off' });
+    expect(normaliseConfig({ ...base, tint: false }, COMMON_ALIASES)).toEqual({
+      ...base,
+      tint: 'off',
+    });
+    expect(normaliseConfig({ ...base, modes: [false, 'heat'] }, COMMON_ALIASES)).toEqual({
+      ...base,
+      modes: ['off', 'heat'],
+    });
+    const targets = [
+      'light.a',
+      { entity: 'light.b', verb: true },
+      { entity: 'cover.c', verb: 'open' },
+    ];
+    expect(normaliseConfig({ ...base, targets }, COMMON_ALIASES)).toEqual({
+      ...base,
+      targets: ['light.a', { entity: 'light.b', verb: 'on' }, targets[2]],
+    });
+    // the words as written, every other boolean and an alert's own snooze are left as they are
+    const given = {
+      ...base,
+      tint: 'always',
+      show_icon: true,
+      modes: ['off', 'heat'],
+      targets: ['light.a', { entity: 'light.b', verb: 'off' }],
+      alerts: [{ preset: 'open', snooze: false }],
+    };
+    expect(normaliseConfig(given, COMMON_ALIASES)).toBe(given);
+  });
 });
 
 describe('columnsOf', () => {

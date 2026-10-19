@@ -2,7 +2,7 @@
   "name": "fluvy",
   "version": "1.8.0",
   "private": true,
-  "description": "A calm theme and card library for Home Assistant: a generated light and dark theme, fifty-two cards, five automatic dashboards and a settings panel, installed through HACS",
+  "description": "A premium theme and card library for Home Assistant: fifty-five cards, a light and dark theme in fifteen palettes, five automatic dashboards, a wall panel and kiosk mode for tablets, and a settings panel — one design for all of Home Assistant, installed through HACS",
   "license": "GPL-3.0-only",
   "author": {
     "name": "acosta290",
@@ -29,6 +29,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "pnpm -r --if-present typecheck",
+    "precheck": "node -e \"process.exit(require('node:fs').existsSync('packages/tokens/dist/tokens.json') ? 0 : 1)\" || pnpm --filter @fluvy/tokens build",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm --filter @fluvy/i18n check && pnpm --filter @fluvy/docs check && node tools/release/check.mjs",
     "visual": "node tools/render/visual.mjs",
     "clips": "node tools/render/clip.mjs",
@@ -41,6 +42,7 @@
     "release:check": "node tools/release/check.mjs --release",
     "ha:install": "node tools/dev/install.mjs",
     "measure": "node tools/render/measure-all.mjs",
+    "measure:narrow": "node tools/render/measure-all.mjs --cards 152,172,211,266 --lang all",
     "docs:cards": "pnpm --filter @fluvy/docs build"
   },
   "devDependencies": {

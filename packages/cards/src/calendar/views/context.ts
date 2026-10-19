@@ -20,6 +20,11 @@ export interface ViewContext {
   readonly status: Status;
   /** A quiet line about calendars that could not be read while others could; empty when all is well. */
   readonly notice: string;
+  /**
+   * What the calendars say while not one of them can be read ("Unavailable", "Entity not found"): the head's state, as
+   * the view draws itself at rest; '' while one can be.
+   */
+  readonly away: string;
   /** Content width of the card (its width minus the 20 px sides). */
   readonly width: number;
   /** The selected day (today until the user picks another). */

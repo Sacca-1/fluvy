@@ -5,6 +5,7 @@
     "experimentalDecorators": true,
     "useDefineForClassFields": false,
     "noEmit": true,
+    "allowJs": true,
     "types": ["node"]
   },
   "include": ["src/**/*.ts"]

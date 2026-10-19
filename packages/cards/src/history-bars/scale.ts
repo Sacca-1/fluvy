@@ -1,6 +1,7 @@
 /**
  * The history bars' scale and geometry, pure: a y-axis of nice numbers (Heckbert's 1 · 2 · 2.5 · 5 times a power of
- * ten), how many date labels a row of bars can hold, and how wide a bar is in its slot.
+ * ten), the typical bar its unit is chosen by, how many date labels a row of bars can hold, and how wide a bar is in
+ * its slot.
  */
 
 /** Heckbert's nice fractions, in the order they are tried within a decade. */
@@ -17,20 +18,28 @@ export interface NiceStep {
   readonly decimals: number;
 }
 
-/** The smallest nice step that spans `span` in `intervals` steps or fewer: 35.4 → 10, 16.8 → 5, 203 → 100. */
-export function niceStep(span: number, intervals = 4): NiceStep {
-  if (!(span > 0) || !Number.isFinite(span)) return { step: 1, decimals: 0 };
-  let exponent = Math.floor(Math.log10(span / intervals));
+/**
+ * The smallest of Heckbert's steps from `least` up that `fits`: 1, 2, 2.5 or 5 times a power of ten, with the decimals
+ * it is written with.
+ */
+function firstNice(least: number, fits: (step: number) => boolean): NiceStep {
+  let exponent = Math.floor(Math.log10(least));
   for (let round = 0; round < 4; round++, exponent++) {
     const base = 10 ** exponent;
     for (const [fraction, extra] of NICE) {
       const step = fraction * base;
       // 2.5 keeps its half only up to the units (0.25, 2.5); 25 and 250 are whole
-      if (Math.ceil(span / step - 1e-9) <= intervals)
+      if (fits(step))
         return { step, decimals: Math.max(0, -exponent) + (exponent <= 0 ? extra : 0) };
     }
   }
   return { step: 10 ** exponent, decimals: Math.max(0, -exponent) };
+}
+
+/** The smallest nice step that spans `span` in `intervals` steps or fewer: 35.4 → 10, 16.8 → 5, 203 → 100. */
+export function niceStep(span: number, intervals = 4): NiceStep {
+  if (!(span > 0) || !Number.isFinite(span)) return { step: 1, decimals: 0 };
+  return firstNice(span / intervals, (step) => Math.ceil(span / step - 1e-9) <= intervals);
 }
 
 export interface Ticks {
@@ -44,28 +53,36 @@ export interface Ticks {
 }
 
 /**
- * A scale from `lo` to `hi` that always holds zero: nice ticks at most `intervals` apart, the ends on a tick. A set
- * with nothing in it (both ends zero) is the one tick, zero: the chart then draws its stubs and no scale.
+ * A scale from `lo` to `hi` that always holds zero: the smallest nice step whose ticks reach both ends in `intervals`
+ * or fewer. A signed scale is widened to whole ticks on both sides of zero, so it can need a larger step than its span
+ * asks (−5.05 … 2.55 by 2.5 is −7.5 … 5, five intervals; by 5, −10 … 5). A set with nothing in it (both ends zero) is
+ * the one tick, zero: the chart then draws its stubs and no scale.
  */
 export function niceTicks(lo: number, hi: number, intervals = 4): Ticks {
   const low = Math.min(0, Number.isFinite(lo) ? lo : 0);
   const high = Math.max(0, Number.isFinite(hi) ? hi : 0);
   if (high - low <= 0) return { min: 0, max: 0, step: 0, ticks: [0], decimals: 0 };
-  let { step, decimals } = niceStep(high - low, intervals);
-  let min = Math.floor(low / step + 1e-9) * step;
-  let max = Math.ceil(high / step - 1e-9) * step;
-  let count = Math.round((max - min) / step);
-  // a signed scale widened to its ticks may need one step more (−3.2 … 8.1: −5 … 10 by 2.5 is six intervals)
-  if (count > intervals) {
-    ({ step, decimals } = niceStep(max - min, intervals));
-    min = Math.floor(low / step + 1e-9) * step;
-    max = Math.ceil(high / step - 1e-9) * step;
-    count = Math.round((max - min) / step);
-  }
+  const lowest = (step: number): number => Math.floor(low / step + 1e-9);
+  const highest = (step: number): number => Math.ceil(high / step - 1e-9);
+  const { step, decimals } = firstNice(
+    (high - low) / intervals,
+    (s) => highest(s) - lowest(s) <= intervals,
+  );
+  const first = lowest(step);
+  const count = highest(step) - first;
   const ticks = Array.from({ length: count + 1 }, (_unused, i) =>
-    Number((min + i * step).toFixed(decimals)),
+    Number(((first + i) * step).toFixed(decimals)),
   );
   return { min: ticks[0] ?? 0, max: ticks[count] ?? 0, step, ticks, decimals };
+}
+
+/**
+ * The size of a typical bar, by which the figures choose their unit: the middle of the bars that have something in
+ * them, by size (a bar below zero too), so a spike among them reads in the unit of the rest. Zero where none has.
+ */
+export function typical(values: ReadonlyArray<number | null>): number {
+  const sizes = values.flatMap((v) => (v ? [Math.abs(v)] : [])).sort((a, b) => a - b);
+  return sizes[Math.floor(sizes.length / 2)] ?? 0;
 }
 
 /**

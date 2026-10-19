@@ -3,11 +3,11 @@
  * The README's hero: the playground's `hero` sheet (tiles, a compact thermostat, the energy chart, the player) in
  * one row on the palette's own page colour, without the playground's frame boxes — the same picture in any
  * palette, light or dark.
- *   node hero.mjs --palette blaze --out ../../docs/images/hero-blaze.png     (expects the playground on :5183)
+ *   node hero.mjs --palette blaze --out ../../docs/images/hero-blaze.png     (the playground at $PLAYGROUND, else :5183)
  *   --mode dark  --width 420  --gap 32  --url http://127.0.0.1:5183/
  */
 import { chromium } from 'playwright';
-import { parseArgs, launchOptions } from './lib.mjs';
+import { parseArgs, launchOptions, PLAYGROUND } from './lib.mjs';
 
 const args = parseArgs(process.argv.slice(2), {
   palette: 'linen',
@@ -17,7 +17,7 @@ const args = parseArgs(process.argv.slice(2), {
   // another sheet as a wrapping grid of its frames, `columns` to a row: the README's card galleries
   sheet: 'hero',
   columns: '4',
-  url: 'http://127.0.0.1:5183/',
+  url: PLAYGROUND,
   out: '',
   at: '2026-09-17T21:47:12',
 });

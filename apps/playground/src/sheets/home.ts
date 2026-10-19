@@ -10,7 +10,10 @@ export const sheet: SheetSpec = {
         brightness: 178,
         supported_color_modes: ['color_temp'],
         color_mode: 'color_temp',
+        // a white's colour as Home Assistant reports it beside its temperature
         color_temp_kelvin: 3200,
+        hs_color: [27.5, 51.7],
+        rgb_color: [255, 184, 123],
         min_color_temp_kelvin: 2200,
         max_color_temp_kelvin: 6500,
       },

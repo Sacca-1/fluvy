@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { catalogue } from '../index.js';
 import type { Card } from './base.js';
 import { COMMON_ALIASES } from './config.js';
-import { itemLabels, type FluvyRowsEditor } from './rows-editor.js';
+import { editorDefaults, itemLabels, type FluvyRowsEditor } from './rows-editor.js';
 
 /**
  * The editors' contract (see `Card` in base.ts), held for every card of the catalogue: the editor is the base's,
@@ -71,7 +71,9 @@ describe('the editors’ contract', () => {
   it.each(cards)(
     '$tag: every switch and every choice shows what the card does when the config says nothing',
     ({ card }) => {
-      const defaults = card.defaults?.({ type: 'custom:x' }, undefined) ?? {};
+      const defaults =
+        editorDefaults(card.getConfigForm(), card.defaults)?.({ type: 'custom:x' }, undefined) ??
+        {};
       for (const field of fields(card.getConfigForm().schema)) {
         const selector = (field as { selector?: Record<string, { multiple?: boolean }> }).selector;
         const choice = selector?.['boolean'] !== undefined || selector?.['select'] !== undefined;
@@ -86,7 +88,9 @@ describe('the editors’ contract', () => {
     '$tag: a default is for a field the editor shows, never an older name',
     ({ card }) => {
       const shown = new Set(names(card.getConfigForm().schema));
-      const defaults = card.defaults?.({ type: 'custom:x' }, undefined) ?? {};
+      const defaults =
+        editorDefaults(card.getConfigForm(), card.defaults)?.({ type: 'custom:x' }, undefined) ??
+        {};
       for (const key of Object.keys(defaults)) expect(shown.has(key), key).toBe(true);
       // a conditional move (`forecast: none` → `show_forecast: false`) keeps its key: `forecast` is still a field
       for (const move of card.aliases?.keys ?? [])

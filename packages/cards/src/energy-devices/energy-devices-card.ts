@@ -40,6 +40,7 @@ import {
   iconField,
   nameIconFields,
   numberField,
+  showIconField,
   titleFields,
   toneField,
 } from '../shared/form.js';
@@ -171,6 +172,7 @@ export class FluvyEnergyDevicesCard extends Card<EnergyDevicesCardConfig> {
     'card_color',
     'tap_action',
     'hold_action',
+    'show_icon',
   ];
   static override keys = configKeys<EnergyDevicesCardConfig>()([
     'title',
@@ -210,7 +212,7 @@ export class FluvyEnergyDevicesCard extends Card<EnergyDevicesCardConfig> {
     return {
       schema: [
         titleFields(),
-        iconField(),
+        fieldRow(iconField(), showIconField()),
         ...colourFields(),
         entitiesField('entities', ['sensor']),
         entityField(['sensor'], 'total', false),
@@ -436,8 +438,8 @@ export class FluvyEnergyDevicesCard extends Card<EnergyDevicesCardConfig> {
         sub: fitted.sub,
         trailing: fitted.badge,
         name: Boolean(this.config?.title),
-        onIconTap: () => this.tap(),
-        onHold: () => this.hold(),
+        cut: fitted.cut,
+        ...this.headActions(),
       })}
       ${
         empty
@@ -456,9 +458,9 @@ export class FluvyEnergyDevicesCard extends Card<EnergyDevicesCardConfig> {
                 tree.rest !== null
                   ? this.renderRest(
                       tree.rest,
-                      s(this.hass, 'rest_of_house', {
-                        percent: percentOf(tree.rest, total) ?? 0,
-                      }),
+                      s(this.hass, 'rest_of_house', { percent: percentOf(tree.rest, total) ?? 0 })
+                        .split(' · ')
+                        .map((text, index) => ({ text, optional: index > 0 })),
                       0,
                       context,
                     )
@@ -478,6 +480,7 @@ export class FluvyEnergyDevicesCard extends Card<EnergyDevicesCardConfig> {
   ): TemplateResult {
     const row = node.item;
     const kids = node.children.length || node.rest !== null;
+    const rest = node.rest === null ? 0 : (percentOf(node.rest, row.value) ?? 0);
     return html`${this.renderDevice(row, parent, node.children.length, depth, c)}
     ${
       kids
@@ -487,12 +490,11 @@ export class FluvyEnergyDevicesCard extends Card<EnergyDevicesCardConfig> {
               node.rest !== null
                 ? this.renderRest(
                     node.rest,
-                    c.stack
-                      ? s(this.hass, 'share', { percent: percentOf(node.rest, row.value) ?? 0 })
-                      : s(this.hass, 'share_of', {
-                          percent: percentOf(node.rest, row.value) ?? 0,
-                          name: row.label,
-                        }),
+                    [
+                      c.stack
+                        ? { text: s(this.hass, 'share', { percent: rest }) }
+                        : this.shareOf(rest, row.label),
+                    ],
                     depth + 1,
                     c,
                   )
@@ -587,19 +589,21 @@ export class FluvyEnergyDevicesCard extends Card<EnergyDevicesCardConfig> {
     const share = parent
       ? percentOf(row.value, parent.value)
       : percentOf(row.value, c.total ?? c.tree.sum);
-    // stacked (half a column) the figure leads the line and every row says its share alike: "5.1 kWh · 38 %"
+    // stacked (half a column) the figure leads the line and every row says its share alike: "5.1 kWh · 38 %"; a share
+    // of a parent is the share alone where the parent's name would leave the figure cut (tr "Kitchen içinde %43")
     if (share !== null)
-      segments.push({
-        text: c.stack
-          ? s(this.hass, 'share', { percent: share })
+      segments.push(
+        c.stack || (devices && !parent)
+          ? { text: s(this.hass, 'share', { percent: share }) }
           : parent
-            ? s(this.hass, 'share_of', { percent: share, name: parent.label })
-            : devices
-              ? s(this.hass, 'share', { percent: share })
-              : c.total !== null
-                ? flow(this.hass, 'share_of_house', { percent: share })
-                : s(this.hass, 'share_of_total', { percent: share }),
-      });
+            ? this.shareOf(share, parent.label)
+            : {
+                text:
+                  c.total !== null
+                    ? flow(this.hass, 'share_of_house', { percent: share })
+                    : s(this.hass, 'share_of_total', { percent: share }),
+              },
+      );
     if (devices)
       segments.push({
         text:
@@ -617,13 +621,26 @@ export class FluvyEnergyDevicesCard extends Card<EnergyDevicesCardConfig> {
     return segments;
   }
 
+  /** "43 % of Kitchen", the share alone where the line cannot hold the parent's name with it. */
+  private shareOf(percent: number, name: string): Segment {
+    return {
+      text: s(this.hass, 'share_of', { percent, name }),
+      short: s(this.hass, 'share', { percent }),
+    };
+  }
+
   /** What is not measured: a parent's rest among its devices, or the house's after every device. */
-  private renderRest(value: number, sub: string, depth: number, c: Context): TemplateResult {
+  private renderRest(
+    value: number,
+    segments: readonly Segment[],
+    depth: number,
+    c: Context,
+  ): TemplateResult {
     return this.bar(c, depth, {
       icon: 'dots',
       tone: 'neutral',
       title: s(this.hass, 'not_measured'),
-      segments: sub.split(' · ').map((text, index) => ({ text, optional: index > 0 })),
+      segments,
       value: c.figure(value),
       fraction: barOf(value, c.tree.scale),
       barTone: 'ink',

@@ -55,11 +55,14 @@ const SECTIONS: ReadonlyArray<readonly [title: string, tags: readonly string[]]>
       'fluvy-alarm-card',
       'fluvy-camera-card',
       'fluvy-printer-card',
+      'fluvy-appliance-card',
+      'fluvy-appliances-card',
       'fluvy-weather-card',
       'fluvy-sensor-card',
       'fluvy-readouts-card',
       'fluvy-people-card',
       'fluvy-openings-card',
+      'fluvy-alerts-card',
     ],
   ],
   ['Rooms and the map', ['fluvy-room-card', 'fluvy-map-card']],
@@ -102,8 +105,9 @@ const SECTIONS: ReadonlyArray<readonly [title: string, tags: readonly string[]]>
   ['Time', ['fluvy-clock-card', 'fluvy-calendar-card']],
 ];
 
+/** Every field of a form, through its rows and its folded groups. */
 const flatten = (schema: Schema): { name: string; selector?: Record<string, unknown> }[] =>
-  schema.flatMap((item) => (item.type === 'grid' && item.schema ? flatten(item.schema) : [item]));
+  schema.flatMap((item) => (item.schema ? flatten(item.schema) : [item]));
 
 /** A field as the table names it: the key, with a select's values after it. */
 function option(field: { name: string; selector?: Record<string, unknown> }): string {

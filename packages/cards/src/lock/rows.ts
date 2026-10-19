@@ -130,6 +130,19 @@ export function changedLine(hass: HomeAssistant | undefined, view: EntityView): 
   return changed.recent ? s(hass, 'since', { time }) : time;
 }
 
+/**
+ * That line's shorter forms, longest first, for a head too narrow for it: the time alone ("32 days ago" — who did it
+ * goes first), then its short form ("32 d ago"). Never a time cut.
+ */
+export function changedShort(hass: HomeAssistant | undefined, view: EntityView): string[] {
+  const changed = lastChanged(view);
+  if (view.status !== 'ok' || !changed) return [];
+  return [
+    changedAt(hass, view),
+    ...(changed.recent ? [] : [relativeTime(hass, changed.date, new Date(), true)]),
+  ];
+}
+
 /** A row as the list plans it: what it shows, and the width of what ends it. */
 interface RowPlan {
   readonly row: RowConfig;

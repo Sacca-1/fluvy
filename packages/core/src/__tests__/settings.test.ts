@@ -58,6 +58,9 @@ describe('parsing stored settings', () => {
         history: false,
         tabs: { style: 'pills', content: 'icons', title: false },
         chrome: { logo: true, dividers: false, header: 'page', actions: 'menu' },
+        lightTint: 'always',
+        lightColors: true,
+        statuses: { warning: '#DC630B', danger: 'red' },
         extra: true,
       }),
     ).toEqual({
@@ -75,7 +78,39 @@ describe('parsing stored settings', () => {
       history: false,
       palettes: [],
       wall: WALL_DEFAULTS,
+      lightTint: 'always',
+      lightColors: true,
+      statuses: { warning: '#dc630b' },
     });
+  });
+
+  it('reads the house’s status colours, each broken one as the palette’s (1.9: nothing changes on upgrade)', () => {
+    expect(parseHouse({}).statuses).toEqual({});
+    expect(HOUSE_DEFAULTS.statuses).toEqual({});
+    expect(
+      parseHouse({
+        statuses: { notice: '#1C7ED6', success: 'green', warning: '#dc630b', info: '#000000' },
+      }).statuses,
+    ).toEqual({ warning: '#dc630b', notice: '#1c7ed6' });
+    for (const broken of ['orange', 7, null, ['#dc630b']])
+      expect(parseHouse({ statuses: broken }).statuses).toEqual({});
+    // the house's, over a person's own palette too
+    const own = parsePersonal({ palette: 'volt' });
+    expect(resolveSettings(parseHouse({ statuses: { warning: '#dc630b' } }), own).statuses).toEqual(
+      {
+        warning: '#dc630b',
+      },
+    );
+  });
+
+  it('reads the lights’ defaults, each broken one as off (1.9: nothing changes on upgrade)', () => {
+    expect(parseHouse({}).lightTint).toBe('off');
+    expect(parseHouse({}).lightColors).toBe(false);
+    const broken = parseHouse({ lightTint: 'bright', lightColors: 'yes' });
+    expect([broken.lightTint, broken.lightColors]).toEqual(['off', false]);
+    expect(resolveSettings(parseHouse({ lightTint: 'on' }), PERSONAL_DEFAULTS).lightTint).toBe(
+      'on',
+    );
   });
 
   it('reads the wall settings field by field, each broken one as its default', () => {

@@ -2,7 +2,7 @@ import { strings, type HomeAssistant } from '@fluvy/core';
 import { baseStyles } from '@fluvy/ui';
 import { css, html, LitElement } from 'lit';
 
-const s = strings('panel');
+const s = strings('wall');
 
 /*
  * The wall's notice, a small bar at the foot of the page with the way back: "Wall paused · Resume" while the wall
@@ -10,8 +10,8 @@ const s = strings('panel');
  * "Wall mode off · Back to the wall" for a moment after the device left it.
  */
 const WORDS = {
-  paused: ['wall.paused', 'wall.resume'],
-  left: ['wall.left', 'wall.return'],
+  paused: ['paused', 'resume'],
+  left: ['left', 'return'],
 } as const;
 
 export class FluvyWallToast extends LitElement {

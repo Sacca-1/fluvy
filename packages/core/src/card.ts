@@ -11,16 +11,19 @@ import type {
   LovelaceGridOptions,
 } from './ha/types.js';
 import { languageOverride, localize, onWords, type MessageKey } from './i18n/index.js';
+import { idsOf, type EntityEntry } from './lists.js';
 import { AccentSheet } from './look/accent.js';
+import type { LightTint } from './settings/schema.js';
 
 /**
  * What every card's config may carry. `tone` is the role a card's parts are drawn in (a palette tone); `color` is
  * the card's own colour — a Home Assistant colour name or `#rrggbb` — standing in for the palette's accent inside
- * it. `tap_action` answers the icon circle, `hold_action` a still press on the head; both default to more-info.
+ * it. `tap_action` answers the head (the card's button), `hold_action` a still press on it; both default to more-info.
  */
 export interface FluvyCardConfig extends LovelaceCardConfig {
   entity?: string;
-  entities?: readonly string[];
+  /** Ids, or objects naming one (auto-entities hands its matches over so); read through `idsOf` / `entriesOf`. */
+  entities?: readonly EntityEntry[];
   name?: string;
   icon?: string;
   tone?: Tone;
@@ -72,9 +75,50 @@ export function refreshCards(): void {
 // a language's words arriving are a preference change too: every card says them at once
 onWords(refreshCards);
 
+/**
+ * What the house says of lights where a card says nothing (fluvy's settings → Look, 1.9): a light card's `tint`, and
+ * `light_colors` on tiles, rows and rooms — keys new in 1.9 only, so a card of 1.8 draws as it did.
+ */
+export interface HouseLights {
+  readonly tint: LightTint;
+  readonly colors: boolean;
+}
+let houseLights: HouseLights = { tint: 'off', colors: false };
+
+/** The house's defaults for lights, as the settings last said (a card's own key wins). */
+export const lightDefaults = (): HouseLights => houseLights;
+
+/** The house's defaults for lights changed (saved, or previewed in the panel): every card draws again with them. */
+export function setLightDefaults(next: HouseLights): void {
+  if (next.tint === houseLights.tint && next.colors === houseLights.colors) return;
+  houseLights = { tint: next.tint, colors: next.colors };
+  for (const card of live) card.requestUpdate();
+}
+
 /** Every card on the page looks again for the theme: the look arrived, moved or left. */
 export function resyncCardThemes(): void {
   for (const card of live) card.syncTheme();
+}
+
+/** What Home Assistant's card wrapper listens for: a card that hid or showed itself is laid out again. */
+export const VISIBILITY_EVENT = 'card-visibility-changed';
+
+/**
+ * A card that hides itself (a list asked to hide while empty, alerts while all is clear), as Home Assistant's own
+ * updates and repairs cards do: the `hidden` attribute (the wrapper reads it, and `:host([hidden])` takes the card out
+ * of a stack's or any other wrapper's flow), said with `card-visibility-changed` whichever way it goes and only when
+ * it changes. The card stays connected while hidden (`connectedWhileHidden`), so it keeps reading the house and can
+ * show itself again. In the editor's preview it is never hidden: a card nobody can see cannot be edited. Called from
+ * the card's update, it follows the preview as it comes and goes.
+ */
+export function selfHide(card: FluvyCard, hidden: boolean): void {
+  card.connectedWhileHidden = true;
+  const hide = hidden && !card.preview;
+  if (card.hidden === hide) return;
+  card.hidden = hide;
+  card.dispatchEvent(
+    new CustomEvent(VISIBILITY_EVENT, { detail: { value: !hide }, bubbles: true, composed: true }),
+  );
 }
 
 /** Cards that connect within the same beat enter in sequence (30 ms apart, capped) instead of all at once. */
@@ -105,15 +149,19 @@ export abstract class FluvyCard<C extends FluvyCardConfig = FluvyCardConfig>
   /** Cards that are the dashboard's chrome (greeting, tabs, the readouts strip) draw at once, without the entrance, so they read as fixed while the views below them change. */
   static still = false;
 
-  /** The card's height at a 360 column for this config, for whoever lays cards out before they are drawn. */
-  static layoutHeight?(config: LovelaceCardConfig): number;
+  /**
+   * The card's height at a 360 column for this config, for whoever lays cards out before they are drawn: with the
+   * house, what the entity's capabilities draw; without it, the config's say and the documented default.
+   */
+  static layoutHeight?(config: LovelaceCardConfig, hass?: HomeAssistant): number;
 
   static override properties = {
     hass: { attribute: false, noAccessor: true },
     config: { state: true },
     width: { state: true },
-    dark: { type: Boolean, reflect: true },
-    noTheme: { type: Boolean, reflect: true, attribute: 'no-theme' },
+    // on the host as attributes, but written by `syncTheme` itself (`wear`), never by Lit's later reflection
+    dark: { attribute: false },
+    noTheme: { attribute: false },
     preview: { type: Boolean },
     layout: { type: String, reflect: true },
   };
@@ -138,6 +186,8 @@ export abstract class FluvyCard<C extends FluvyCardConfig = FluvyCardConfig>
   declare noTheme: boolean;
   declare preview: boolean;
   declare layout?: string;
+  /** Kept in the page while it hides itself (Home Assistant's wrapper reads it): `selfHide` sets it. */
+  declare connectedWhileHidden?: boolean;
 
   private resizeObserver: ResizeObserver | undefined;
   /** The card's own colour and its items', derived on the palette the card wears. */
@@ -203,7 +253,7 @@ export abstract class FluvyCard<C extends FluvyCardConfig = FluvyCardConfig>
   protected watched(): readonly string[] {
     const ids: string[] = [];
     if (this.config?.entity) ids.push(this.config.entity);
-    if (this.config?.entities) ids.push(...this.config.entities);
+    ids.push(...idsOf(this.config?.entities));
     return ids;
   }
 
@@ -251,17 +301,27 @@ export abstract class FluvyCard<C extends FluvyCardConfig = FluvyCardConfig>
    * does) and which palette it wears (its own colours are derived on it).
    */
   syncTheme(): void {
-    this.dark = darkOverride ?? this.hass?.themes?.darkMode ?? false;
+    const dark = darkOverride ?? this.hass?.themes?.darkMode ?? false;
     const computed = getComputedStyle(this);
     // The theme carries a sentinel the fallback never defines, so this cannot feed back on itself.
-    this.noTheme = computed.getPropertyValue(THEME_SENTINEL).trim() === '';
+    this.wear(computed.getPropertyValue(THEME_SENTINEL).trim() === '', dark);
+    // `computed` is live: with the fallback's attributes on the host, the palette read is the one this card is
+    // drawn in from its first frame (#40) — never the default's until it is attached again
     if (
-      this.accents.wears(
-        computed.getPropertyValue(PALETTE_TOKEN).trim(),
-        this.dark ? 'dark' : 'light',
-      )
+      this.accents.wears(computed.getPropertyValue(PALETTE_TOKEN).trim(), dark ? 'dark' : 'light')
     )
       this.requestUpdate();
+  }
+
+  /**
+   * `no-theme` and `dark` pick the token fallback (`:host([no-theme])`, `[dark]`): written at once, not at the next
+   * update as a reflected property would be, so the tokens read after them are those the card is drawn in.
+   */
+  private wear(noTheme: boolean, dark: boolean): void {
+    this.noTheme = noTheme;
+    this.dark = dark;
+    this.toggleAttribute('no-theme', noTheme);
+    this.toggleAttribute('dark', dark);
   }
 
   /** The card's colour and its items' are written once the render has asked for them. */

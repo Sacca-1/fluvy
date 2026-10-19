@@ -68,10 +68,15 @@ export function balanceOf(flows: readonly Flow[]): Balance {
 
   // a legend lists what flows (or cannot be read: an unreadable source says so); when nothing comes in, every source
   const shown = (i: Item): boolean => i.value === null || i.value > 0;
-  const coming = incoming.filter(shown);
+  const listed = incoming.filter(shown);
+  const coming = listed.length ? listed : incoming;
+  // a two-way source that cannot be read at all is listed once, among what comes in: its way is not known, and two
+  // "—" for it would grow the card by a row while it is away (the owner's rule, 1.9)
+  const twice = (i: Item): boolean =>
+    i.value === null && coming.some((c) => c.kind === i.kind && c.value === null);
   return {
-    coming: coming.length ? coming : incoming,
-    going: [{ kind: 'house', value: house }, ...outgoing.filter(shown)],
+    coming,
+    going: [{ kind: 'house', value: house }, ...outgoing.filter((i) => shown(i) && !twice(i))],
     inTotal,
     outTotal,
     house,

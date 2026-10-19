@@ -80,7 +80,23 @@ const NEVER_INITIAL = [
   'fluvy-keypad',
   'fluvy-rows-editor',
   'fluvy-schedule-sheet',
+  'fluvy-alerts-sheet',
 ];
+// a family's English travels with its chunk (`core/src/i18n/locales/en/<part>.json`, registered as the chunk lands):
+// one of its words in what every dashboard loads means core kept the part (its family's group in `groups.mjs` no
+// longer names it). Each part is watched by its longest plain phrase that core's own English never says
+const english = join(root, '..', 'core', 'src', 'i18n', 'locales', 'en');
+const coreWords = await readFile(join(english, 'core.json'), 'utf8');
+const parts = (await readdir(english)).filter((f) => f.endsWith('.json') && f !== 'core.json');
+const SENTINELS = [];
+for (const part of parts) {
+  const tables = JSON.parse(await readFile(join(english, part), 'utf8'));
+  const [sentinel] = Object.values(tables)
+    .flatMap((table) => Object.values(table))
+    .filter((text) => /^[\w ,.]+$/.test(text) && !coreWords.includes(text))
+    .sort((a, b) => b.length - a.length);
+  if (sentinel) SENTINELS.push([part, sentinel]);
+}
 for (const name of initial) {
   const code = await readFile(join(dist, name), 'utf8');
   const leaked = NEVER_INITIAL.find(
@@ -92,9 +108,18 @@ for (const name of initial) {
     );
     process.exit(1);
   }
+  const words = SENTINELS.find(([, sentinel]) => code.includes(sentinel));
+  if (words) {
+    console.error(
+      `${name} carries "${words[1]}" (locales/en/${words[0]}): a family's English leaked into what every dashboard loads`,
+    );
+    process.exit(1);
+  }
 }
-// 224 KB since 1.8 (the automations family's announcement and words, the light's own colours): 222 KB in 1.7, 220 before
-const BUDGET = 224 * 1024;
+// 236 KB since 1.9 (the head as the card's button, the grey ladder, the value row, empty lists, the room's contents,
+// the appliances' announcement and icons, heights read from the house, the judges' fixes; the lazy families' English
+// left core first, about 9 KB): 224 KB in 1.8, 222 KB in 1.7, 220 before
+const BUDGET = 236 * 1024;
 const kb = (n) => `${(n / 1024).toFixed(1)} KB`;
 console.log(
   `Fluvy v${version} · build ${build} · every page ${kb(gzip(initial))} gzip (budget ${BUDGET / 1024} KB: ${[...initial].join(' + ')})`,

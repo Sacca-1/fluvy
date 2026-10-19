@@ -7,7 +7,8 @@
   ); /* 4 px of the surface outside the knob ring, so any tick is cut cleanly */
 }
 
-.fv-tile.is-on {
+.fv-tile.is-on,
+.fv-card.is-lit {
   --knob-halo: var(--tone-fill);
 }
 
@@ -93,6 +94,15 @@
 }
 [data-mode='dark'] .fv-ruler .tint-b {
   stop-color: var(--fluvy-tint-cool, #7f96ad);
+}
+
+/* on a lit fill (a light card lit as a tile) the warm and the cool ends take half the fill's ink, so they stand off
+   a fill of their own colour */
+:host([on-fill]) .fv-ruler .tint-a {
+  stop-color: color-mix(in oklab, var(--fluvy-tint-warm, #d1a24c) 50%, var(--tone-on));
+}
+:host([on-fill]) .fv-ruler .tint-b {
+  stop-color: color-mix(in oklab, var(--fluvy-tint-cool, #a9bdd0) 50%, var(--tone-on));
 }
 
 .fv-ruler .tk-tint {
@@ -381,7 +391,7 @@
   width: 96px;
   height: 44px;
   border-radius: 22px;
-  background: var(--fluvy-page);
+  background: var(--fluvy-inset, var(--fluvy-page));
   box-shadow: inset 0 0 0 1px var(--fluvy-border);
   overflow: hidden;
 }
@@ -427,7 +437,7 @@
   align-items: flex-start;
   padding: 12px 12px 8px;
   border-radius: var(--fluvy-radius-control);
-  background: var(--fluvy-page);
+  background: var(--fluvy-inset, var(--fluvy-page));
   text-align: left;
 }
 
@@ -470,6 +480,14 @@
   text-wrap: balance;
 }
 
+/* a value that describes (the workday sensor, a list of days) rather than measures: the label's ink at 13/500 on the
+   value's 20 line, so a word never reads as a figure and the tile keeps its height */
+.fv-option__value--word {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fluvy-text-secondary);
+}
+
 /* the compact option tile: 64 tall (12 · label 16 · 4 · value 20 · 12), the label over the value and no glyph row —
    a figure read at a glance (a stat tile's compact variant) */
 .fv-option--compact {
@@ -500,11 +518,13 @@
 }
 
 .fv-option.is-active .fv-option__glyph,
-.fv-option.is-active .fv-option__label {
+.fv-option.is-active .fv-option__label,
+.fv-option.is-active .fv-option__value--word {
   color: var(--tone-on);
 }
 
-.fv-option.is-active .fv-option__label {
+.fv-option.is-active .fv-option__label,
+.fv-option.is-active .fv-option__value--word {
   opacity: 0.8;
 }
 
@@ -553,7 +573,7 @@
   height: 36px;
   white-space: nowrap;
   border-radius: var(--fluvy-radius-pill, 9999px);
-  background: var(--fluvy-page);
+  background: var(--fluvy-inset, var(--fluvy-page));
   font-size: 13px;
   font-weight: 600;
   color: var(--fluvy-text-secondary);

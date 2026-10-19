@@ -23,21 +23,41 @@ const release = args.includes('--release') || args.includes('--tag');
 /** Each chunk's gzip budget in bytes (`core` is what every page loads; the rest come on demand). */
 const BUDGETS = {
   'fluvy.js': 2048,
-  // 224 KB since 1.8 (the automations family's announcement and words, the light's own colours): 222 in 1.7, 220 before
-  core: 229_376,
+  // 236 KB since 1.9 (the head as the card's button, the grey ladder, the value row, empty lists, the room's contents,
+  // the appliances' announcement and icons, heights read from the house, the judges' fixes; the lazy families'
+  // English left core first, about 9 KB): 224 in 1.8, 222 in 1.7, 220 before
+  core: 241_664,
+  // the settings panel and its English
   panel: 40_960,
   strategy: 24_576,
   wall: 16_384,
-  // the energy family: every energy card, the flow's drawing and motion, the model they share
-  energy: 65_536,
+  // the energy family: every energy card, the flow's drawing and motion, the model they share. 76 KB since 1.9 (the
+  // family's English, the history bars' live day and resets, the power chart's axes): 64 before
+  energy: 77_824,
+  // the history bars' readings: the resets and the steps, the recorder's history, fetched by the first card needing them
+  'history-bars-readings': 8192,
   // the media family: the player and the now-playing strip
   media: 16_384,
-  // the devices family: the lock, the alarm and its keypad, the camera, the printer
+  // the devices family: the lock, the alarm and its keypad, the camera, the printer, the job's times
   devices: 32_768,
-  // the automations family: the card, the schedule model and its store
-  automations: 16_384,
+  // the appliances family: the washer, the dryer, the dishwasher and their kin, plug mode, their English. 53 KB since
+  // 2026-10-19 (the #47 judge's fixes: rows that never repeat the hero, the head's picture chosen by the whole name, a
+  // fridge on a plug that never finishes and asks before it is switched off, the compact line's shorter forms); 51
+  // since the reporter's LG house (#47: LG's older integration read by its device sensor's attributes, both LG
+  // integrations known by their signatures, LG's states and cycles worded in eight languages); 48 before
+  appliances: 54_272,
+  // the appliances' pictures: one product drawing a kind, fetched by the first card that draws one
+  'appliance-art': 32_768,
+  // the automations family: the card, the schedule model and its store. 20 KB since 1.9 (the family's English, the
+  // targets of a schedule): 16 before
+  automations: 20_480,
   // the schedule sheet: targets, verbs, days, moments and the name, fetched when one is opened
   'automations-sheet': 16_384,
+  // the alerts family: the card (five variants and its editor), what it watches (the matcher, the engine, the memory,
+  // the repairs) and its English. 24 KB, measured at 19.6 KB with the card (planned at 16 before it was built)
+  alerts: 24_576,
+  // the alerts' sheet: fetched when it is opened
+  'alerts-sheet': 12_288,
   // the light card's colour controls: the quick colours' table and row, fetched by the first colour bulb
   'light-colour': 4096,
   // the weather card
@@ -47,8 +67,8 @@ const BUDGETS = {
   pages: 8192,
   activity: 32_768,
   history: 16_384,
-  // 20 KB since 1.8 (the automations' words, the light's own colours): 16 before
-  lang: 20_480,
+  // 24 KB since 1.9 (the appliances' and the alerts' words): 20 in 1.8, 16 before
+  lang: 24_576,
   'rolldown-runtime': 2048,
   'loader.js': 4096,
 };

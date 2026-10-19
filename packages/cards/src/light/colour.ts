@@ -1,5 +1,5 @@
 import type { EntityView, MessageKey } from '@fluvy/core';
-import { icon, label, rulerLabels, type RulerChangeDetail } from '@fluvy/ui';
+import { icon, label, rulerLabels, textWidth, type RulerChangeDetail } from '@fluvy/ui';
 import { css, html, nothing, type TemplateResult } from 'lit';
 import { COLOURED, hexOf } from '../shared/light.js';
 import {
@@ -119,6 +119,19 @@ export function kelvinRgb(kelvin: number): Rgb {
   return [clamp255(r), clamp255(g), clamp255(b)];
 }
 
+/** The white the others are shown beside: a neutral 4000 K (the middle of a bulb's range) reads as white. */
+const NEUTRAL = kelvinRgb(4000);
+
+/**
+ * A white's round as the eye reads it beside the other (#41): its colour relative to a neutral 4000 K, so the cool
+ * one reads as a cool white and the warm one as a warm one — a black body's own 5000 K is a peach cream on a screen.
+ */
+export function whiteHex(kelvin: number): string {
+  const rgb = kelvinRgb(kelvin).map((c, i) => c / (NEUTRAL[i] || 1));
+  const top = Math.max(...rgb);
+  return hexOf(rgb.map((c) => (c / top) * 255));
+}
+
 /** A hue (0–360) and a saturation (0–100) at full value as `[r, g, b]`: what the ruler sends is what the bulb glows. */
 export function hsToRgb(hue: number, saturation: number): Rgb {
   const c = saturation / 100;
@@ -158,7 +171,7 @@ export function resolveSwatch(entry: SwatchEntry, minK: number, maxK: number): S
   if (text === 'picker') return { kind: 'picker', hex: '' };
   if (text === 'warm' || text === 'cool') {
     const kelvin = Math.max(minK, Math.min(maxK, text === 'warm' ? 2700 : 5000));
-    return { kind: 'white', word: text, kelvin, hex: hexOf(kelvinRgb(kelvin)) };
+    return { kind: 'white', word: text, kelvin, hex: whiteHex(kelvin) };
   }
   const known = Object.hasOwn(BULB_COLORS, text);
   const rgb = rgbOf(known ? (BULB_COLORS[text] ?? '') : text);
@@ -258,7 +271,41 @@ export interface ColourOptions {
   readonly temperature: (() => TemplateResult) | undefined;
   /** The finger's choice: the card holds it and sends `data` with `light.turn_on`. */
   readonly pick: (choice: HeldColour, data: Record<string, unknown>) => void;
+  /** The light cannot be read: every control in its place, still. */
+  readonly disabled?: boolean;
+  /** The card is lit as a lit tile (`tint_strength: full`): the hue ruler on its fill. */
+  readonly onFill?: boolean;
+  /** The quick colours alone, one row of as many as the column holds (a colour bulb's compact layout by width). */
+  readonly row?: boolean;
+  /** The card: its face lays the ruler's words out. */
+  readonly host: Element;
 }
+
+/**
+ * The hue ruler's words by value — red, green and blue where it holds them (0°, 120°, 240°) — as many as its column
+ * keeps 8 apart: green gives way first (a narrow column in Portuguese), then the others (the row stays, empty).
+ */
+function hueWords(o: ColourOptions): [number, string][] {
+  const [red, green, blue] = [o.t('option.red'), o.t('option.green'), o.t('option.blue')];
+  const font = `500 11px ${getComputedStyle(o.host).fontFamily}`;
+  const [r, g, b] = [textWidth(red, font), textWidth(green, font), textWidth(blue, font)];
+  const third = o.width / 3;
+  if (r + g / 2 + 8 <= third && (g + b) / 2 + 8 <= third)
+    return [
+      [0, red],
+      [1 / 3, green],
+      [2 / 3, blue],
+    ];
+  return r + b / 2 + 8 <= 2 * third
+    ? [
+        [0, red],
+        [2 / 3, blue],
+      ]
+    : [];
+}
+
+/** A quick colour's round and the gap after it. */
+const SWATCH = 44 + 8;
 
 /**
  * The colour bulb's controls: one ruler slot — the hue ruler while the bulb is in a colour (or has no temperature
@@ -275,7 +322,16 @@ export function colourControls(o: ColourOptions): TemplateResult {
   const range = o.maxK - o.minK;
   const modes = o.view.attr<string[]>('supported_color_modes') ?? [];
   const entries = o.colors ?? defaultSwatches(modes);
-  const swatches = entries.flatMap((entry) => resolveSwatch(entry, o.minK, o.maxK) ?? []);
+  const all = entries.flatMap((entry) => resolveSwatch(entry, o.minK, o.maxK) ?? []);
+  // one row: as many as fit, the picker kept last where the list has one
+  const fit = Math.max(1, Math.floor((o.width + 8) / SWATCH));
+  const picker = all.find((swatch) => swatch.kind === 'picker');
+  const swatches =
+    !o.row || all.length <= fit
+      ? all
+      : picker
+        ? [...all.filter((swatch) => swatch !== picker).slice(0, fit - 1), picker]
+        : all.slice(0, fit);
   const active = activeSwatch(swatches, shown, range);
   const word = (swatch: Swatch): string => swatchWord(swatch, o.t);
   const pickSwatch = (swatch: Swatch): void => {
@@ -310,6 +366,8 @@ export function colourControls(o: ColourOptions): TemplateResult {
             .minor=${1 / 12}
             .major=${0.25}
             ?inactive=${!o.on}
+            ?disabled=${o.disabled}
+            ?on-fill=${o.onFill}
             tint="hue"
             .label=${`${o.name} · ${o.t('editor.color')}`}
             .format=${(v: number) => `${o.format(v)}°`}
@@ -318,11 +376,11 @@ export function colourControls(o: ColourOptions): TemplateResult {
               o.pick({ rgb: hsToRgb(h, saturation), hue: h }, { hs_color: [h, saturation] });
             }}
           ></fluvy-ruler>
-          ${rulerLabels([])}`
+          ${rulerLabels(hueWords(o))}`
       : o.temperature();
   // a list of none (`colors: []`) draws no row at all, not an empty one with its 16 above
-  if (!swatches.length) return html`${slot}`;
-  return html`${slot}
+  if (!swatches.length) return o.row ? html`` : html`${slot}`;
+  return html`${o.row ? nothing : slot}
     <div class="lc-swatches">
       ${swatches.map((swatch, i) => {
         const current = i === active;
@@ -342,6 +400,7 @@ export function colourControls(o: ColourOptions): TemplateResult {
               class="lc-swatch__input"
               type="color"
               data-measure="skip"
+              ?disabled=${o.disabled}
               .value=${hex}
               aria-label=${word(swatch)}
               @input=${picked}
@@ -356,6 +415,7 @@ export function colourControls(o: ColourOptions): TemplateResult {
           title=${word(swatch)}
           aria-label=${word(swatch)}
           aria-pressed=${current ? 'true' : 'false'}
+          ?disabled=${o.disabled}
           @click=${() => pickSwatch(swatch)}
         >
           ${current ? icon('check') : nothing}
@@ -376,6 +436,19 @@ export const styles = css`
     flex-wrap: wrap;
     gap: 8px;
     margin-top: 16px;
+  }
+  /* on a lit card a round's edge is the surface's own ink over it, whatever the round's colour: a round as pale as
+     the fill, or of the fill's own colour, still stands off it */
+  .is-lit .lc-swatch {
+    border-color: color-mix(in srgb, var(--tone-on) 40%, var(--tone-fill));
+  }
+  .is-glow .lc-swatch {
+    border-color: color-mix(in srgb, var(--fluvy-text) 40%, var(--fluvy-card));
+  }
+  /* the picker of a light that cannot be read: in its place, faded, no tap, as a disabled round is */
+  .lc-swatch--picker:has(.lc-swatch__input:disabled) {
+    opacity: 0.4;
+    pointer-events: none;
   }
   .lc-swatch {
     display: inline-flex;

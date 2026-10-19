@@ -1,8 +1,11 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import type { HomeAssistant } from '@fluvy/core';
-import '../index.js';
+import { familiesDefined } from '../index.js';
 import { PreviewHouse } from './preview.js';
+
+// the index fetches the lazy families: they land before this file's page goes
+afterAll(() => familiesDefined);
 
 const NAMES = {
   living: 'Living room',

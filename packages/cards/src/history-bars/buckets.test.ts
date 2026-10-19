@@ -2,13 +2,24 @@ import { wallClock, type HomeAssistant } from '@fluvy/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  additive,
+  barsKey,
   bucketSpans,
   bucketStarts,
   bucketsOf,
   clearBarsCache,
   defaultStat,
   fetchBars,
-  unitsFor,
+  kindOf,
+  meterCycle,
+  questionFor,
+  type BarsRequest,
+  type Period,
+  type Plan,
+  type Reset,
+  type SensorKind,
+  type Source,
+  type Stat,
 } from './buckets.js';
 
 /** A house in Madrid whose profile reads the server's clock: the maths runs there whatever zone the runner is in. */
@@ -134,19 +145,109 @@ describe('rows filed into their buckets', () => {
   });
 });
 
-describe('the statistic a sensor calls for, and the unit asked of the recorder', () => {
-  it('is the change of a meter, the mean of a measurement', () => {
+describe('rows before the sensor was there', () => {
+  const spans = [
+    { start: 0, end: 100 },
+    { start: 100, end: 200 },
+    { start: 200, end: 300 },
+  ];
+
+  it('a bucket before the first row is null; one after it with no row gained nothing', () => {
+    const rows = [
+      { start: 110, change: 17 },
+      { start: 290, change: 51.2 },
+    ];
+    expect(bucketsOf(rows, spans, 'change').map((b) => b.value)).toEqual([null, 17, 51.2]);
+    expect(bucketsOf([{ start: 110, change: 17 }], spans, 'change').map((b) => b.value)).toEqual([
+      null,
+      17,
+      0,
+    ]);
+  });
+});
+
+describe('the statistic a sensor calls for, and how it is read', () => {
+  it('is the change of a meter, the mean of a measurement, the reading of a sensor with no state class', () => {
     expect(defaultStat('total_increasing')).toBe('change');
     expect(defaultStat('total')).toBe('change');
     expect(defaultStat('measurement')).toBe('mean');
-    expect(defaultStat(undefined)).toBe('change');
+    // 1.9: a sensor with no state class has no statistics: its bars are its readings, from the history
+    expect(defaultStat(undefined)).toBe('state');
+    expect(kindOf('total')).toBe('counter');
+    expect(kindOf('measurement')).toBe('measurement');
+    expect(kindOf(undefined)).toBe('none');
   });
 
-  it('converts energy and power, nothing else', () => {
-    expect(unitsFor('kWh')).toEqual({ energy: 'kWh' });
-    expect(unitsFor('W')).toEqual({ power: 'W' });
-    expect(unitsFor('°C')).toBeUndefined();
-    expect(unitsFor('')).toBeUndefined();
+  it('asks Home Assistant’s rows where they answer, a counter’s readings or the history where they do not', () => {
+    const table: Array<[SensorKind, Stat, Reset, Period, Source, Plan]> = [
+      // a meter's change as HA counts it, a measurement's mean, highest and lowest: its own rows, as in 1.8
+      ['counter', 'change', 'auto', 'day', 'auto', { from: 'rows', stat: 'change' }],
+      ['measurement', 'mean', 'auto', 'day', 'auto', { from: 'rows', stat: 'mean' }],
+      ['measurement', 'max', 'auto', 'week', 'auto', { from: 'rows', stat: 'max' }],
+      // a day counter's days by the hour; its weeks and months by the day, each day read at its close
+      ['counter', 'change', 'day', 'day', 'auto', { from: 'readings', step: 'hour' }],
+      ['counter', 'change', 'day', 'week', 'auto', { from: 'readings', step: 'day' }],
+      ['counter', 'change', 'day', 'month', 'auto', { from: 'readings', step: 'day' }],
+      // a monthly counter by the day, its months by the month
+      ['counter', 'change', 'month', 'day', 'auto', { from: 'readings', step: 'day' }],
+      ['counter', 'change', 'month', 'month', 'auto', { from: 'readings', step: 'month' }],
+      ['counter', 'change', 'week', 'week', 'auto', { from: 'readings', step: 'week' }],
+      ['counter', 'change', 'year', 'month', 'auto', { from: 'readings', step: 'month' }],
+      // a lifetime meter, and a reading at the end, by the bars' own period
+      ['counter', 'change', 'never', 'week', 'auto', { from: 'readings', step: 'week' }],
+      ['counter', 'state', 'auto', 'month', 'auto', { from: 'readings', step: 'month' }],
+      // a counter's extremes by the hour for days, by the day otherwise
+      ['counter', 'max', 'auto', 'day', 'auto', { from: 'readings', step: 'hour' }],
+      ['counter', 'mean', 'auto', 'week', 'auto', { from: 'readings', step: 'day' }],
+      // the history: a measurement's change or reading, a sensor with no state class, or when asked
+      ['measurement', 'state', 'auto', 'day', 'auto', { from: 'history', step: 'day' }],
+      ['measurement', 'change', 'auto', 'day', 'auto', { from: 'history', step: 'hour' }],
+      ['none', 'state', 'auto', 'day', 'auto', { from: 'history', step: 'day' }],
+      ['counter', 'change', 'day', 'day', 'history', { from: 'history', step: 'hour' }],
+    ];
+    for (const [kind, stat, reset, period, source, plan] of table)
+      expect(
+        questionFor(kind, stat, reset, period, source),
+        `${kind} ${stat} ${reset} ${period}`,
+      ).toEqual(plan);
+  });
+
+  it('adds up a change, and a reading where the counter starts again with each bar', () => {
+    expect(additive('change', 'auto', 'day')).toBe(true);
+    expect(additive('state', 'month', 'month')).toBe(true);
+    expect(additive('state', 'auto', 'month')).toBe(false);
+    expect(additive('mean', 'auto', 'day')).toBe(false);
+  });
+});
+
+describe('a utility meter’s cycle', () => {
+  const meter = (last: string, next: string) => ({ last_reset: last, next_reset: next });
+
+  it('is read from its last and next reset, where the house’s calendar starts one', () => {
+    expect(meterCycle(madrid, meter('2026-10-09T22:00:00Z', '2026-10-10T22:00:00Z'))).toBe('day');
+    // the clocks go back on 25 October: a 25-hour day is still a day
+    expect(meterCycle(madrid, meter('2026-10-24T22:00:00Z', '2026-10-25T23:00:00Z'))).toBe('day');
+    expect(meterCycle(madrid, meter('2026-10-04T22:00:00Z', '2026-10-11T22:00:00Z'))).toBe('week');
+    expect(meterCycle(madrid, meter('2026-09-30T22:00:00Z', '2026-10-31T23:00:00Z'))).toBe('month');
+    expect(meterCycle(madrid, meter('2025-12-31T23:00:00Z', '2026-12-31T23:00:00Z'))).toBe('year');
+  });
+
+  it('is none for a cycle offset from the house’s, an hourly one, or a sensor that is no utility meter', () => {
+    // a month from the 15th, a week from a Wednesday, a meter reset at 06:00
+    expect(
+      meterCycle(madrid, meter('2026-10-14T22:00:00Z', '2026-11-14T23:00:00Z')),
+    ).toBeUndefined();
+    expect(
+      meterCycle(madrid, meter('2026-10-06T22:00:00Z', '2026-10-13T22:00:00Z')),
+    ).toBeUndefined();
+    expect(
+      meterCycle(madrid, meter('2026-10-10T04:00:00Z', '2026-10-11T04:00:00Z')),
+    ).toBeUndefined();
+    expect(
+      meterCycle(madrid, meter('2026-10-10T10:00:00Z', '2026-10-10T11:00:00Z')),
+    ).toBeUndefined();
+    expect(meterCycle(madrid, { last_reset: '2026-10-09T22:00:00Z' })).toBeUndefined();
+    expect(meterCycle(madrid, {})).toBeUndefined();
   });
 });
 
@@ -167,7 +268,16 @@ describe('asking the recorder', () => {
     return { hass, asked };
   };
   const now = new Date('2026-10-10T10:00:00Z');
-  const request = { id: 'sensor.solar', period: 'day' as const, count: 7, stat: 'change' as const };
+  const request: Omit<BarsRequest, 'unit' | 'now'> = {
+    id: 'sensor.solar',
+    period: 'day',
+    count: 7,
+    stat: 'change',
+    reset: 'auto',
+    source: 'auto',
+    kind: 'counter',
+    own: 'kWh',
+  };
 
   it('asks once from the oldest bucket, by day, for the one statistic, in the sensor’s unit', async () => {
     const oct3 = Date.parse('2026-10-02T22:00:00Z');
@@ -193,29 +303,51 @@ describe('asking the recorder', () => {
     expect(record?.current.value).toBe(4.2);
   });
 
-  it('shares one answer between cards asking the same within the hour', async () => {
+  it('shares one answer between cards asking the same within the hour, and asks again a minute past it', async () => {
     const { hass, asked } = recorder({ 'sensor.solar': [{ start: 1, change: 1 }] });
+    const half = new Date('2026-10-10T10:30:00Z');
     await Promise.all([
-      fetchBars(hass, { ...request, unit: 'kWh', now }),
-      fetchBars(hass, { ...request, unit: 'kWh', now }),
+      fetchBars(hass, { ...request, unit: 'kWh', now: half }),
+      fetchBars(hass, { ...request, unit: 'kWh', now: half }),
     ]);
-    await fetchBars(hass, { ...request, unit: 'kWh', now: new Date(now.getTime() + 60_000) });
+    await fetchBars(hass, { ...request, unit: 'kWh', now: new Date(half.getTime() + 60_000) });
     expect(asked.length).toBe(1);
-    await fetchBars(hass, { ...request, unit: 'kWh', now: new Date(now.getTime() + 3_600_000) });
+    // Home Assistant compiles an hour ten seconds into the next: at 13:00:30 the hour is not asked for again yet,
+    // at 13:01 it is
+    const hour = Date.parse('2026-10-10T11:00:00Z');
+    await fetchBars(hass, { ...request, unit: 'kWh', now: new Date(hour + 30_000) });
+    expect(asked.length).toBe(1);
+    await fetchBars(hass, { ...request, unit: 'kWh', now: new Date(hour + 60_000) });
     expect(asked.length).toBe(2);
   });
 
-  it('answers null for a sensor the recorder knows nothing of, and for a recorder that cannot be read', async () => {
+  it('asks again at midnight: the window rolls with the day', () => {
+    const before = new Date('2026-10-10T21:59:50Z');
+    const after = new Date('2026-10-10T22:00:05Z');
+    expect(barsKey(madrid, { ...request, unit: 'kWh', now: before })).not.toBe(
+      barsKey(madrid, { ...request, unit: 'kWh', now: after }),
+    );
+  });
+
+  it('answers null for a sensor the recorder knows nothing of', async () => {
     expect(await fetchBars(recorder({}).hass, { ...request, unit: '°C', now })).toBeNull();
     clearBarsCache();
     expect(
       await fetchBars(recorder({ 'sensor.solar': [] }).hass, { ...request, unit: '°C', now }),
     ).toBeNull();
-    clearBarsCache();
+  });
+
+  it('tells a recorder that cannot be read from one that knows nothing, and never keeps the failure', async () => {
     const broken = recorder(() => {
       throw new Error('offline');
     });
-    expect(await fetchBars(broken.hass, { ...request, unit: '°C', now })).toBeNull();
+    await expect(fetchBars(broken.hass, { ...request, unit: '°C', now })).rejects.toThrow(
+      'offline',
+    );
     expect(broken.asked[0]).not.toHaveProperty('units');
+    await expect(fetchBars(broken.hass, { ...request, unit: '°C', now })).rejects.toThrow(
+      'offline',
+    );
+    expect(broken.asked.length).toBe(2);
   });
 });

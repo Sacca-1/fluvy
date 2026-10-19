@@ -12,9 +12,9 @@
  * the engines do differently (a zoomed view's geometry).
  */
 import { chromium, firefox, webkit } from 'playwright';
-import { launchOptions } from '../lib.mjs';
+import { launchOptions, PLAYGROUND } from '../lib.mjs';
 
-export const BASE = process.env.PLAYGROUND ?? 'http://127.0.0.1:5183/';
+export const BASE = PLAYGROUND;
 export const ENGINE = process.env.ENGINE ?? 'chromium';
 
 /** The engine `ENGINE` names, launched as every tool launches it (Chromium's flags are Chromium's alone). */
@@ -42,14 +42,18 @@ export async function startSuite() {
     results.push({ name, ok, detail });
     console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
   };
-  /** A playground page at `query`, ready (its cards defined and settled). */
+  /**
+   * A playground page at `query`, ready (its cards defined and settled). `clock`: a fake clock the suite runs on —
+   * `true` from the real time, or `{ time }` from a moment of the suite's choosing (a check that runs the clock on
+   * reads the same windows whatever the hour it runs at).
+   */
   const page = async (
     query,
     { viewport = { width: 1400, height: 1000 }, clock = false, wait = 900 } = {},
   ) => {
     const p = await browser.newPage({ viewport });
     await p.addInitScript(INIT);
-    if (clock) await p.clock.install();
+    if (clock) await p.clock.install(clock === true ? undefined : clock);
     await p.goto(`${BASE}?${query}`);
     await p.waitForSelector('html[data-ready="1"]');
     await p.waitForTimeout(wait);
@@ -76,11 +80,12 @@ export const calls = (page) =>
 /** The REST calls the cards made on the mock (their method, path and body), since the last reset. */
 export const apiCalls = (page) => page.evaluate(() => window.fluvyMock.apiCalls.slice());
 
-/** Forgets the calls, the REST calls and the more-info requests seen so far. */
+/** Forgets the calls, the REST calls, the WebSocket messages and the more-info requests seen so far. */
 export const reset = (page) =>
   page.evaluate(() => {
     window.fluvyMock.calls.length = 0;
     window.fluvyMock.apiCalls.length = 0;
+    window.fluvyMock.wsCalls.length = 0;
     if (window.__moreInfo) window.__moreInfo.length = 0;
   });
 
@@ -92,6 +97,23 @@ export const settle = (page, ms = 400) => page.waitForTimeout(ms);
 /** The card of a sheet's frame by title, so the tests read like the sheets. */
 export const frame = (page, title) =>
   page.locator(`[data-frame$="/${title}"], [data-stress$="/${title}"]`);
+
+/**
+ * A finger on a card's head (#42): a real click at the centre of one of its parts — `title` (default), `sub`, `icon` or
+ * a selector of the card's own — so it lands on whatever the browser hit-tests there, as a finger would: the head's
+ * button over its circle and its words, a control raised beside it. (Playwright refuses `.click()` on a part the
+ * button lies over.)
+ */
+export async function tapHead(card, part = 'title') {
+  const selector =
+    { title: '.fv-card__title', sub: '.fv-card__sub', icon: '.fv-card__head .fv-ico' }[part] ??
+    part;
+  const target = card.locator(selector).first();
+  await target.scrollIntoViewIfNeeded();
+  const box = await target.boundingBox();
+  if (!box) throw new Error(`tapHead: no ${selector} to tap`);
+  await card.page().mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+}
 
 /** Quick taps on a stepper half (pointer events, like a finger). */
 export async function taps(half, n = 3) {

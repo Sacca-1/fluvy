@@ -119,10 +119,11 @@ export class Words {
     });
   }
 
-  /** "2026 · week 38", then "Week 38". */
+  /** "2026 · week 38", then "Week 38", then "Wk 38" ("KW 38", "Sem. 38"): a week's number is never cut. */
   weeks(date: Date, year: number): readonly string[] {
-    const week = this.t('calendar.week', { week: isoWeek(date) });
-    return [`${year} · ${week}`, capitalize(week)];
+    const week = { week: isoWeek(date) };
+    const long = this.t('calendar.week', week);
+    return [`${year} · ${long}`, capitalize(long), this.t('calendar.week_short', week)];
   }
 
   /** "Today" · "Tomorrow" · "Saturday" */

@@ -4,6 +4,12 @@ import { fileURLToPath } from 'node:url';
 
 export const MODES = ['light', 'dark'];
 
+/**
+ * The playground every tool opens: `PLAYGROUND` (a worktree runs its own on a port of its own), else the dev
+ * server's :5183. Always ends in a slash, so a query goes straight after it.
+ */
+export const PLAYGROUND = (process.env.PLAYGROUND ?? 'http://127.0.0.1:5183/').replace(/\/?$/, '/');
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PALETTES_JSON = resolve(HERE, '../../packages/tokens/dist/palettes.json');
 

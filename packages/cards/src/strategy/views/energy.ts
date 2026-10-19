@@ -60,7 +60,7 @@ export function todayCards(ctx: StrategyContext): Card[] {
 function nowView(ctx: StrategyContext): Section[] {
   const { home, t, energy } = ctx;
   const { solarPower, gridPower, homePower, consumptionPowers } = energy;
-  return balanced(ctx.header, [
+  return balanced(ctx, [
     ...liveCards(ctx),
     ...(energy.prefsMeters
       ? []
@@ -90,14 +90,14 @@ function nowView(ctx: StrategyContext): Section[] {
 
 /** Today in energy: the day's flow, where it went, the score and the day's balance. */
 function todayView(ctx: StrategyContext): Section[] {
-  return balanced(ctx.header, todayCards(ctx));
+  return balanced(ctx, todayCards(ctx));
 }
 
 /** What the sun makes: today's production, its last days as bars, the inverter's gauge and its day. */
 function productionView(ctx: StrategyContext): Section[] {
   const { t, energy } = ctx;
   const { solarPower, solarToday } = energy;
-  return balanced(ctx.header, [
+  return balanced(ctx, [
     ...when(solarToday, (id) => [full('production', { entity: id })]),
     ...when(solarToday, (id) => [full('history-bars', { entity: id, color: 'amber' })]),
     ...when(solarPower, (id) => [full('gauge', { entity: id })]),
@@ -109,7 +109,7 @@ function productionView(ctx: StrategyContext): Section[] {
 function devicesView(ctx: StrategyContext): Section[] {
   const { home, t, energy } = ctx;
   const { consumption, consumptionPowers } = energy;
-  return balanced(ctx.header, [
+  return balanced(ctx, [
     ...when(consumption.length, () => [
       full('energy-devices', {
         title: t('strategy.appliances'),
@@ -137,7 +137,7 @@ function metersCards({ energy }: StrategyContext): Card[] {
 function metersView(ctx: StrategyContext): Section[] {
   const { home } = ctx;
   return balanced(
-    ctx.header,
+    ctx,
     home.powers.slice(0, 9).map((id) => full('energy', { entity: id, name: home.placeName(id) })),
   );
 }
@@ -169,7 +169,7 @@ export const ENERGY_VIEWS: readonly ViewSpec[] = [
     key: 'water',
     icon: 'fluvy:drop',
     title: 'strategy.water_gas',
-    build: (ctx) => balanced(ctx.header, metersCards(ctx)),
+    build: (ctx) => balanced(ctx, metersCards(ctx)),
     when: ({ energy }) => energy.meters.length > 0,
   },
   {

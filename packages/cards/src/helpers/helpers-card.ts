@@ -1,26 +1,20 @@
-import { strings } from '@fluvy/core';
+import { strings, type HomeAssistant } from '@fluvy/core';
 import type {
   EntityView,
   FluvyCardConfig,
   LovelaceConfigForm,
   LovelaceGridOptions,
 } from '@fluvy/core';
-import { head, round, sheetStyles } from '@fluvy/ui';
+import { head, sheetStyles } from '@fluvy/ui';
 
-import {
-  css,
-  html,
-  nothing,
-  type CSSResultGroup,
-  type PropertyValues,
-  type TemplateResult,
-} from 'lit';
+import { css, html, type CSSResultGroup, type PropertyValues, type TemplateResult } from 'lit';
 
 import { Card, type BaseKey } from '../shared/base.js';
 
 import {
   actionFields,
   colourFields,
+  emptyFields,
   entitiesField,
   entityField,
   fieldRow,
@@ -28,6 +22,7 @@ import {
   iconField,
   nameIconFields,
   selectField,
+  showIconField,
   textField,
   titleFields,
 } from '../shared/form.js';
@@ -35,26 +30,35 @@ import {
 import { nameOf, type HelperHost, type HelperRowConfig } from './context.js';
 import { compactNumber, isBoxedNumber, numberBlocks } from './number.js';
 
-import { actionsKeepIcon, buttonRow, momentRow, plainRow, switchRow } from './rows.js';
+import {
+  buttonRow,
+  momentRow,
+  momentValue,
+  plainRow,
+  plainValue,
+  rowsKeepIcon,
+  switchRow,
+  type RowEnd,
+} from './rows.js';
 
-import { selectPiece } from './select.js';
+import { MAX_CHIPS, selectPiece, selectValue } from './select.js';
 
 import { rowStyles } from './styles.js';
 
 import { textBlocks } from './text.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 import { configKeys, ITEM_ALIASES, type AliasSpec, type RowStyle } from '../shared/config.js';
-import { TextRuler } from '../shared/fit.js';
-import { FontsSettled } from '../shared/fonts.js';
+import { HeadFit, SWITCH_SLOT } from '../energy/head.js';
 import { toneOf } from '../shared/colour.js';
-import { HEAD, ROW } from '../shared/heights.js';
+import { attrOf, chipRows, EMPTY, HEAD, known, listAttr, ROW } from '../shared/heights.js';
+import { EMPTY_KEYS, emptyPanel, idsOf, itemsOf, listOf, type EmptyList } from '../shared/lists.js';
 import { TemplateTexts } from '../shared/templates.js';
 
 const s = strings('helpers');
 
 export type { HelperRowConfig } from './context.js';
 
-export interface HelpersCardConfig extends FluvyCardConfig {
+export interface HelpersCardConfig extends FluvyCardConfig, EmptyList {
   title?: string;
   subtitle?: string;
   /** The same helpers as `entities`, with a name, an icon, a context line or quick-set times per row (YAML). */
@@ -78,10 +82,9 @@ const BUTTONS = new Set(['input_button', 'button']);
  */
 export class FluvyHelpersCard extends Card<HelpersCardConfig> {
   /** The card's height at a 360 column, for the automatic dashboard's columns. */
-  static override layoutHeight(config: HelpersCardConfig): number {
-    const rows = (config.rows ?? config.entities ?? []).map((row) =>
-      typeof row === 'string' ? row : row.entity,
-    );
+  static override layoutHeight(config: HelpersCardConfig, hass?: HomeAssistant): number {
+    const rows = idsOf(config.rows ?? config.entities);
+    if (!rows.length) return HEAD + EMPTY;
     // one number or counter and no title: the compact figure (see `compactNumber`)
     if (
       rows.length === 1 &&
@@ -89,18 +92,50 @@ export class FluvyHelpersCard extends Card<HelpersCardConfig> {
       /^(counter|number|input_number)\./.test(rows[0] ?? '')
     )
       return 76;
-    // a row by its kind: a field with its ruler (96), a select with its chips (108), a text field (96), a moment (76), a switch or button (60)
-    const height = (id: string): number =>
-      /^(input_number|number|counter)\./.test(id)
-        ? 96
-        : /^(input_select|select)\./.test(id)
-          ? 108
-          : /^(input_text|text)\./.test(id)
-            ? 96
-            : /^(input_datetime|datetime|date|time)\./.test(id)
-              ? 76
-              : ROW;
-    return HEAD + rows.reduce((total, id) => total + height(id), 0);
+    // a helper by its kind, 16 under what is above it: a number's field and its ruler (44 + 4 + 44; the field alone
+    // for a counter without a range, a boxed number), a select's label and its chips (20 + 8 + rows of 44; a list
+    // past six options is a row), a text's label and field (20 + 12 + 44; a 36 label with a second line), a switch,
+    // a button, a moment or a state as rows of 60 in one group (16 above the group, not each row), a time's quick
+    // presets 56 under its row. The house says a number's range and a select's options; without it, a ruler and one
+    // row of three chips.
+    const items = (config.rows ?? config.entities ?? []) as readonly (string | HelperRowConfig)[];
+    const itemOf = (id: string): HelperRowConfig | undefined =>
+      items.find((item): item is HelperRowConfig => typeof item !== 'string' && item.entity === id);
+    let height = 64 + 20;
+    let group = 0; // rows in the open group of list rows
+    for (const id of rows) {
+      const domain = id.slice(0, id.indexOf('.'));
+      const attr = (key: string): unknown => attrOf(hass, id, key);
+      let block = 0;
+      if (NUMBERS.has(domain)) {
+        const counter = domain === 'counter';
+        const min = attr(counter ? 'minimum' : 'min');
+        const max = attr(counter ? 'maximum' : 'max');
+        const ranged = counter
+          ? typeof min === 'number' && typeof max === 'number'
+          : attr('mode') !== 'box' && !(known(hass, id) && (min === null || max === null));
+        block = ranged ? 92 : 44;
+      } else if (SELECTS.has(domain)) {
+        const options = listAttr(hass, id, 'options');
+        if (options.length <= MAX_CHIPS) {
+          const style = config.options_style === 'chips' ? 'chips' : 'full';
+          block = 28 + chipRows(options.length ? options : ['a', 'b', 'c'], style) * 44;
+        }
+      } else if (TEXTS.has(domain)) {
+        block = (itemOf(id)?.secondary ? 36 : 20) + 12 + 44;
+      }
+      if (block) {
+        height += 16 + block;
+        group = 0;
+        continue;
+      }
+      if (!group) height += 16;
+      group += 1;
+      height += ROW;
+      // a time with quick presets: the chips under its row
+      if (MOMENTS.has(domain) && !attr('has_date') && itemOf(id)?.presets?.length) height += 56;
+    }
+    return height;
   }
 
   static override styles: CSSResultGroup = [
@@ -167,39 +202,47 @@ export class FluvyHelpersCard extends Card<HelpersCardConfig> {
   /** Value under the finger while a ruler drag is in flight, per entity. */
   declare preview_: Readonly<Record<string, number>>;
 
-  /** Widths laid out by the browser in the card's own classes: a select's filled chips measure their columns with it. */
-  private readonly ruler = new TextRuler(() => this.renderRoot as ParentNode | undefined);
+  /** The head's fitting; its ruler lays widths out in the card's own classes (a select's filled chips, the rows' ends). */
+  private readonly head = new HeadFit(this);
+  private readonly ruler = this.head.ruler;
   /** A row's own second line when it is a template: rendered by Home Assistant, live. */
   private readonly texts = new TemplateTexts(this);
 
   constructor() {
     super();
     this.preview_ = {};
-    new FontsSettled(this, () => {
-      this.ruler.clear();
-      this.requestUpdate();
-    });
   }
 
-  /** Whether the list rows keep their circles beside the buttons' "Run", which is never cut. */
-  private rowsKeepIcon(): boolean {
-    const actions = this.rows().flatMap((row) => {
+  /**
+   * Whether the list rows keep their circles beside what ends them, which is never cut: a switch, a button's "Run",
+   * a value's button ("06:45", a long select's option), a state's words. The blocks (a number, a text, chips) have
+   * no circle to give.
+   */
+  private rowsKeepIcon(host: HelperHost): boolean {
+    const ends = this.rows().flatMap((row): RowEnd[] => {
       const view = this.entity(row.entity);
-      return BUTTONS.has(view.domain)
-        ? [{ name: nameOf(view, row), action: s(this.hass, 'run') }]
-        : [];
+      const name = nameOf(view, row);
+      const domain = view.domain;
+      if (NUMBERS.has(domain) || TEXTS.has(domain)) return [];
+      if (SWITCHES.has(domain)) return [{ name, end: SWITCH_SLOT }];
+      if (BUTTONS.has(domain)) return [{ name, button: s(this.hass, 'run') }];
+      if (MOMENTS.has(domain)) return [{ name, button: momentValue(host, view, row) }];
+      if (!SELECTS.has(domain))
+        return [{ name, end: this.ruler.width('fv-row__value', plainValue(host, view)) }];
+      const value = selectValue(host, view);
+      return value === undefined ? [] : [{ name, button: value }];
     });
-    return actionsKeepIcon(this.ruler, this.contentWidth, actions);
+    return rowsKeepIcon(this.ruler, this.contentWidth, ends);
   }
 
   /** The card as its controls see it for this render (its own helpers are protected). */
   private hostView(): HelperHost {
-    return {
+    const host: HelperHost = {
       hass: this.hass,
       contentWidth: this.contentWidth,
       ruler: this.ruler,
       texts: this.texts,
-      bare: !this.rowsKeepIcon(),
+      bare: false,
       state: (view) => this.stateOf(view),
       expect: (id, state) => this.expect(id, state),
       call: (domain, service, data, id) => this.call(domain, service, data, id),
@@ -215,6 +258,7 @@ export class FluvyHelpersCard extends Card<HelpersCardConfig> {
         (this.renderRoot as ShadowRoot).activeElement?.getAttribute('data-field') === id,
       refresh: () => this.requestUpdate(),
     };
+    return { ...host, bare: !this.rowsKeepIcon(host) };
   }
 
   /** A card of many helpers has no entity of its own: its head's icon, tone and colour, its tap ("…") and its hold. */
@@ -226,12 +270,14 @@ export class FluvyHelpersCard extends Card<HelpersCardConfig> {
     'card_color',
     'tap_action',
     'hold_action',
+    'show_icon',
   ];
   static override keys = configKeys<HelpersCardConfig>()([
     'title',
     'subtitle',
     'rows',
     'options_style',
+    ...EMPTY_KEYS,
   ]);
   static override lists: readonly RowsListSpec[] = [
     {
@@ -258,8 +304,10 @@ export class FluvyHelpersCard extends Card<HelpersCardConfig> {
       schema: [
         titleFields(),
         fieldRow(iconField(), selectField('options_style', ['full', 'chips'])),
+        showIconField(),
         ...colourFields(),
         entitiesField('entities', undefined, true),
+        emptyFields(),
         actionFields(),
       ],
       ...formLabels({ options_style: 'editor.options_style' }),
@@ -279,14 +327,12 @@ export class FluvyHelpersCard extends Card<HelpersCardConfig> {
   }
 
   protected override prepare(config: HelpersCardConfig): HelpersCardConfig {
-    if (!config.rows?.length && !config.entities?.length)
-      throw new Error('fluvy-helpers-card: add at least one entity');
+    listOf(config, 'rows', ['entities']);
     return config;
   }
 
   private rows(): HelperRowConfig[] {
-    const source = this.config?.rows ?? this.config?.entities ?? [];
-    return source.map((row) => (typeof row === 'string' ? { entity: row } : row));
+    return itemsOf(this.config?.rows ?? this.config?.entities);
   }
 
   protected override watched(): readonly string[] {
@@ -375,27 +421,34 @@ export class FluvyHelpersCard extends Card<HelpersCardConfig> {
     });
     flush();
 
+    const panel = emptyPanel(this, !rows.length, 'sliders', 'common.no_helpers');
     const areas = new Set(views.map((view) => view.areaName).filter(Boolean));
-    const count =
-      views.length === 1 ? s(this.hass, 'one') : s(this.hass, 'count', { count: views.length });
-    const action = this.config?.tap_action;
-
+    // none counted is said by the panel, not as "0 helpers"
+    const count = panel
+      ? ''
+      : views.length === 1
+        ? s(this.hass, 'one')
+        : s(this.hass, 'count', { count: views.length });
+    const title = this.config?.title ?? s(this.hass, 'title');
+    // the line's trailing segments go whole before the circle gives way, and the circle before a word is cut
+    const fitted = this.head.fit({
+      width: this.contentWidth,
+      title,
+      sub:
+        this.config?.subtitle ??
+        [areas.size === 1 ? [...areas][0] : '', count].filter(Boolean).join(' · '),
+    });
     return html`<article class="fv-card" data-card>
       ${head({
-        icon: this.config?.icon ?? 'sliders',
+        icon: fitted.icon ? (this.config?.icon ?? 'sliders') : null,
         tone: toneOf(this.config, 'accent'),
-        title: this.config?.title ?? s(this.hass, 'title'),
-        sub:
-          this.config?.subtitle ??
-          [areas.size === 1 ? [...areas][0] : '', count].filter(Boolean).join(' · '),
-        // "…" appears when it has somewhere to go: a card of many entities has no more-info of its own
-        trailing:
-          action && action.action !== 'none'
-            ? round('dots', 'quiet', this.t('common.more'), () => this.tap(undefined, action))
-            : nothing,
-        onHold: () => this.hold(),
+        title,
+        sub: fitted.sub,
+        cut: fitted.cut,
+        // the head is the card's button where its tap has somewhere to go: a card of many has no details of its own
+        ...this.headActions(),
       })}
-      ${blocks}
+      ${panel ? html`<div class="in-rows">${panel}</div>` : blocks}
     </article>`;
   }
 }

@@ -18,7 +18,8 @@ import { WEEKDAYS, type Moment, type RunEnv, type SunEvent, type Weekday } from 
 
 /**
  * A moment as the sheet edits it: three chips (At a time · Sunrise · Sunset), then the time field or the sun
- * offset's line. Pure templates and words; the sheet keeps the moment.
+ * offset's line; an end's quick spans (15 min · 30 min · 1 h · 2 h after the start). Pure templates and words; the
+ * sheet keeps the moment.
  */
 
 const s = strings('automations');
@@ -43,13 +44,29 @@ export const clockOf = (minutes: number): string => {
   return `${String(Math.floor(whole / 60)).padStart(2, '0')}:${String(whole % 60).padStart(2, '0')}`;
 };
 
-/** The moment of that mode: the clock keeps its time, the sun keeps its offset, a mode just chosen starts plain. */
+/**
+ * The moment of that mode: the clock keeps its time, the sun keeps its offset, a mode just chosen starts plain — the
+ * clock at `at`, the time it last had.
+ */
 export function momentOf(mode: MomentMode, previous: Moment, at = '08:00'): Moment {
   if (mode === 'time') return previous.kind === 'time' ? previous : { kind: 'time', at };
   return { kind: 'sun', event: mode, offset: previous.kind === 'sun' ? previous.offset : 0 };
 }
 
-/** The chips that choose a moment's kind, filling their row. */
+/** A moment `minutes` later: a time on the clock round the day (23:30 and an hour is 00:30), a sun event's offset within its limit. */
+export function later(moment: Moment, minutes: number): Moment {
+  if (moment.kind === 'time')
+    return { kind: 'time', at: clockOf((minutesOf(moment.at) + minutes) % (24 * 60)) };
+  const offset = Math.max(-OFFSET_LIMIT, Math.min(OFFSET_LIMIT, moment.offset + minutes));
+  return { ...moment, offset };
+}
+
+const sameMoment = (a: Moment, b: Moment): boolean =>
+  a.kind === 'time'
+    ? b.kind === 'time' && a.at === b.at
+    : b.kind === 'sun' && a.event === b.event && a.offset === b.offset;
+
+/** The chips that choose a moment's kind, filling their row (three, or two and one where three would cut a word). */
 export function modeChips(
   hass: HomeAssistant | undefined,
   moment: Moment,
@@ -63,6 +80,34 @@ export function modeChips(
     { key: 'sunset', label: s(hass, 'sunset'), active: mode === 'sunset' },
   ];
   return chipRow(items, (key) => onMode(key as MomentMode), 'full', fit);
+}
+
+/** How long a window may run, one tap each: the quick ends. */
+export const SPANS: readonly number[] = [15, 30, 60, 120];
+
+/**
+ * The quick ends: an end 15 min, 30 min, 1 h or 2 h after the start, filling their row (two and two where four would
+ * not hold); the one the end is now is pressed, and one a sun start's offset could not reach (past ±3 h) is disabled.
+ */
+export function quickEnds(
+  hass: HomeAssistant | undefined,
+  start: Moment,
+  end: Moment,
+  onSpan: (minutes: number) => void,
+  fit: ChipFit,
+): TemplateResult {
+  const items: ChipItem[] = SPANS.map((minutes) => ({
+    key: String(minutes),
+    label:
+      minutes < 60
+        ? `${minutes} ${localize(hass, 'time.unit_min')}`
+        : `${minutes / 60} ${localize(hass, 'time.unit_h')}`,
+    active: sameMoment(end, later(start, minutes)),
+    disabled: start.kind === 'sun' && start.offset + minutes > OFFSET_LIMIT,
+  }));
+  return html`<div class="ss-spans">
+    ${chipRow(items, (key) => onSpan(Number(key)), 'full', fit)}
+  </div>`;
 }
 
 /** The time field for a clock moment: the house's clock, ↑ ↓ by the step. */

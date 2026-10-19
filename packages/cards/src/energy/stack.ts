@@ -193,6 +193,17 @@ function bandOf<P extends { readonly at: number }>(
   return { area: areas.join(' '), line: lines.join(' ') };
 }
 
+/**
+ * Where a stacked chart is drawn in its box, and how: the plot's left edge (a scale stands to its left; the width given
+ * is the plot's own), the kW range it spans (a scale's lowest and highest ticks; unset, the day's own extremes with
+ * the tag's room under the line), and whether every source sits on the one before it (the default) or each on zero.
+ */
+export interface Plot {
+  readonly left?: number;
+  readonly range?: readonly [low: number, high: number] | undefined;
+  readonly stacked?: boolean;
+}
+
 /** One kW scale for above and below zero: what `stackShape` and `flowShape` share. */
 function signedScale(
   up: number,
@@ -200,24 +211,47 @@ function signedScale(
   width: number,
   height: number,
   top: number,
+  { left = 0, range }: Plot,
 ): { zero: number; x: (at: number) => number; y: (kw: number) => number } {
-  // when anything went out, at least BELOW_ROOM px under the line for its tag (a day that exported a little would
-  // otherwise put the tag over the hours); the foot one pixel up, so the lowest area's 2 px edge is drawn whole
+  // the foot one pixel up, so the lowest area's 2 px edge is drawn whole
   const foot = height - 1;
-  let k = (foot - top) / (up + down);
-  if (down > 0 && down * k < BELOW_ROOM) k = (foot - top - BELOW_ROOM) / up;
-  const zero = top + up * k;
+  let k: number;
+  let zero: number;
+  if (range) {
+    // a scale's: its highest tick on the top, its lowest on the foot
+    k = (foot - top) / (range[1] - range[0] || 1);
+    zero = top + range[1] * k;
+  } else {
+    // when anything went out, at least BELOW_ROOM px under the line for its tag (a day that exported a little would
+    // otherwise put the tag over the hours)
+    k = (foot - top) / (up + down);
+    if (down > 0 && down * k < BELOW_ROOM) k = (foot - top - BELOW_ROOM) / up;
+    zero = top + up * k;
+  }
   return {
     zero,
-    x: (at: number): number => Math.min(1, Math.max(0, at)) * width,
+    x: (at: number): number => left + Math.min(1, Math.max(0, at)) * width,
     y: (kw: number): number => zero - kw * k,
+  };
+}
+
+/** The day's highest point above the line and its deepest below it (kW): the stacks, or the tallest band alone. */
+export function stackExtent(
+  points: readonly StackPoint[],
+  stacked = true,
+): { up: number; down: number } {
+  const most = (values: readonly number[]): number =>
+    stacked ? values.reduce((sum, v) => sum + v, 0) : Math.max(...values);
+  return {
+    up: Math.max(0.1, ...points.map((p) => most(LAYERS.map((k) => p.used[k])))),
+    down: Math.max(0, ...points.map((p) => most([p.charged, p.exported]))),
   };
 }
 
 /**
  * The areas in a `width` × `height` box: one kW scale for above and below zero (the zero line sits where the day's
- * peak use and peak outflow divide the height), `top` px kept free above the tallest point. `step` is one bucket as a
- * fraction of the day.
+ * peak use and peak outflow divide the height, or where `plot.range` puts it), `top` px kept free above the tallest
+ * point. `step` is one bucket as a fraction of the day. Unstacked (`plot.stacked: false`), every band starts on zero.
  */
 export function stackShape(
   points: readonly StackPoint[],
@@ -225,11 +259,11 @@ export function stackShape(
   height: number,
   top = 12,
   step = 5 / 1440,
+  plot: Plot = {},
 ): StackShape {
-  const total = (p: StackPoint): number => LAYERS.reduce((sum, k) => sum + p.used[k], 0);
-  const up = Math.max(0.1, ...points.map(total));
-  const down = Math.max(0, ...points.map((p) => p.charged + p.exported));
-  const { zero, x, y } = signedScale(up, down, width, height, top);
+  const stacked = plot.stacked !== false;
+  const { up, down } = stackExtent(points, stacked);
+  const { zero, x, y } = signedScale(up, down, width, height, top, plot);
   const runs = runsOf(points, step);
   const band = (
     low: (p: StackPoint) => number,
@@ -237,7 +271,7 @@ export function stackShape(
   ): { area: string; line: string } => bandOf(runs, x, y, low, high);
   const layers = LAYERS.filter((key) => points.some((p) => p.used[key] > 0)).map((key) => {
     const below = (p: StackPoint): number =>
-      LAYERS.slice(0, LAYERS.indexOf(key)).reduce((sum, l) => sum + p.used[l], 0);
+      stacked ? LAYERS.slice(0, LAYERS.indexOf(key)).reduce((sum, l) => sum + p.used[l], 0) : 0;
     return { key, ...band(below, (p) => below(p) + p.used[key]) };
   });
   const under: { key: Below; area: string; line: string }[] = [];
@@ -249,14 +283,10 @@ export function stackShape(
         (p) => -p.charged,
       ),
     });
-  if (points.some((p) => p.exported > 0))
-    under.push({
-      key: 'exported',
-      ...band(
-        (p) => -p.charged,
-        (p) => -(p.charged + p.exported),
-      ),
-    });
+  if (points.some((p) => p.exported > 0)) {
+    const over = (p: StackPoint): number => (stacked ? -p.charged : 0);
+    under.push({ key: 'exported', ...band(over, (p) => over(p) - p.exported) });
+  }
   return { layers, below: under, zero, y, x };
 }
 
@@ -348,6 +378,19 @@ export interface FlowShape {
   readonly x: (at: number) => number;
 }
 
+/** The day's highest point above the line (the stacks or the tallest source, and the house) and its deepest below it (kW). */
+export function flowExtent(
+  points: readonly FlowPoint[],
+  stacked = true,
+): { up: number; down: number } {
+  const most = (values: readonly number[]): number =>
+    stacked ? values.reduce((sum, v) => sum + v, 0) : Math.max(...values);
+  return {
+    up: Math.max(0.1, ...points.map((p) => Math.max(most(LAYERS.map((k) => p.into[k])), p.house))),
+    down: Math.max(0, ...points.map((p) => most(OUTFLOWS.map((k) => p.out[k])))),
+  };
+}
+
 /** The flows in a `width` × `height` box, as `stackShape` lays out the house's use. */
 export function flowShape(
   points: readonly FlowPoint[],
@@ -355,12 +398,14 @@ export function flowShape(
   height: number,
   top = 12,
   step = 5 / 1440,
+  plot: Plot = {},
 ): FlowShape {
+  const stacked = plot.stacked !== false;
+  // what a band sits on: the bands before it, or zero when each is drawn on its own
   const sum = <K extends string>(r: Readonly<Record<K, number>>, keys: readonly K[]): number =>
-    keys.reduce((total, k) => total + r[k], 0);
-  const up = Math.max(0.1, ...points.map((p) => Math.max(sum(p.into, LAYERS), p.house)));
-  const down = Math.max(0, ...points.map((p) => sum(p.out, OUTFLOWS)));
-  const { zero, x, y } = signedScale(up, down, width, height, top);
+    stacked ? keys.reduce((total, k) => total + r[k], 0) : 0;
+  const { up, down } = flowExtent(points, stacked);
+  const { zero, x, y } = signedScale(up, down, width, height, top, plot);
   const runs = runsOf(points, step);
   const above = LAYERS.filter((key) => points.some((p) => p.into[key] > 0)).map((key) => {
     const under = (p: FlowPoint): number => sum(p.into, LAYERS.slice(0, LAYERS.indexOf(key)));
@@ -376,6 +421,23 @@ export function flowShape(
   return { above, below, house, zero, y, x };
 }
 
+/**
+ * Where each band's far edge is at one point (kW, `sign` +1 above the line, −1 below it): the stack up to and through
+ * it, or its own value alone when every band starts on zero. Only the bands that carry something then.
+ */
+export function bandEdges<K extends string>(
+  values: Readonly<Record<K, number>>,
+  keys: readonly K[],
+  stacked: boolean,
+  sign: 1 | -1,
+): Array<readonly [K, number]> {
+  let run = 0;
+  return keys.flatMap((key) => {
+    run += values[key];
+    return values[key] > 0 ? [[key, sign * (stacked ? run : values[key])] as const] : [];
+  });
+}
+
 /** A state of charge over the day: where it was read (0..1 of the day) and its level (0–100). */
 export interface ChargePoint {
   readonly at: number;
@@ -385,7 +447,7 @@ export interface ChargePoint {
 /**
  * The state of charge as a line on its own scale, 100 % at `top` and 0 % at `bottom` (the overview gives it the kW
  * zero line, so a low battery never shows under it), split where it was not read
- * (`step`: one reading's spacing as a fraction of the day).
+ * (`step`: one reading's spacing as a fraction of the day), across a plot `width` wide from `left`.
  */
 export function chargeLine(
   points: readonly ChargePoint[],
@@ -393,6 +455,7 @@ export function chargeLine(
   top: number,
   bottom: number,
   step = 5 / 1440,
+  left = 0,
 ): {
   readonly line: string;
   readonly runs: ReadonlyArray<{
@@ -402,7 +465,7 @@ export function chargeLine(
   }>;
   readonly y: (level: number) => number;
 } {
-  const x = (at: number): number => Math.min(1, Math.max(0, at)) * width;
+  const x = (at: number): number => left + Math.min(1, Math.max(0, at)) * width;
   const y = (level: number): number =>
     bottom - (Math.min(100, Math.max(0, level)) / 100) * (bottom - top);
   const runs = runsOf(points, step).map((run) => {

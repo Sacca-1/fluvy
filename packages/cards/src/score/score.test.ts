@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { scores } from '../energy-model/allocate.js';
 import {
   arcDash,
+  hasCo2Signal,
   netWay,
   RING,
   RING_SMALL,
@@ -22,6 +23,14 @@ const day = {
 };
 
 describe('the score’s rings', () => {
+  it('keeps the low-carbon ring for a CO₂ signal out of reach, the card’s own or the house’s (1.9)', () => {
+    expect(hasCo2Signal('sensor.fossil', {})).toBe(true);
+    // the house's integration put it there; its state may be gone
+    expect(hasCo2Signal(undefined, { 'sensor.fossil': { platform: 'co2signal' } })).toBe(true);
+    expect(hasCo2Signal(undefined, { 'sensor.solar': { platform: 'solaredge' } })).toBe(false);
+    expect(hasCo2Signal(undefined, undefined)).toBe(false);
+  });
+
   it('a ring the house cannot have is left out; the others keep their order', () => {
     const s = scores(day);
     expect(ringsOf({ solar: true, exported: true, co2: true }, s, 0.87).map((r) => r.key)).toEqual([

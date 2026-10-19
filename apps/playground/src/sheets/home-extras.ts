@@ -383,6 +383,33 @@ export const sheet: SheetSpec = {
         heading({ title: 'Garden', subtitle: 'Edit', variant: 'plain' }),
       ],
     },
+    // a page's section title (`heading_style: title`), 32 tall: where the row is short the link's words give way,
+    // then the title's size (27 → 20), then the chevron, before a title ends in its ellipsis
+    {
+      title: 'C Sections · title',
+      cards: [
+        heading({
+          title: 'Large appliances',
+          icon: 'fluvy:dishwasher',
+          subtitle: 'All appliances',
+          path: '/fluvy-home/appliances',
+          heading_style: 'title',
+        }),
+        heading({
+          title: 'Hall',
+          heading_style: 'title',
+          entities: ['light.hall_lamp', 'light.hall_strip', 'switch.hall_fan', 'cover.hall_blind'],
+        }),
+        heading({
+          title: 'Living room, kitchen and the hall upstairs',
+          icon: 'fluvy:home',
+          heading_style: 'title',
+          subtitle: '18 devices',
+          path: '/fluvy-home/all',
+        }),
+        heading({ title: 'Scenes', icon: 'mdi:sofa', heading_style: 'title', variant: 'plain' }),
+      ],
+    },
     {
       title: 'D Scenes · 148',
       width: 312, // the tightest half column on the 4 px grid: the tile closes its padding and lets a name take two lines

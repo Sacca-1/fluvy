@@ -225,11 +225,21 @@ export type GlyphName = keyof typeof GLYPHS;
 
 export const glyphNames = Object.keys(GLYPHS) as GlyphName[];
 
+/** Glyphs a family brings with its chunk (the appliances' kinds): drawn as the set's own once it has landed. */
+const ADDED: Record<string, string> = {};
+
+/** Adds a chunk's glyphs to the set, so `icon('washer')` and a config's `fluvy:washer` draw them. */
+export function addGlyphs(table: Readonly<Record<string, string>>): void {
+  Object.assign(ADDED, table);
+}
+
 export const isGlyph = (name: string | undefined): name is GlyphName =>
-  name !== undefined && name in GLYPHS;
+  name !== undefined && (name in GLYPHS || Object.hasOwn(ADDED, name));
 
 export function glyphBody(name: GlyphName): { body: string; strokeWidth: number } {
-  const entry: string | readonly [string, number] = GLYPHS[name];
+  const entry: string | readonly [string, number] = Object.hasOwn(GLYPHS, name)
+    ? GLYPHS[name]
+    : (ADDED[name] ?? '');
   return typeof entry === 'string'
     ? { body: entry, strokeWidth: 1.75 }
     : { body: entry[0], strokeWidth: entry[1] };

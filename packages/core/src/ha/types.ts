@@ -138,6 +138,8 @@ export interface HomeAssistant {
   user?: { id: string; name: string; is_admin: boolean };
   /** The panels this person's frontend has: a dashboard is one with `component_name: 'lovelace'`. */
   panels?: Record<string, HassPanel>;
+  /** The actions Home Assistant offers, by domain then name (`notify.mobile_app_pixel_9`). */
+  services?: Record<string, Record<string, unknown>>;
   connection: HassConnection;
   callService(
     domain: string,
@@ -153,6 +155,14 @@ export interface HomeAssistant {
   ): Promise<T>;
   hassUrl(path?: string): string;
   localize(key: string, values?: Record<string, unknown>): string;
+  /**
+   * Loads the integrations' own words of one category (`issues`: a repair's title) and answers a `localize` that has
+   * them (Home Assistant's repairs page reads its titles so).
+   */
+  loadBackendTranslation?(
+    category: string,
+    integrations?: string | readonly string[],
+  ): Promise<(key: string, values?: Record<string, unknown>) => string>;
   formatEntityState?(stateObj: HassEntity, state?: string): string;
   formatEntityAttributeValue?(stateObj: HassEntity, attribute: string, value?: unknown): string;
   formatEntityName?(stateObj: HassEntity, type: unknown): string;

@@ -23,6 +23,16 @@ export interface HouseHas {
   readonly co2: boolean;
 }
 
+/**
+ * Whether the house has a CO₂ signal: the card's own, or one its integration put in the house (`co2signal`). A signal
+ * out of reach, even one no longer there, is still the house's: its ring keeps its place, "—" in it (1.9).
+ */
+export const hasCo2Signal = (
+  own: string | undefined,
+  entities: Readonly<Record<string, { readonly platform?: string }>> | undefined,
+): boolean =>
+  Boolean(own) || Object.values(entities ?? {}).some((entry) => entry.platform === 'co2signal');
+
 export function ringsOf(has: HouseHas, scores: Scores | null, lowCarbon: number | null): Ring[] {
   return [
     { key: 'self_powered' as const, value: scores?.selfPowered ?? null },

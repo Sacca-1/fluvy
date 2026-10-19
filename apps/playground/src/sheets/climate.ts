@@ -6,6 +6,20 @@ const THERMO = {
   target_temp_step: 0.5,
   hvac_modes: ['heat', 'cool', 'heat_cool'],
 };
+const HOMEMATIC = {
+  min_temp: 5,
+  max_temp: 30.5,
+  target_temp_step: 0.5,
+  hvac_modes: ['auto', 'heat', 'off'],
+};
+/** A compact thermostat in half a section, as #46's reporter has them. */
+const half = (entity: string, more: Record<string, unknown> = {}) => ({
+  type: 'custom:fluvy-thermostat-card',
+  entity,
+  variant: 'compact',
+  cols: 6,
+  ...more,
+});
 
 export const sheet: SheetSpec = {
   states: [
@@ -104,6 +118,30 @@ export const sheet: SheetSpec = {
       },
     ],
     ['climate.nulls', 'unavailable', { friendly_name: 'Bedroom AC' }],
+    // the thermostats of #46: HomeMatic radiator valves, whose modes come as Auto, Heat, Off, from 5 to 30.5 by 0.5
+    [
+      'climate.garderobe',
+      'heat',
+      {
+        friendly_name: 'Garderobe',
+        ...HOMEMATIC,
+        temperature: 19.5,
+        current_temperature: 20.6,
+        current_humidity: 74,
+        hvac_action: 'heating',
+      },
+    ],
+    [
+      'climate.atelier',
+      'heat',
+      {
+        friendly_name: 'Atelier',
+        ...HOMEMATIC,
+        temperature: 9.5,
+        current_temperature: 12.1,
+        hvac_action: 'idle',
+      },
+    ],
   ],
   frames: [
     { title: 'Heat', cards: [{ type: 'custom:fluvy-thermostat-card', entity: 'climate.living' }] },
@@ -180,5 +218,72 @@ export const sheet: SheetSpec = {
         { type: 'custom:fluvy-thermostat-card', entity: 'climate.living', when_off: 'essentials' },
       ],
     },
+    // the compact layout at its own size: half a section (#46 was never drawn at it)
+    {
+      title: 'Compact · half a section',
+      cards: [
+        {
+          type: 'custom:fluvy-thermostat-card',
+          entity: 'climate.living',
+          variant: 'compact',
+          cols: 6,
+        },
+        {
+          type: 'custom:fluvy-thermostat-card',
+          entity: 'climate.cooling',
+          variant: 'compact',
+          cols: 6,
+        },
+      ],
+    },
+    // #46 as its reporter has it: two to a 402 section at Home Assistant's 8 px gaps (157 of content), each named as
+    // its room (the line under the name leaves the room out), the modes in the order each config lists them
+    {
+      title: 'Compact · half a section (#46)',
+      width: 402,
+      gap: 8,
+      cards: [
+        half('climate.garderobe', { modes: ['off', 'auto'], modes_style: 'full' }),
+        half('climate.atelier', { modes: ['auto', 'off'], modes_style: 'full' }),
+      ],
+    },
+    // the narrowest half a section: a 320 one at Fluvy's 16 (112 of content), a target and a range
+    {
+      title: 'Compact · half a section at the floor',
+      width: 320,
+      cards: [half('climate.garderobe'), half('climate.range')],
+    },
+    {
+      title: 'Compact · without − and +',
+      cards: [
+        half('climate.garderobe', { show_stepper: false }),
+        half('climate.off', { show_stepper: false, show_modes: false }),
+      ],
+    },
+    {
+      title: 'Ruler · half a section',
+      cards: [
+        half('climate.garderobe', { variant: 'ruler' }),
+        half('climate.range', { variant: 'ruler' }),
+      ],
+    },
+    {
+      title: 'Dial · without − and +',
+      cards: [
+        {
+          type: 'custom:fluvy-thermostat-card',
+          entity: 'climate.living',
+          show_stepper: false,
+          show_current: false,
+        },
+      ],
+    },
   ],
+  registry: {
+    areas: { garderobe: { area_id: 'garderobe', name: 'Garderobe' } },
+    entities: {
+      'climate.garderobe': { entity_id: 'climate.garderobe', area_id: 'garderobe' },
+      'climate.atelier': { entity_id: 'climate.atelier', area_id: 'garderobe' },
+    },
+  },
 };

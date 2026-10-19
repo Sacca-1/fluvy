@@ -6,7 +6,7 @@
  * Real cards on the playground's simulated hass. Exit code 1 on any failure.
  *   node interactions-devices.mjs            (expects the playground dev server on :5183)
  */
-import { calls, frame, moreInfo, reset, settle, startSuite, taps } from './lib/suite.mjs';
+import { calls, frame, moreInfo, reset, settle, startSuite, tapHead, taps } from './lib/suite.mjs';
 
 const suite = await startSuite();
 const { check } = suite;
@@ -45,13 +45,13 @@ const open = (sheet, options) => suite.sheet(sheet, options);
     JSON.stringify(c.map((x) => x.d)),
   );
   await reset(page);
-  await ceiling.locator('.fv-tile__name').click();
+  await tapHead(ceiling, '.fv-tile__name');
   check(
     'tile: tapping the body opens more-info for the entity',
     (await moreInfo(page)).join() === 'light.ceiling' && (await calls(page)).length === 0,
   );
   await reset(page);
-  await ceiling.locator('.fv-tile').focus();
+  await ceiling.locator('.fv-tile__tap').focus();
   await page.keyboard.press('Enter');
   check(
     'tile: the tile is a keyboard entry to more-info',

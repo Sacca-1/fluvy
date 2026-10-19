@@ -14,6 +14,14 @@ import {
   templateOf,
 } from './templates.js';
 import type { View } from './types.js';
+import type { HomeAssistant } from '@fluvy/core';
+import {
+  hcDishwasher,
+  houseOf,
+  lgFridge,
+  plugWasher,
+  tuyaKettle,
+} from '../appliance/fixtures/index.js';
 
 import {
   DEMO_ENERGY_SOURCES,
@@ -26,13 +34,24 @@ import {
 
 const house = (more: readonly DemoEntity[] = [], consumption?: readonly string[]) =>
   demoHass({ more, ...(consumption ? { consumption } : {}) }) as never;
-/** The demo home with one of everything the library has a card for. */
+/** The moment the appliances' fixtures are read at. */
+const APPLIANCES_AT = Date.parse('2026-09-17T19:47:00Z');
+/** The demo home with one of everything the library has a card for, appliances large and small among them (#47). */
 const everything = () =>
-  demoHass({
-    more: [...DEMO_EXTRAS, ...DEMO_ROOMS],
-    consumption: ['sensor.washing_machine_energy_today', 'sensor.dryer_energy_today'],
-    sources: DEMO_ENERGY_SOURCES,
-  }) as never;
+  houseOf(
+    [
+      lgFridge(APPLIANCES_AT),
+      hcDishwasher(APPLIANCES_AT),
+      plugWasher(APPLIANCES_AT),
+      tuyaKettle(APPLIANCES_AT),
+    ],
+    APPLIANCES_AT,
+    demoHass({
+      more: [...DEMO_EXTRAS, ...DEMO_ROOMS],
+      consumption: ['sensor.washing_machine_energy_today', 'sensor.dryer_energy_today'],
+      sources: DEMO_ENERGY_SOURCES,
+    }) as unknown as Partial<HomeAssistant>,
+  ) as never;
 const cardsOf = (views: readonly View[]) =>
   views.flatMap((v) => v.sections.flatMap((s) => s.cards));
 
@@ -82,6 +101,21 @@ describe('the dashboard templates', () => {
       expect(await generate({ type: template.type }, hass)).toMatchSnapshot(template.id);
   });
 
+  it('lay a room’s appliances across its subview, on the wall across its two columns (golden file, #47)', async () => {
+    const hass = everything() as unknown as HomeAssistant;
+    // the kitchen holds the dishwasher and the kettle
+    (hass.devices['hc-dish'] as { area_id: string | null }).area_id = 'kitchen';
+    (hass.devices['tuya-kettle'] as { area_id: string | null }).area_id = 'kitchen';
+    for (const template of [templateById('rooms'), templateById('wall')]) {
+      const kitchen = (await generate({ type: template.type }, hass as never)).views.find(
+        (view) => view.path === 'room-kitchen',
+      )!;
+      const across = kitchen.sections.filter((section) => section.column_span);
+      expect(across.map((section) => section.column_span)).toEqual([template.columns]);
+      expect(kitchen).toMatchSnapshot(template.id);
+    }
+  });
+
   it('build the home dashboard exactly as the home strategy always did', async () => {
     const hass = house();
     const config = { type: 'custom:fluvy-home' as const, tile_size: 'compact' as const };
@@ -118,8 +152,9 @@ describe('the dashboard templates', () => {
     for (const template of TEMPLATES)
       for (const card of cardsOf((await generate({ type: template.type }, everything())).views))
         used.add(card.type);
-    // the automations card is placed by hand (1.8): the automatic dashboards do not put it on a view
-    const byHand = new Set(['custom:fluvy-automations-card']);
+    // the automations card is placed by hand (1.8): the automatic dashboards do not put it on a view; the appliance
+    // card is drawn by the appliances card, which lays the strategy's out whole (#47)
+    const byHand = new Set(['custom:fluvy-automations-card', 'custom:fluvy-appliance-card']);
     expect(
       CATALOGUE.map(([tag]) => `custom:${tag}`).filter(
         (type) => !used.has(type) && !byHand.has(type),
@@ -133,7 +168,11 @@ describe('the dashboard templates', () => {
       expect(views.length).toBeGreaterThan(0);
       for (const view of views) {
         expect(view.max_columns).toBe(template.columns);
-        expect(view.sections.length).toBe(template.columns);
+        // the columns, then a band across all of them where the view has one (the appliances)
+        const across = view.sections.filter((section) => section.column_span);
+        expect(view.sections.length - across.length).toBe(template.columns);
+        expect(view.sections.slice(template.columns)).toEqual(across);
+        for (const band of across) expect(band.column_span).toBe(template.columns);
       }
     }
   });
@@ -173,7 +212,8 @@ describe('the dashboard templates', () => {
       const tabs = views.filter((v) => !v.subview).map((v) => v.path);
       const rooms = views.filter((v) => v.subview);
       for (const room of rooms) {
-        expect(room.path.startsWith('room-')).toBe(true);
+        // a room, or every appliance (Home's)
+        expect(room.path.startsWith('room-') || room.path === 'appliances').toBe(true);
         expect(room.back_path).toBeDefined();
         const chips = cardsOf(views).filter(
           (c) => c.type === 'custom:fluvy-chips-card',
@@ -186,7 +226,8 @@ describe('the dashboard templates', () => {
       // the home opens a room from its Rooms view, the rooms and the wall always
       if (template.id === 'rooms' || template.id === 'wall')
         expect(rooms.length).toBeGreaterThan(0);
-      if (template.id === 'home') expect(rooms.length > 0).toBe(tabs.includes('rooms'));
+      if (template.id === 'home')
+        expect(rooms.some((room) => room.path.startsWith('room-'))).toBe(tabs.includes('rooms'));
     }
   });
 
@@ -205,24 +246,30 @@ describe('the dashboard templates', () => {
     expect(kept).not.toContain(all[1]);
   });
 
-  it('give the wall the rooms asked for, in that order, and every room without a choice', async () => {
+  it('give the wall the rooms asked for that exist, in that order, and every room without a choice', async () => {
     const wall = templateById('wall');
     const roomsOf = (views: readonly View[]) => views.filter((v) => v.subview).map((v) => v.path);
-    expect(
-      roomsOf((await generate({ type: wall.type }, everything())).views).length,
-    ).toBeGreaterThan(2);
+    // an attic with nothing in it: never a room by itself, kept when the wall asks for it
+    const house = () => {
+      const hass = everything() as { areas: Record<string, unknown> };
+      hass.areas['attic'] = { area_id: 'attic', name: 'Attic' };
+      return hass as never;
+    };
+    const all = roomsOf((await generate({ type: wall.type }, house())).views);
+    expect(all.length).toBeGreaterThan(2);
+    expect(all).not.toContain('room-attic');
     const chosen = (
       await generate(
-        { type: wall.type, areas: ['kitchen', 'living_room', 'nowhere'] },
-        everything(),
+        { type: wall.type, areas: ['kitchen', 'attic', 'living_room', 'nowhere'] },
+        house(),
       )
     ).views;
-    expect(roomsOf(chosen)).toEqual(['room-kitchen', 'room-living_room']);
+    expect(roomsOf(chosen)).toEqual(['room-kitchen', 'room-attic', 'room-living_room']);
     const wallView = chosen[0]!;
     const roomCards = wallView.sections[0]!.cards.filter(
       (c) => c.type === 'custom:fluvy-room-card',
     );
-    expect(roomCards.map((c) => c['area'])).toEqual(['kitchen', 'living_room']);
+    expect(roomCards.map((c) => c['area'])).toEqual(['kitchen', 'attic', 'living_room']);
     expect(roomCards.every((c) => c['variant'] === 'tile')).toBe(true);
     expect(wallView.back_path).toBeUndefined();
     expect(chosen[1]!.back_path).toBe('/fluvy-home/wall');

@@ -2,7 +2,7 @@ import { haptic, strings, type HomeAssistant, type WallExit } from '@fluvy/core'
 import { glyph } from '@fluvy/ui';
 import { css, html, LitElement, svg } from 'lit';
 
-const s = strings('panel');
+const s = strings('wall');
 
 /*
  * The way out of a wall, in the top right corner, as the house chose it.
@@ -209,7 +209,7 @@ export class FluvyWallCorner extends LitElement {
 
   protected override render() {
     if (this.mode === 'button') {
-      const label = s(this.hass, 'wall.leave_tap');
+      const label = s(this.hass, 'leave_tap');
       return html`<button
         class="leave ${this.shown ? 'is-shown' : ''}"
         aria-label=${label}
@@ -222,7 +222,7 @@ export class FluvyWallCorner extends LitElement {
     }
     return html`<button
       class=${this.pressing ? 'is-pressing' : ''}
-      aria-label=${s(this.hass, 'wall.leave')}
+      aria-label=${s(this.hass, 'leave')}
       @pointerdown=${this.start}
       @pointerup=${this.cancel}
       @pointercancel=${this.cancel}

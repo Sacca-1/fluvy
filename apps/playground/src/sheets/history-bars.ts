@@ -9,7 +9,10 @@ if (!customElements.get('fluvy-history-bars-card'))
  * house, the feed-in and the import over the seven finished days before Saturday 10 October 2026 — then thirty
  * days, twelve weeks, twelve months, the compact and mini layouts, a narrow column, a temperature's means, every
  * part switched off, the day in progress, a lifetime meter in Wh, and the honest states: no statistics yet, a
- * sensor that is unavailable, one that is not there.
+ * sensor that is unavailable, one that is not there. Then 1.9's (issues #44 and #45): a day counter and a monthly
+ * rain gauge as Home Assistant counts them and from zero on their cycles, a reading at the end by month, a lifetime
+ * meter after a restart, a sensor read from its history, bars below zero in their own colour, a recorder that cannot
+ * be read, a narrow column, today live on the page's clock, and a chart that is the card's tap.
  */
 
 /** The sheet's moment: Saturday 10 October 2026 at noon, so the seven finished days read 03–09 October. */
@@ -126,6 +129,149 @@ const rows = (message: Record<string, unknown>, id: string): Row[] => {
   return out;
 };
 
+/* ---------- 1.9: the issues' sensors (#44, #45) as the recorder keeps them ---------- */
+
+const HOUR = 3_600_000;
+/** A row of the page's own calendar (the mock's house reads the browser's clock). */
+const at = (month: number, day: number, hour = 0): number =>
+  new Date(2026, month, day, hour).getTime();
+/** A row in the reply to a question asked from `start_time`, as the recorder sends it. */
+interface Answered {
+  readonly start: number;
+  readonly end: number;
+  readonly change?: number;
+  readonly state?: number;
+}
+const from = (message: Record<string, unknown>, rows: readonly Answered[]): Answered[] => {
+  const start = Date.parse(String(message['start_time']));
+  const end = message['end_time'] ? Date.parse(String(message['end_time'])) : Infinity;
+  return rows.filter((row) => row.start >= start && row.start < end);
+};
+const asksFor = (message: Record<string, unknown>, type: string): boolean =>
+  ((message['types'] as string[] | undefined) ?? []).includes(type);
+/** Rows of one value a day, from a day on: what Home Assistant counted, or the reading at each day's close. */
+const days = (month: number, day: number, values: readonly number[], key: 'change' | 'state') =>
+  values.map((value, i) => ({
+    start: at(month, day + i),
+    end: at(month, day + i + 1),
+    [key]: value,
+  }));
+
+/**
+ * #45: a template summing two inverter day counters. Its hours from 13 October 21:00 (it was made that evening),
+ * 0.0 from midnight to sunrise, 33.3 by the 15:00 hour; and Home Assistant's own day rows, which count the two
+ * counters' staggered midnight twice: 17.0 on its first evening, 51.2 today.
+ */
+const PV_HOURS = [
+  35.6, 35.6, 35.6, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 1.2, 4.6, 9.4, 15.2, 21.3, 27.4, 33.3,
+];
+const PV_NOW = '2026-10-14T16:30:00';
+const pvRows = (message: Record<string, unknown>): Answered[] =>
+  message['period'] === 'hour' && asksFor(message, 'state')
+    ? from(
+        message,
+        PV_HOURS.map((state, i) => ({
+          start: at(9, 13, 21) + i * HOUR,
+          end: at(9, 13, 22) + i * HOUR,
+          state,
+        })),
+      )
+    : from(message, days(9, 13, [17, 51.2], 'change'));
+
+/**
+ * #44: a monthly rain gauge reported as a `total` with no last_reset — so Home Assistant counts its reset on 1 October
+ * as −51.1 — read by the day (what it counted, or its reading at each close) and by the month (its reading at each
+ * month's end, the month's rain).
+ */
+const RAIN_NOW = '2026-10-13T22:00:00';
+const RAIN_GAINS: Readonly<Record<string, number>> = {
+  '8-16': 0.3,
+  '8-17': 2.6,
+  '8-18': 0.4,
+  '8-27': 0.2,
+  '9-3': 0.9,
+  '9-5': 0.6,
+  '9-9': 4.5,
+  '9-10': 10.9,
+};
+const rainDays = (): { change: number[]; state: number[] } => {
+  const change: number[] = [];
+  const state: number[] = [];
+  let reading = 47.6;
+  for (let i = 0; i < 31; i++) {
+    const date = new Date(2026, 8, 13 + i);
+    const gain = RAIN_GAINS[`${date.getMonth()}-${date.getDate()}`] ?? 0;
+    const fresh = date.getDate() === 1;
+    change.push(fresh ? -reading : gain);
+    reading = fresh ? 0 : Math.round((reading + gain) * 10) / 10;
+    state.push(reading);
+  }
+  return { change, state };
+};
+const RAIN_MONTHS = [54.3, 38.2, 61.4, 12.8, 63, 51.1, 16.9];
+const rainRows = (message: Record<string, unknown>): Answered[] => {
+  if (message['period'] === 'month')
+    return from(
+      message,
+      RAIN_MONTHS.map((state, i) => ({ start: at(3 + i, 1), end: at(4 + i, 1), state })),
+    );
+  const { change, state } = rainDays();
+  return asksFor(message, 'state')
+    ? from(message, days(8, 13, state, 'state'))
+    : from(message, days(8, 13, change, 'change'));
+};
+
+/**
+ * A lifetime meter whose integration read 0 for a moment at a restart on 7 October: Home Assistant took the fall for
+ * a new meter and counted its whole reading again that day; its readings at each day's close never saw the glitch.
+ */
+const LIFE_DAYS = [24.1, 31.5, 28.2, 26.4, 22.9, 30.8, 27.5, 12.6];
+const lifeRows = (message: Record<string, unknown>): Answered[] => {
+  if (asksFor(message, 'state')) {
+    let reading = 18_150;
+    return from(
+      message,
+      [0, ...LIFE_DAYS].map((gain, i) => {
+        reading = Math.round((reading + gain) * 10) / 10;
+        return { start: at(9, 2 + i), end: at(9, 3 + i), state: reading };
+      }),
+    );
+  }
+  return from(
+    message,
+    days(
+      9,
+      3,
+      LIFE_DAYS.map((gain, i) => (i === 4 ? gain + 18_257.3 : gain)),
+      'change',
+    ),
+  );
+};
+
+/** A net meter (`total`): the days it exported more than it took are below zero. */
+const NET_DAYS = [5.2, -3.1, 7.8, -6.4, 2.2, -1.5, 4.9, 1.8];
+
+/** What the recorder keeps of the issues' sensors, by message. */
+const RECORDED: Readonly<Record<string, (message: Record<string, unknown>) => Answered[]>> = {
+  'sensor.hb_pv': pvRows,
+  'sensor.hb_rain': rainRows,
+  'sensor.hb_life': lifeRows,
+  'sensor.hb_net': (message) => from(message, days(9, 3, NET_DAYS, 'change')),
+};
+
+/** A rain tank with no state class: no statistics, its history only — from 5 October, two days into the window. */
+const TANK: ReadonlyArray<readonly [number, number]> = [
+  [at(9, 5, 0), 412],
+  [at(9, 5, 19), 405],
+  [at(9, 6, 7), 398],
+  [at(9, 6, 21), 431],
+  [at(9, 7, 13), 424],
+  [at(9, 8, 9), 417],
+  [at(9, 9, 2), 409],
+  [at(9, 9, 18), 401],
+  [at(9, 10, 8), 396],
+];
+
 /** The solar meter with the card's default colour (the palette's accent): what the other frames are drawn with. */
 const plain = {
   type: 'custom:fluvy-history-bars-card',
@@ -169,6 +315,43 @@ const gridImport = {
   _now: NOW,
 };
 
+/** #45's card at its own moment (14 October, 16:30): six days and today, today first. */
+const pv = {
+  type: 'custom:fluvy-history-bars-card',
+  entity: 'sensor.hb_pv',
+  icon: 'sun',
+  days: 6,
+  include_today: true,
+  head: ['today', 'average', 'total'],
+  _now: PV_NOW,
+};
+/** #44's card at its own moment (13 October, 22:00): 28 days and today. */
+const rain = {
+  type: 'custom:fluvy-history-bars-card',
+  entity: 'sensor.hb_rain',
+  icon: 'drop',
+  days: 28,
+  include_today: true,
+  _now: RAIN_NOW,
+};
+const life = {
+  type: 'custom:fluvy-history-bars-card',
+  entity: 'sensor.hb_life',
+  icon: 'bolt',
+  _now: NOW,
+};
+/**
+ * A house meter on the page's own clock, live: its hours over the last thirty days end at the last full hour (the
+ * house's statistics), and what it reads now is a little past them.
+ */
+const LIVE_HOURS = Array.from({ length: 30 * 24 }, (_, i) => i).reduce<number[]>((out, i) => {
+  const hour = i % 24;
+  const use = 0.35 + (hour >= 7 && hour <= 22 ? 0.6 : 0) + 0.2 * Math.abs(noise(i));
+  out.push(Math.round(((out[out.length - 1] ?? 21_000) + use) * 100) / 100);
+  return out;
+}, []);
+const LIVE_NOW = Math.round(((LIVE_HOURS[LIVE_HOURS.length - 1] ?? 0) + 0.4) * 100) / 100;
+
 export const sheet: SheetSpec = {
   states: [
     ['sensor.hb_solar', '18342.7', { friendly_name: 'Solar production', ...KWH }],
@@ -180,15 +363,57 @@ export const sheet: SheetSpec = {
     ['sensor.hb_fresh', '0.4', { friendly_name: 'Heat pump energy', ...KWH }],
     ['sensor.hb_wh', '18342700', { friendly_name: 'Lifetime production', ...WH }],
     ['sensor.hb_panels', '5.4', { friendly_name: 'Panels', unit_of_measurement: 'kWp' }],
+    ['sensor.hb_pv', '33.3', { friendly_name: 'PV1 + PV2 today', ...KWH }],
+    [
+      'sensor.hb_rain',
+      '16.9',
+      {
+        friendly_name: 'Rain this month',
+        unit_of_measurement: 'mm',
+        device_class: 'precipitation',
+        state_class: 'total',
+      },
+    ],
+    ['sensor.hb_life', '18392.5', { friendly_name: 'Inverter lifetime', ...KWH }],
+    [
+      'sensor.hb_net',
+      '2961.4',
+      {
+        friendly_name: 'Grid net',
+        unit_of_measurement: 'kWh',
+        device_class: 'energy',
+        state_class: 'total',
+      },
+    ],
+    ['sensor.hb_broken', '120.4', { friendly_name: 'Garage meter', ...KWH }],
+    ['sensor.hb_tank', '396', { friendly_name: 'Rain tank', unit_of_measurement: 'L' }],
+    ['sensor.hb_live', String(LIVE_NOW), { friendly_name: 'House meter', ...KWH }],
   ],
 
+  statistics: { 'sensor.hb_live': { kind: 'counter', hourly: LIVE_HOURS } },
+
   ws: {
-    'recorder/statistics_during_period': (message) =>
-      Object.fromEntries(
-        ((message['statistic_ids'] as string[] | undefined) ?? [])
-          .filter((id) => id in SENSORS)
-          .map((id) => [id, rows(message, id)]),
-      ),
+    'recorder/statistics_during_period': (message) => {
+      const ids = (message['statistic_ids'] as string[] | undefined) ?? [];
+      // a recorder that cannot be read: what the card says, and asks again
+      if (ids.includes('sensor.hb_broken')) throw new Error('The recorder is not running');
+      return Object.fromEntries([
+        ...ids.filter((id) => id in SENSORS).map((id) => [id, rows(message, id)]),
+        ...ids.flatMap((id) => {
+          const recorded = RECORDED[id]?.(message);
+          return recorded ? [[id, recorded]] : [];
+        }),
+      ]);
+    },
+    // the rain tank's states, as the history sends them (`minimal_response`: the state and its instant in seconds)
+    'history/history_during_period': (message) =>
+      ((message['entity_ids'] as string[] | undefined) ?? []).includes('sensor.hb_tank')
+        ? {
+            'sensor.hb_tank': TANK.filter(
+              ([t]) => t <= Date.parse(String(message['end_time'])),
+            ).map(([t, v]) => ({ s: String(v), lu: t / 1000 })),
+          }
+        : undefined,
   },
 
   frames: [
@@ -282,5 +507,85 @@ export const sheet: SheetSpec = {
     },
     { title: 'Unavailable', cards: [{ ...plain, entity: 'sensor.hb_dead', icon: 'drop' }] },
     { title: 'Missing', cards: [{ ...plain, entity: 'sensor.hb_none' }] },
+
+    /* ---- the compact and mini layouts at their own size: half a section ---- */
+    {
+      title: 'Compact · half a section',
+      cards: [
+        { ...house, variant: 'compact', cols: 6 },
+        { ...solar, variant: 'compact', cols: 6 },
+      ],
+    },
+    {
+      title: 'Mini · half a section',
+      cards: [
+        { ...plain, variant: 'mini', cols: 6 },
+        { ...feedIn, variant: 'mini', cols: 6 },
+      ],
+    },
+
+    /* ---- 1.9: the bars tell the truth (#44, #45); frames only ever appended ---- */
+    { title: '#45 · a day counter as Home Assistant counts it', cards: [pv] },
+    { title: '#45 · from zero every day', cards: [{ ...pv, reset: 'day' }] },
+    { title: '#44 · a monthly rain gauge', cards: [rain] },
+    { title: '#44 · from zero every month', cards: [{ ...rain, reset: 'month' }] },
+    {
+      title: 'The reading at the end · by month',
+      cards: [{ ...rain, stat: 'state', period: 'month', days: 6, reset: 'month' }],
+    },
+    {
+      title: 'A lifetime meter after a restart',
+      cards: [
+        { ...life, name: 'As Home Assistant counts it' },
+        { ...life, name: 'Never starts again', reset: 'never' },
+      ],
+    },
+    {
+      title: 'From the history',
+      cards: [{ ...plain, entity: 'sensor.hb_tank', icon: 'drop' }],
+    },
+    {
+      title: 'Below zero in its own colour',
+      cards: [
+        {
+          ...plain,
+          entity: 'sensor.hb_net',
+          icon: 'grid',
+          include_today: true,
+          negative_color: 'green',
+          current_color: 'amber',
+        },
+        {
+          ...plain,
+          entity: 'sensor.hb_net',
+          icon: 'grid',
+          variant: 'mini',
+          include_today: true,
+          negative_color: 'green',
+        },
+      ],
+    },
+    {
+      title: 'Couldn’t read the recorder',
+      // on the page's own clock: it asks again a minute on
+      cards: [{ type: plain.type, entity: 'sensor.hb_broken', icon: 'heater' }],
+    },
+    { title: 'Narrow 211', width: 211, cards: [{ ...rain, reset: 'month' }] },
+    {
+      title: 'Live today',
+      cards: [
+        {
+          type: 'custom:fluvy-history-bars-card',
+          entity: 'sensor.hb_live',
+          icon: 'home',
+          include_today: true,
+          head: ['today', 'total'],
+        },
+      ],
+    },
+    {
+      title: 'Without a head, the chart is the tap',
+      cards: [{ ...plain, show_head: false, tap_action: { action: 'more-info' } }],
+    },
   ],
 };

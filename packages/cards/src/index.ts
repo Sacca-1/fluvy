@@ -33,11 +33,21 @@ import { FluvyRoomCard } from './room/room-card.js';
 import { FluvyLightsCard } from './lights/lights-card.js';
 import { FluvyMapCard } from './map/map-card.js';
 import { defineStrategies } from './strategy/define.js';
+import { ALERTS_FAMILY } from './alerts-family.js';
+import { APPLIANCES_FAMILY } from './appliances-family.js';
 import { AUTOMATIONS_FAMILY } from './automations-family.js';
 import { DEVICES_FAMILY } from './devices-family.js';
-import { ENERGY_FAMILY } from './energy-family.js';
+import { ENERGY_FAMILY, type FamilyEntry } from './energy-family.js';
 import { MEDIA_FAMILY } from './media-family.js';
 import { WEATHER_FAMILY } from './weather-family.js';
+
+/** A card of the catalogue: its tag, its element, and what the card picker lists it as. */
+type CatalogueEntry = readonly [
+  tag: string,
+  element: CustomElementConstructor,
+  name: string,
+  description: string,
+];
 
 /**
  * The fluvy card catalogue. Registration happens while the module evaluates — never after an
@@ -45,9 +55,7 @@ import { WEATHER_FAMILY } from './weather-family.js';
  * place. The list reads everyday cards first, the specialised sets after; Home Assistant's card picker
  * sorts custom cards by name, which is why every name starts with "Fluvy ·".
  */
-const CATALOGUE: ReadonlyArray<
-  readonly [tag: string, element: CustomElementConstructor, name: string, description: string]
-> = [
+const CATALOGUE: readonly CatalogueEntry[] = [
   [
     'fluvy-tile-card',
     FluvyTileCard,
@@ -234,52 +242,38 @@ const CATALOGUE: ReadonlyArray<
 
 for (const [tag, element, name, description] of CATALOGUE)
   registerCard({ tag, name, description }, element);
-// the weather card and the media, energy, devices and automations families: listed and measured now, their elements
-// fetched at once and defined as they land
-for (const [tag, name, description, height] of [
-  ...WEATHER_FAMILY,
-  ...MEDIA_FAMILY,
-  ...ENERGY_FAMILY,
-  ...DEVICES_FAMILY,
-  ...AUTOMATIONS_FAMILY,
-])
-  announceCard({ tag, name, description }, height);
-/** The families defined (what a test waits on before its page goes; the bundle never waits). */
-export const familiesDefined: Promise<unknown> = Promise.all([
-  import('./weather-cards.js'),
-  import('./media-cards.js'),
-  import('./energy-cards.js'),
-  import('./devices-cards.js'),
-  import('./automations-cards.js'),
-]);
 
-/** Every card with its element: the eager ones, the weather card and the media, energy, devices and automations families (docs, tests). */
-export async function catalogue(): Promise<
-  ReadonlyArray<
-    readonly [tag: string, element: CustomElementConstructor, name: string, description: string]
-  >
-> {
-  const [
-    { WEATHER_CATALOGUE },
-    { MEDIA_CATALOGUE },
-    { ENERGY_CATALOGUE },
-    { DEVICES_CATALOGUE },
-    { AUTOMATIONS_CATALOGUE },
-  ] = await Promise.all([
-    import('./weather-cards.js'),
-    import('./media-cards.js'),
-    import('./energy-cards.js'),
-    import('./devices-cards.js'),
-    import('./automations-cards.js'),
-  ]);
-  return [
-    ...CATALOGUE,
-    ...WEATHER_CATALOGUE,
-    ...MEDIA_CATALOGUE,
-    ...ENERGY_CATALOGUE,
-    ...DEVICES_CATALOGUE,
-    ...AUTOMATIONS_CATALOGUE,
-  ];
+/**
+ * A family: its names and heights, which every page carries, and its chunk — fetched at once, defined as it lands
+ * (its English first), its cards with their elements.
+ */
+type Family = readonly [
+  entries: readonly FamilyEntry[],
+  chunk: () => Promise<{ readonly CARDS: readonly CatalogueEntry[] }>,
+];
+
+/** The weather card and the media, energy, devices, automations, appliances and alerts families. */
+const FAMILIES: readonly Family[] = [
+  [WEATHER_FAMILY, () => import('./weather-cards.js')],
+  [MEDIA_FAMILY, () => import('./media-cards.js')],
+  [ENERGY_FAMILY, () => import('./energy-cards.js')],
+  [DEVICES_FAMILY, () => import('./devices-cards.js')],
+  [AUTOMATIONS_FAMILY, () => import('./automations-cards.js')],
+  [APPLIANCES_FAMILY, () => import('./appliances-cards.js')],
+  [ALERTS_FAMILY, () => import('./alerts-cards.js')],
+];
+
+// the families: listed and measured now, their elements fetched at once and defined as they land
+for (const [entries] of FAMILIES)
+  for (const [tag, name, description, height] of entries)
+    announceCard({ tag, name, description }, height);
+/** The families defined (what a test waits on before its page goes; the bundle never waits). */
+export const familiesDefined: Promise<unknown> = Promise.all(FAMILIES.map(([, chunk]) => chunk()));
+
+/** Every card with its element: the eager ones, then each family's (docs, tests). */
+export async function catalogue(): Promise<readonly CatalogueEntry[]> {
+  const chunks = await Promise.all(FAMILIES.map(([, chunk]) => chunk()));
+  return [...CATALOGUE, ...chunks.flatMap(({ CARDS }) => CARDS)];
 }
 // the automatic dashboards' strategies (`strategy: { type: custom:fluvy-home }` and the other templates; their file is fetched when asked)
 defineStrategies();

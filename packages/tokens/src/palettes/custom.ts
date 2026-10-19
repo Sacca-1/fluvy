@@ -90,7 +90,7 @@ const remembered = new Map<string, PaletteSeed>();
  * as a colour nobody chose (a pale lilac turned into the grid's blue). It becomes a monochrome palette, as Noir's
  * lines are.
  */
-const GREY_CHROMA = 0.03;
+export const GREY_CHROMA = 0.03;
 
 /** What a picked colour gives an accent to start from: its ink, its fill and the ink on that fill (in OKLCH). */
 export interface AccentAnchors {

@@ -328,6 +328,47 @@ const open = (sheet, options) => suite.sheet(sheet, options);
   await page.close();
 }
 
+/* ---------- keypad: a code typed and sent at the floor as at the design width ---------- */
+// at 211 the head's line gives way ("Enter your code · 29 s" keeps "Enter your code"); the line is fitted before it is
+// drawn, never written over the text the sheet draws — written over, every tick threw and no key reached the code
+for (const width of [211, 360]) {
+  const page = await open('devices-security', { width });
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(String(error).slice(0, 120)));
+  await settle(page, 1300); // a tick or two of the countdown
+  const keypad = frame(page, 'Alarm · keypad sheet').locator('fluvy-keypad');
+  const keys = keypad.locator('.dv-key');
+  await reset(page);
+  for (const index of [4, 7, 9]) await keys.nth(index).click(); // the demo's 1 2, then 5 8 0
+  await settle(page, 1100);
+  const line = await keypad.locator('.fv-sheet__head .fv-card__sub').evaluate((el) => ({
+    text: el.textContent.trim(),
+    whole: el.scrollWidth <= el.clientWidth + 0.5,
+  }));
+  check(
+    `keypad at ${width}: each digit lights its dot, and the line holds whole ("${line.text}")`,
+    (await keypad.locator('.dv-code__dot.is-on').count()) === 5 &&
+      line.whole &&
+      /^Enter your code/.test(line.text),
+    JSON.stringify(line),
+  );
+  const disarm = keypad.locator('.dv-actions .fv-btn--accent');
+  const ready = !(await disarm.isDisabled());
+  await disarm.click();
+  await settle(page, 300);
+  const sent = await calls(page);
+  check(
+    `keypad at ${width}: Disarm sends the code typed, once, and nothing throws`,
+    ready &&
+      sent.length === 1 &&
+      sent[0].s === 'alarm_control_panel.alarm_disarm' &&
+      sent[0].d.code === '12580' &&
+      errors.length === 0,
+    JSON.stringify({ sent, errors: errors.slice(0, 2) }),
+  );
+  await page.close();
+}
+
 /* ---------- camera: the refresh loop ---------- */
 {
   const page = await open('devices-security');

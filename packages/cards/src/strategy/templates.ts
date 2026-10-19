@@ -63,6 +63,8 @@ export interface Template {
   readonly views: readonly ViewSpec[] | ((ctx: StrategyContext) => readonly ViewSpec[]);
   /** The rooms the dashboard opens as subviews, given the paths of the views it built. */
   readonly rooms?: (ctx: StrategyContext, paths: readonly string[]) => RoomLink[];
+  /** Whether it opens every appliance as a subview: Home's bands lead there ("All appliances"). */
+  readonly appliances?: boolean;
   readonly options: readonly TemplateOption[];
 }
 
@@ -114,6 +116,7 @@ export const TEMPLATES: readonly Template[] = [
     views: HOME_VIEWS,
     // the rooms open from the Rooms view: none without it
     rooms: (ctx, paths) => (paths.includes('rooms') ? everyRoom(ctx, () => 'rooms') : []),
+    appliances: true,
     options: [HIDE, THERMOSTAT, TILES, FLOW, ROOM, GREETING_TABS],
   },
   {

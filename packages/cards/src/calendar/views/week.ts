@@ -3,12 +3,13 @@ import { html, nothing, type TemplateResult } from 'lit';
 import { keyed } from 'lit/directives/keyed.js';
 import { addDays, dayKey, sameDay, weekStart } from '../../shared/dates.js';
 import { dayClasses, dayStep } from '../../shared/days.js';
-import { FACE, fitText } from '../fit.js';
+import { FACE, textWidth } from '../fit.js';
 import type { ViewContext } from './context.js';
 import {
   columnStyle,
   dayList,
   fitBadgeHead,
+  headSub,
   headTone,
   notice,
   outage,
@@ -41,12 +42,23 @@ export function weekView(ctx: ViewContext): TemplateResult {
 
   const title = ctx.config.title ?? words.t('calendar.this_week');
   // the count gives way before the title does: "10 events", or just "10" where the words do not fit, or none
+  const line = words.ranges(start, addDays(start, 6));
   const fit = fitBadgeHead(
     ctx,
     'calendar',
     title,
     !ready || broken ? [] : [words.events(total), String(total)],
+    line,
   );
+  // the short weekdays while each holds its column and stands 4 from the next ("LUNMARMER" at 211 reads as one
+  // word): else the narrow ones, as the month's
+  const pitch = columns.cell + Math.floor((ctx.width - 7 * columns.cell) / 6);
+  const weekday = days.every((date) => {
+    const width = textWidth(words.weekday(date, 'short'), FACE.weekday);
+    return width <= columns.cell && width + 4 <= pitch;
+  })
+    ? 'short'
+    : 'narrow';
   const list = broken ? null : dayList(ctx, ctx.day);
 
   return surface(
@@ -56,7 +68,7 @@ export function weekView(ctx: ViewContext): TemplateResult {
         icon: fit.icon,
         tone: headTone(ctx),
         title,
-        sub: fitText(words.ranges(start, addDays(start, 6)), fit.room, FACE.sub),
+        sub: headSub(ctx, line, fit.room),
         trailing: fit.pill ? badge(fit.pill, 'neutral') : nothing,
       })}
       ${
@@ -81,7 +93,7 @@ export function weekView(ctx: ViewContext): TemplateResult {
                 aria-label=${words.dayAria(date, count)}
                 @click=${() => ctx.select(date)}
               >
-                <span class="cd-wday__n">${words.weekday(date, 'short')}</span>
+                <span class="cd-wday__n">${words.weekday(date, weekday)}</span>
                 <span class="cd-wday__d">${date.getDate()}</span>
                 <span class="cd-wday__dots">${count ? html`<i></i>` : nothing}</span>
               </button>`;

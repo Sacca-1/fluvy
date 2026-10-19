@@ -20,12 +20,14 @@ import {
 } from 'lit';
 import { renderAvatar, type Presence } from '../shared/avatar.js';
 import { HeadFit } from '../energy/head.js';
+import { mapHead, mapRow } from '../shared/map-head.js';
 import { Card, type BaseKey } from '../shared/base.js';
 import { configKeys } from '../shared/config.js';
 import {
   actionFields,
   boolField,
   colourFields,
+  emptyFields,
   entitiesField,
   entityField,
   fieldRow,
@@ -34,9 +36,18 @@ import {
   nameIconFields,
   numberField,
   selectField,
+  showIconField,
   textField,
 } from '../shared/form.js';
-import { HEAD, ROW, listLength } from '../shared/heights.js';
+import { EMPTY, entryCount, HEAD, ROW } from '../shared/heights.js';
+import {
+  EMPTY_KEYS,
+  emptyPanel,
+  idsOf,
+  listOf,
+  type EmptyList,
+  type EntityEntry,
+} from '../shared/lists.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 import {
   distanceFromHome,
@@ -50,10 +61,10 @@ const s = strings('map');
 
 export type MapVariant = 'map' | 'zones' | 'rows';
 
-export interface MapCardConfig extends FluvyCardConfig {
+export interface MapCardConfig extends FluvyCardConfig, EmptyList {
   title?: string;
-  /** `person.*` and `device_tracker.*`. */
-  entities?: readonly string[];
+  /** `person.*` and `device_tracker.*`: ids, or objects naming one. */
+  entities?: readonly EntityEntry[];
   /** The zones to show, in this order; default: the house's, by name. */
   zones?: ReadonlyArray<string | ZoneSpec>;
   /** `map`: Home Assistant's map on a plate (tiles from the internet, as its own map card). `zones`: columns, no request. `rows`: a row a person. */
@@ -90,7 +101,8 @@ type MapElement = HTMLElement & {
  */
 export class FluvyMapCard extends Card<MapCardConfig> {
   static override layoutHeight(config: MapCardConfig): number {
-    const people = listLength(config, ['entities']);
+    const people = entryCount(config, ['entities']);
+    if (!people) return HEAD + EMPTY;
     if (config.variant === 'rows') return HEAD + ROW * people;
     if (config.variant === 'map') return HEAD + (config.map_shape === 'square' ? 360 : 224) + 60;
     return ZONES_HEIGHT;
@@ -131,6 +143,7 @@ export class FluvyMapCard extends Card<MapCardConfig> {
     'card_color',
     'tap_action',
     'hold_action',
+    'show_icon',
   ];
   static override keys = configKeys<MapCardConfig>()([
     'title',
@@ -143,6 +156,7 @@ export class FluvyMapCard extends Card<MapCardConfig> {
     'show_empty',
     'show_distance',
     'map_path',
+    ...EMPTY_KEYS,
   ]);
   static override lists: readonly RowsListSpec[] = [
     {
@@ -167,6 +181,7 @@ export class FluvyMapCard extends Card<MapCardConfig> {
         entitiesField('entities', ['person', 'device_tracker'], true),
         entitiesField('zones', ['zone']),
         fieldRow(textField('title'), iconField()),
+        showIconField(),
         fieldRow(
           selectField('variant', ['zones', 'map', 'rows']),
           selectField('map_shape', ['wide', 'square']),
@@ -175,6 +190,7 @@ export class FluvyMapCard extends Card<MapCardConfig> {
         fieldRow(boolField('fit_zones'), boolField('show_empty')),
         fieldRow(boolField('show_distance'), textField('map_path')),
         ...colourFields(),
+        emptyFields(),
         actionFields(),
       ],
       ...formLabels({ hours_to_show: 'editor.hours', map_path: 'editor.map_path' }),
@@ -189,7 +205,7 @@ export class FluvyMapCard extends Card<MapCardConfig> {
   }
 
   protected override prepare(config: MapCardConfig): MapCardConfig {
-    if (!config.entities?.length) throw new Error('fluvy-map-card: add at least one person');
+    listOf(config, 'entities');
     return config;
   }
 
@@ -206,14 +222,14 @@ export class FluvyMapCard extends Card<MapCardConfig> {
 
   protected override watched(): readonly string[] {
     return [
-      ...(this.config?.entities ?? []),
+      ...idsOf(this.config?.entities),
       ...this.zoneSpecs().map((zone) => zone.entity),
       'zone.home',
     ];
   }
 
   override getCardSize(): number {
-    return this.variant === 'rows' ? 1 + (this.config?.entities?.length ?? 0) : 4;
+    return this.variant === 'rows' ? 1 + idsOf(this.config?.entities).length : 4;
   }
   override getGridOptions(): LovelaceGridOptions {
     return { columns: 12, rows: 'auto', min_columns: 6 };
@@ -232,7 +248,7 @@ export class FluvyMapCard extends Card<MapCardConfig> {
 
   private people(): Placed[] {
     const zones = this.zones();
-    return (this.config?.entities ?? []).map((id) => whereIs(this.entity(id), zones));
+    return idsOf(this.config?.entities).map((id) => whereIs(this.entity(id), zones));
   }
 
   private presence(person: Placed): Presence {
@@ -302,7 +318,7 @@ export class FluvyMapCard extends Card<MapCardConfig> {
     const c = this.config;
     return {
       type: 'map',
-      entities: [...(c?.entities ?? [])],
+      entities: idsOf(c?.entities),
       ...(c?.hours_to_show !== undefined ? { hours_to_show: c.hours_to_show } : {}),
       ...(c?.default_zoom !== undefined ? { default_zoom: c.default_zoom } : {}),
       ...(c?.fit_zones !== undefined ? { fit_zones: c.fit_zones } : {}),
@@ -330,7 +346,8 @@ export class FluvyMapCard extends Card<MapCardConfig> {
 
   protected override updated(changed: PropertyValues): void {
     super.updated(changed);
-    if (this.variant !== 'map') return;
+    // Home Assistant's map is made for someone to show on it
+    if (this.variant !== 'map' || !idsOf(this.config?.entities).length) return;
     if (!this.mapElement) {
       void this.makeMap();
       return;
@@ -356,11 +373,14 @@ export class FluvyMapCard extends Card<MapCardConfig> {
   }
 
   private renderZones(people: readonly Placed[]): TemplateResult {
+    // where nobody can be placed (every tracker out of reach), the places they could be keep their columns, empty,
+    // beside the faces that cannot be placed: the card stands as it does with its people spread (1.9)
+    const nobody = people.length > 0 && people.every((person) => person.where === 'unknown');
     const groups = groupByZone(
       people,
       this.zones(),
       this.zoneSpecs(),
-      this.config?.show_empty ?? false,
+      (this.config?.show_empty ?? false) || nobody,
     );
     const labels = groups.map((group) => this.zoneLabel(group));
     // as many columns as the width holds (80 each, four at most), one fewer while a zone's word would leave its
@@ -421,13 +441,29 @@ export class FluvyMapCard extends Card<MapCardConfig> {
   }
 
   private renderRows(people: readonly Placed[]): TemplateResult {
+    const w = this.contentWidth;
+    const words = people.map((person) => this.rowWord(person));
+    // a column too narrow for a name beside its word gives every row's avatar to the names, as every list does
+    const keep = this.head.rowsKeepIcon(
+      w,
+      people.map((person, index) => ({ title: person.view.name, value: words[index] ?? '' })),
+    );
     return html`<div class="am-rows">
-      ${people.map((person) => {
+      ${people.map((person, index) => {
         const open = (): void => this.tap(person.view.id, { action: 'more-info' });
+        // a word that would leave the name under 40 even so (pt-BR's "Fora de casa" in a 211 column) is a dash, the
+        // word the row's label (the people card's rule)
+        const full = words[index] ?? '';
+        const word =
+          this.head.rowRoom(w, full, { icon: keep }) >=
+          Math.min(40, this.head.ruler.width('fv-row__title', person.view.name))
+            ? full
+            : '—';
         return html`<div
-          class="fv-row fv-row--tap"
+          class="fv-row fv-row--tap ${keep ? '' : 'fv-row--bare'}"
           role="button"
           tabindex="0"
+          aria-label=${word === full ? nothing : `${person.view.name} · ${full}`}
           @click=${open}
           @keydown=${(event: KeyboardEvent) => {
             if (event.key === 'Enter' || event.key === ' ') {
@@ -436,12 +472,12 @@ export class FluvyMapCard extends Card<MapCardConfig> {
             }
           }}
         >
-          ${this.avatar(person)}
+          ${keep ? this.avatar(person) : nothing}
           <span class="fv-row__text"
             ><span class="fv-row__title" data-name>${person.view.name}</span></span
           >
           <span class="fv-row__value ${person.where === 'home' ? '' : 'fv-row__value--quiet'}"
-            >${this.rowWord(person)}</span
+            >${word}</span
           >
         </div>`;
       })}
@@ -460,38 +496,51 @@ export class FluvyMapCard extends Card<MapCardConfig> {
 
   protected renderCard(): TemplateResult {
     const people = this.people();
-    if (!people.length) return this.renderEmpty();
+    const panel = emptyPanel(this, !people.length, 'person', 'common.no_people');
     const away = people.filter((person) => person.where !== 'home');
     const home = people.length - away.length;
     const variant = this.variant === 'map' && this.mapFailed_ ? 'zones' : this.variant;
-    const title = this.config?.title ?? s(this.hass, 'title');
+    // the card's own title where it fits beside the map's round, a shorter one where it does not (as the people
+    // card's); a typed one is the user's. Where not even the short one holds beside the round, the round gives way
+    // to a row under the body: a control never goes
+    const { title, roundFits } = mapHead(
+      this.head,
+      this.contentWidth,
+      [s(this.hass, 'title'), s(this.hass, 'title_short')],
+      this.config?.title,
+    );
     const fitted = this.head.fit({
       width: this.contentWidth,
       title,
-      sub: this.t('people.count', { home, total: people.length }),
-      trailing: 44,
+      sub: panel ? '' : this.t('people.count', { home, total: people.length }),
+      trailing: roundFits ? 44 : 0,
     });
+    const open = (): void => this.goToMap();
     return html`<article class="fv-card" data-card>
       ${head({
         // the people are what the card is about; the map is what the round does
         icon: fitted.icon ? (this.config?.icon ?? 'person') : null,
+        small: fitted.small,
         tone: home > 0 ? 'accent' : 'neutral',
         title,
         sub: fitted.sub,
-        trailing: round('map', 'quiet', this.t('people.map'), () => this.goToMap()),
-        onIconTap: () => this.tap(),
-        onHold: () => this.hold(),
+        trailing: roundFits ? round('map', 'quiet', this.t('people.map'), open) : nothing,
+        cut: fitted.cut,
+        ...this.headActions(),
       })}
       ${
-        variant === 'map'
-          ? html`<div class="fv-plate mp-plate" style="height:${this.plateHeight()}px">
-                ${this.mapElement ?? nothing}
-              </div>
-              ${this.renderWhoWhere(people)}`
-          : variant === 'rows'
-            ? this.renderRows(people)
-            : this.renderZones(people)
+        panel
+          ? html`<div class="am-rows">${panel}</div>`
+          : variant === 'map'
+            ? html`<div class="fv-plate mp-plate" style="height:${this.plateHeight()}px">
+                  ${this.mapElement ?? nothing}
+                </div>
+                ${this.renderWhoWhere(people)}`
+            : variant === 'rows'
+              ? this.renderRows(people)
+              : this.renderZones(people)
       }
+      ${roundFits ? nothing : mapRow(this.hass, this.head, this.contentWidth, open)}
     </article>`;
   }
 }

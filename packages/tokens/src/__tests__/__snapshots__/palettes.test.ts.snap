@@ -67,6 +67,12 @@ exports[`sand snapshot > matches the recorded palette 1`] = `
       "90": "#e7e2da",
       "95": "#f4f1ec",
     },
+    "notice": {
+      "fill": "#143538",
+      "fillBorder": "#2a4a4e",
+      "ink": "#b7e4ea",
+      "onFill": "#cbeef2",
+    },
     "primary": {
       "fill": "#d5b89f",
       "hover": "#e5c8ae",
@@ -274,6 +280,12 @@ exports[`sand snapshot > matches the recorded palette 1`] = `
       "80": "#cdc5b6",
       "90": "#e8e2d9",
       "95": "#f4f1eb",
+    },
+    "notice": {
+      "fill": "#c9ebef",
+      "fillBorder": "#abccd0",
+      "ink": "#00565e",
+      "onFill": "#003f45",
     },
     "primary": {
       "fill": "#8a5a2b",

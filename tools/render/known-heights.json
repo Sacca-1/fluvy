@@ -1,0 +1,572 @@
+{
+  "about": [
+    "Drifts a card draws from live content its config cannot know: heights.mjs passes while what it sees is listed here, and fails when a listed one is no longer seen as listed (remove it: this file only shrinks).",
+    "An entry is a frame (sheet/title), the card, its declared height, the height it drew (the nth card of that tag in the frame when there are several) and the reason; the declared height is the one the automatic dashboard reserves.",
+    "Rewrite it with `node tools/render/heights.mjs --write-known` (a new entry asks for its reason: `triage`); see docs/development.md."
+  ],
+  "drifts": [
+    {
+      "frame": "alerts/All clear · rows",
+      "tag": "fluvy-alerts-card",
+      "declared": 148,
+      "drawn": 232,
+      "reason": "all clear: the panel in place of the rows (live)"
+    },
+    {
+      "frame": "alerts/Chips",
+      "tag": "fluvy-alerts-card",
+      "declared": 132,
+      "drawn": 176,
+      "reason": "the chips are sized by the alerts' words and counts (live): three a row are declared"
+    },
+    {
+      "frame": "ambient/Map · map",
+      "tag": "fluvy-map-card",
+      "declared": 384,
+      "drawn": 228,
+      "reason": "the playground has no map element: the zones stand in (Home Assistant draws the map)"
+    },
+    {
+      "frame": "ambient/Sensors · edges",
+      "tag": "fluvy-sensor-card",
+      "n": 4,
+      "declared": 304,
+      "drawn": 220,
+      "reason": "no recorder history for the sensor: the panel in place of the chart (live)"
+    },
+    {
+      "frame": "ambient/Sensors · edges",
+      "tag": "fluvy-sensor-card",
+      "n": 6,
+      "declared": 304,
+      "drawn": 220,
+      "reason": "no recorder history for the sensor: the panel in place of the chart (live)"
+    },
+    {
+      "frame": "ambient/Sensors · edges",
+      "tag": "fluvy-sensor-card",
+      "n": 7,
+      "declared": 304,
+      "drawn": 220,
+      "reason": "no recorder history for the sensor: the panel in place of the chart (live)"
+    },
+    {
+      "frame": "ambient/Weather · compact · edges",
+      "tag": "fluvy-weather-card",
+      "n": 2,
+      "declared": 284,
+      "drawn": 84,
+      "reason": "the entity answers no forecast (live)"
+    },
+    {
+      "frame": "ambient/Weather · edges",
+      "tag": "fluvy-weather-card",
+      "declared": 544,
+      "drawn": 128,
+      "reason": "the entity answers no forecast (live)"
+    },
+    {
+      "frame": "appliances/Appliances · none",
+      "tag": "fluvy-appliances-card",
+      "n": 2,
+      "declared": 164,
+      "drawn": 220,
+      "reason": "`show: active` lists what runs: the one at rest is filtered out and the panel drawn (live)"
+    },
+    {
+      "frame": "automations/One lamp · empty",
+      "tag": "fluvy-automations-card",
+      "declared": 460,
+      "drawn": 232,
+      "reason": "the house has no automation for the lamp: the panel (live)"
+    },
+    {
+      "frame": "balance-bare/Balance · a period, no Energy dashboard",
+      "tag": "fluvy-energy-balance-card",
+      "declared": 428,
+      "drawn": 312,
+      "reason": "nothing configured and no Energy dashboard: the panel (live)"
+    },
+    {
+      "frame": "balance-bare/Balance · nothing configured",
+      "tag": "fluvy-energy-balance-card",
+      "declared": 308,
+      "drawn": 252,
+      "reason": "nothing configured and no Energy dashboard: the panel (live)"
+    },
+    {
+      "frame": "balance-bare/Grid · nothing configured",
+      "tag": "fluvy-grid-card",
+      "declared": 224,
+      "drawn": 252,
+      "reason": "nothing configured and no Energy dashboard: the panel (live)"
+    },
+    {
+      "frame": "balance/Balance · long names",
+      "tag": "fluvy-energy-balance-card",
+      "declared": 308,
+      "drawn": 412,
+      "reason": "the legend wraps by the sources' names (measured; the blocks' rows are B3's)"
+    },
+    {
+      "frame": "calendar/All day · multi-day",
+      "tag": "fluvy-calendar-card",
+      "declared": 428,
+      "drawn": 368,
+      "reason": "the day's events are live: the view's resting rows are declared"
+    },
+    {
+      "frame": "calendar/All day · multi-day",
+      "tag": "fluvy-calendar-card",
+      "n": 2,
+      "declared": 340,
+      "drawn": 580,
+      "reason": "the day's events are live: the view's resting rows are declared"
+    },
+    {
+      "frame": "calendar/Calendars · named and coloured",
+      "tag": "fluvy-calendar-card",
+      "declared": 416,
+      "drawn": 356,
+      "reason": "the day's events are live: the view's resting rows are declared"
+    },
+    {
+      "frame": "calendar/Empty",
+      "tag": "fluvy-calendar-card",
+      "declared": 644,
+      "drawn": 396,
+      "reason": "the view's note in place of its rows (live: nothing to list, or a calendar that failed)"
+    },
+    {
+      "frame": "calendar/Empty",
+      "tag": "fluvy-calendar-card",
+      "n": 2,
+      "declared": 416,
+      "drawn": 196,
+      "reason": "the view's note in place of its rows (live: nothing to list, or a calendar that failed)"
+    },
+    {
+      "frame": "calendar/Empty",
+      "tag": "fluvy-calendar-card",
+      "n": 3,
+      "declared": 476,
+      "drawn": 120,
+      "reason": "the view's note in place of its rows (live: nothing to list, or a calendar that failed)"
+    },
+    {
+      "frame": "calendar/Empty",
+      "tag": "fluvy-calendar-card",
+      "n": 4,
+      "declared": 340,
+      "drawn": 120,
+      "reason": "the view's note in place of its rows (live: nothing to list, or a calendar that failed)"
+    },
+    {
+      "frame": "calendar/Nine events",
+      "tag": "fluvy-calendar-card",
+      "declared": 416,
+      "drawn": 596,
+      "reason": "the day's events are live: the view's resting rows are declared"
+    },
+    {
+      "frame": "calendar/Nine events",
+      "tag": "fluvy-calendar-card",
+      "n": 2,
+      "declared": 416,
+      "drawn": 596,
+      "reason": "the day's events are live: the view's resting rows are declared"
+    },
+    {
+      "frame": "calendar/Read failed · one of two",
+      "tag": "fluvy-calendar-card",
+      "declared": 644,
+      "drawn": 120,
+      "reason": "the view's note in place of its rows (live: nothing to list, or a calendar that failed)"
+    },
+    {
+      "frame": "calendar/Read failed · one of two",
+      "tag": "fluvy-calendar-card",
+      "n": 2,
+      "declared": 416,
+      "drawn": 272,
+      "reason": "the view's note in place of its rows (live: nothing to list, or a calendar that failed)"
+    },
+    {
+      "frame": "calendar/Six weeks",
+      "tag": "fluvy-calendar-card",
+      "declared": 644,
+      "drawn": 444,
+      "reason": "a month of six weeks: the grid follows the date (live)"
+    },
+    {
+      "frame": "calendar/Timeline · overlaps",
+      "tag": "fluvy-calendar-card",
+      "declared": 476,
+      "drawn": 600,
+      "reason": "the day's events are live: the view's resting rows are declared"
+    },
+    {
+      "frame": "energy/Appliances today",
+      "tag": "fluvy-energy-devices-card",
+      "declared": 632,
+      "drawn": 616,
+      "reason": "a water meter among the energy rows is a plain 60 row (its kind is live): a bar row is declared"
+    },
+    {
+      "frame": "flow/The whole house · no battery, no house line",
+      "tag": "fluvy-energy-card",
+      "declared": 492,
+      "drawn": 440,
+      "reason": "the legend's items follow the Energy dashboard's sources (live)"
+    },
+    {
+      "frame": "history-bars/#44 · a monthly rain gauge",
+      "tag": "fluvy-history-bars-card",
+      "declared": 484,
+      "drawn": 540,
+      "reason": "the figures' widths (a meter's digits, negative rain) fold the facts one a row (measured): the estimate plans by the period's digits"
+    },
+    {
+      "frame": "history-bars/A lifetime meter after a restart",
+      "tag": "fluvy-history-bars-card",
+      "declared": 484,
+      "drawn": 540,
+      "reason": "the figures' widths (a meter's digits, negative rain) fold the facts one a row (measured): the estimate plans by the period's digits"
+    },
+    {
+      "frame": "history-bars/A lifetime meter in Wh",
+      "tag": "fluvy-history-bars-card",
+      "declared": 484,
+      "drawn": 540,
+      "reason": "the figures' widths (a meter's digits, negative rain) fold the facts one a row (measured): the estimate plans by the period's digits"
+    },
+    {
+      "frame": "history-bars/Couldn’t read the recorder",
+      "tag": "fluvy-history-bars-card",
+      "declared": 484,
+      "drawn": 296,
+      "reason": "the panel in place of the bars (live)"
+    },
+    {
+      "frame": "history-bars/Missing",
+      "tag": "fluvy-history-bars-card",
+      "declared": 484,
+      "drawn": 316,
+      "reason": "the panel in place of the bars (live)"
+    },
+    {
+      "frame": "history-bars/No statistics yet",
+      "tag": "fluvy-history-bars-card",
+      "declared": 484,
+      "drawn": 336,
+      "reason": "the panel in place of the bars (live)"
+    },
+    {
+      "frame": "imperial/Fahrenheit · a printer",
+      "tag": "fluvy-printer-card",
+      "declared": 528,
+      "drawn": 332,
+      "reason": "at rest, failed, finished or heating the job is not drawn: the printing height is reserved (the on height)"
+    },
+    {
+      "frame": "inputs/To-do · bare",
+      "tag": "fluvy-todo-card",
+      "declared": 400,
+      "drawn": 280,
+      "reason": "the list's items are live: five rows are declared (the resting size)"
+    },
+    {
+      "frame": "inputs/To-do · hard states",
+      "tag": "fluvy-todo-card",
+      "declared": 400,
+      "drawn": 220,
+      "reason": "the list's items are live: five rows are declared (the resting size)"
+    },
+    {
+      "frame": "inputs/To-do · hard states",
+      "tag": "fluvy-todo-card",
+      "n": 2,
+      "declared": 400,
+      "drawn": 220,
+      "reason": "the list's items are live: five rows are declared (the resting size)"
+    },
+    {
+      "frame": "inputs/To-do · hard states",
+      "tag": "fluvy-todo-card",
+      "n": 3,
+      "declared": 400,
+      "drawn": 352,
+      "reason": "the list's items are live: five rows are declared (the resting size)"
+    },
+    {
+      "frame": "inputs/To-do · hard states",
+      "tag": "fluvy-todo-card",
+      "n": 4,
+      "declared": 400,
+      "drawn": 280,
+      "reason": "the list's items are live: five rows are declared (the resting size)"
+    },
+    {
+      "frame": "media/Off",
+      "tag": "fluvy-media-card",
+      "declared": 352,
+      "drawn": 288,
+      "reason": "a player that is off draws Turn on in place of its transport: the on height is reserved (the language's rule)"
+    },
+    {
+      "frame": "media/Power · off",
+      "tag": "fluvy-media-card",
+      "declared": 440,
+      "drawn": 376,
+      "reason": "a player that is off draws Turn on in place of its transport: the on height is reserved (the language's rule)"
+    },
+    {
+      "frame": "nested/A device unreadable",
+      "tag": "fluvy-energy-devices-card",
+      "declared": 632,
+      "drawn": 556,
+      "reason": "a child that cannot be read leaves its parent no remainder row (live)"
+    },
+    {
+      "frame": "nested/From the Energy dashboard",
+      "tag": "fluvy-energy-devices-card",
+      "declared": 404,
+      "drawn": 632,
+      "reason": "the Energy dashboard's devices (live): four are declared"
+    },
+    {
+      "frame": "printer/A colour of its own · failed and paused",
+      "tag": "fluvy-printer-card",
+      "declared": 528,
+      "drawn": 276,
+      "reason": "at rest, failed, finished or heating the job is not drawn: the printing height is reserved (the on height)"
+    },
+    {
+      "frame": "printer/Anycubic · printing, ACE",
+      "tag": "fluvy-printer-card",
+      "declared": 528,
+      "drawn": 764,
+      "reason": "the printer's filament trays (AMS, CFS, ACE) are the device's own: not counted"
+    },
+    {
+      "frame": "printer/Bambu Lab · printing",
+      "tag": "fluvy-printer-card",
+      "declared": 528,
+      "drawn": 704,
+      "reason": "the printer's filament trays (AMS, CFS, ACE) are the device's own: not counted"
+    },
+    {
+      "frame": "printer/Compact",
+      "tag": "fluvy-printer-card",
+      "declared": 192,
+      "drawn": 248,
+      "reason": "at rest, failed, finished or heating the job is not drawn: the printing height is reserved (the on height)"
+    },
+    {
+      "frame": "printer/Compact",
+      "tag": "fluvy-printer-card",
+      "n": 2,
+      "declared": 192,
+      "drawn": 248,
+      "reason": "at rest, failed, finished or heating the job is not drawn: the printing height is reserved (the on height)"
+    },
+    {
+      "frame": "printer/Creality · error from its status",
+      "tag": "fluvy-printer-card",
+      "declared": 528,
+      "drawn": 276,
+      "reason": "at rest, failed, finished or heating the job is not drawn: the printing height is reserved (the on height)"
+    },
+    {
+      "frame": "printer/Creality · printing, CFS trays",
+      "tag": "fluvy-printer-card",
+      "declared": 528,
+      "drawn": 764,
+      "reason": "the printer's filament trays (AMS, CFS, ACE) are the device's own: not counted"
+    },
+    {
+      "frame": "printer/Days · finished before, ready tomorrow",
+      "tag": "fluvy-printer-card",
+      "n": 2,
+      "declared": 192,
+      "drawn": 248,
+      "reason": "at rest, failed, finished or heating the job is not drawn: the printing height is reserved (the on height)"
+    },
+    {
+      "frame": "printer/Elegoo · preheating",
+      "tag": "fluvy-printer-card",
+      "declared": 528,
+      "drawn": 584,
+      "reason": "at rest, failed, finished or heating the job is not drawn: the printing height is reserved (the on height)"
+    },
+    {
+      "frame": "printer/Failed · and offline",
+      "tag": "fluvy-printer-card",
+      "declared": 528,
+      "drawn": 276,
+      "reason": "at rest, failed, finished or heating the job is not drawn: the printing height is reserved (the on height)"
+    },
+    {
+      "frame": "printer/Failed · and offline",
+      "tag": "fluvy-printer-card",
+      "n": 2,
+      "declared": 528,
+      "drawn": 272,
+      "reason": "at rest, failed, finished or heating the job is not drawn: the printing height is reserved (the on height)"
+    },
+    {
+      "frame": "printer/Finished · its filament by name",
+      "tag": "fluvy-printer-card",
+      "declared": 528,
+      "drawn": 272,
+      "reason": "at rest, failed, finished or heating the job is not drawn: the printing height is reserved (the on height)"
+    },
+    {
+      "frame": "printer/FlashForge · completed",
+      "tag": "fluvy-printer-card",
+      "declared": 528,
+      "drawn": 584,
+      "reason": "at rest, failed, finished or heating the job is not drawn: the printing height is reserved (the on height)"
+    },
+    {
+      "frame": "printer/Heating up · a long name",
+      "tag": "fluvy-printer-card",
+      "declared": 528,
+      "drawn": 388,
+      "reason": "at rest, failed, finished or heating the job is not drawn: the printing height is reserved (the on height)"
+    },
+    {
+      "frame": "printer/Moonraker · at rest",
+      "tag": "fluvy-printer-card",
+      "declared": 528,
+      "drawn": 144,
+      "reason": "at rest, failed, finished or heating the job is not drawn: the printing height is reserved (the on height)"
+    },
+    {
+      "frame": "printer/More readouts · a fan and the print’s weight",
+      "tag": "fluvy-printer-card",
+      "declared": 524,
+      "drawn": 384,
+      "reason": "at rest, failed, finished or heating the job is not drawn: the printing height is reserved (the on height)"
+    },
+    {
+      "frame": "printer/Snapmaker U1 · paused",
+      "tag": "fluvy-printer-card",
+      "declared": 528,
+      "drawn": 584,
+      "reason": "at rest, failed, finished or heating the job is not drawn: the printing height is reserved (the on height)"
+    },
+    {
+      "frame": "printer/Snapmaker · legacy, read-only",
+      "tag": "fluvy-printer-card",
+      "declared": 528,
+      "drawn": 272,
+      "reason": "at rest, failed, finished or heating the job is not drawn: the printing height is reserved (the on height)"
+    },
+    {
+      "frame": "printer/Without the picture and the buttons",
+      "tag": "fluvy-printer-card",
+      "declared": 328,
+      "drawn": 448,
+      "reason": "the printer's filament trays (AMS) are the device's own: not counted"
+    },
+    {
+      "frame": "sankey/A device that is not there",
+      "tag": "fluvy-energy-sankey-card",
+      "declared": 516,
+      "drawn": 480,
+      "reason": "the house's sources and devices draw the tiers (live; the sankey's layout is its own)"
+    },
+    {
+      "frame": "sankey/A meter down",
+      "tag": "fluvy-energy-sankey-card",
+      "declared": 516,
+      "drawn": 444,
+      "reason": "the house's sources and devices draw the tiers (live; the sankey's layout is its own)"
+    },
+    {
+      "frame": "sankey/Devices of its own",
+      "tag": "fluvy-energy-sankey-card",
+      "declared": 576,
+      "drawn": 612,
+      "reason": "the house's sources and devices draw the tiers (live; the sankey's layout is its own)"
+    },
+    {
+      "frame": "sankey/Long names",
+      "tag": "fluvy-energy-sankey-card",
+      "declared": 516,
+      "drawn": 588,
+      "reason": "the house's sources and devices draw the tiers (live; the sankey's layout is its own)"
+    },
+    {
+      "frame": "sankey/Nothing configured",
+      "tag": "fluvy-energy-sankey-card",
+      "declared": 576,
+      "drawn": 252,
+      "reason": "the panel in place of the diagram (live)"
+    },
+    {
+      "frame": "sankey/Nothing configured",
+      "tag": "fluvy-energy-score-card",
+      "declared": 336,
+      "drawn": 252,
+      "reason": "the panel in place of the diagram (live)"
+    },
+    {
+      "frame": "sankey/Off grid",
+      "tag": "fluvy-energy-score-card",
+      "declared": 276,
+      "drawn": 216,
+      "reason": "the rings and readouts follow the Energy dashboard's sources (live)"
+    },
+    {
+      "frame": "sankey/Statistics that cannot be read",
+      "tag": "fluvy-energy-sankey-card",
+      "declared": 516,
+      "drawn": 252,
+      "reason": "the panel in place of the diagram (live)"
+    },
+    {
+      "frame": "sankey/The grid alone",
+      "tag": "fluvy-energy-sankey-card",
+      "declared": 576,
+      "drawn": 504,
+      "reason": "the house's sources and devices draw the tiers (live; the sankey's layout is its own)"
+    },
+    {
+      "frame": "sankey/The grid charges the battery",
+      "tag": "fluvy-energy-sankey-card",
+      "declared": 516,
+      "drawn": 328,
+      "reason": "the house's sources and devices draw the tiers (live; the sankey's layout is its own)"
+    },
+    {
+      "frame": "storage/From the Energy dashboard",
+      "tag": "fluvy-batteries-card",
+      "declared": 240,
+      "drawn": 408,
+      "reason": "the Energy dashboard's batteries (live): one is declared"
+    },
+    {
+      "frame": "unavailable/3D printer",
+      "tag": "fluvy-printer-card",
+      "declared": 528,
+      "drawn": 704,
+      "reason": "the printer's filament trays (AMS, CFS, ACE) are the device's own: not counted"
+    },
+    {
+      "frame": "unavailable/3D printer · out of reach",
+      "tag": "fluvy-printer-card",
+      "declared": 528,
+      "drawn": 704,
+      "reason": "the printer's filament trays (AMS, CFS, ACE) are the device's own: not counted"
+    },
+    {
+      "frame": "unavailable/Weather, calendars and clocks",
+      "tag": "fluvy-clock-card",
+      "declared": 352,
+      "drawn": 292,
+      "reason": "the house's weather answers no forecast: no row (live)"
+    }
+  ]
+}

@@ -36,6 +36,7 @@ import {
   boolField,
   colourFields,
   editorLabels,
+  emptyFields,
   entitiesField,
   entityField,
   fieldRow,
@@ -43,10 +44,12 @@ import {
   nameIconFields,
   numberField,
   selectField,
+  showIconField,
   titleFields,
 } from '../shared/form.js';
 import { configKeys, ITEM_ALIASES, type AliasSpec } from '../shared/config.js';
-import { HEAD, listLength, ROW } from '../shared/heights.js';
+import { EMPTY, entryCount, HEAD, ROW } from '../shared/heights.js';
+import { EMPTY_KEYS, emptyPanel, itemsOf, listOf, type EmptyList } from '../shared/lists.js';
 import type { EditorDefaults, RowsListSpec } from '../shared/rows-editor.js';
 
 const s = strings('openings');
@@ -67,7 +70,7 @@ export interface OpeningItem {
 
 export const OPENINGS_VARIANTS = ['rows', 'compact', 'tiles'] as const;
 
-export interface OpeningsCardConfig extends FluvyCardConfig {
+export interface OpeningsCardConfig extends FluvyCardConfig, EmptyList {
   title?: string;
   subtitle?: string;
   /** The sensors, in order: ids, or entries with their own name, icon, colour and tap (`entities` reads too). */
@@ -122,7 +125,8 @@ const HAZARD = new Set(['smoke', 'gas', 'carbon_monoxide']);
 export class FluvyOpeningsCard extends Card<OpeningsCardConfig> {
   /** The card's height at a 360 column, for the automatic dashboard's columns. */
   static override layoutHeight(config: OpeningsCardConfig): number {
-    const n = listLength(config, ['rows', 'entities']);
+    const n = entryCount(config, ['rows', 'entities']);
+    if (!n) return HEAD + EMPTY;
     const max = Math.max(1, Math.round(config.max_rows ?? 4));
     // one extra sensor is a row, not a "1 more" row (as the card lays them out)
     const more = n > max + 1 ? 1 : 0;
@@ -172,6 +176,7 @@ export class FluvyOpeningsCard extends Card<OpeningsCardConfig> {
     'card_color',
     'tap_action',
     'hold_action',
+    'show_icon',
   ];
   static override keys = configKeys<OpeningsCardConfig>()([
     'title',
@@ -181,6 +186,7 @@ export class FluvyOpeningsCard extends Card<OpeningsCardConfig> {
     'max_rows',
     'show_count',
     'show_time',
+    ...EMPTY_KEYS,
   ]);
   static override lists: readonly RowsListSpec[] = [
     {
@@ -210,10 +216,11 @@ export class FluvyOpeningsCard extends Card<OpeningsCardConfig> {
       schema: [
         entitiesField('entities', ['binary_sensor', 'cover', 'lock'], true),
         titleFields(),
-        iconField(),
+        fieldRow(iconField(), showIconField()),
         ...colourFields(),
         fieldRow(selectField('variant', OPENINGS_VARIANTS), numberField('max_rows', 1, 20)),
         fieldRow(boolField('show_count'), boolField('show_time')),
+        emptyFields(),
         actionFields(),
       ],
       ...editorLabels(s, { max_rows: 'editor.max_rows' }, {}),
@@ -228,15 +235,13 @@ export class FluvyOpeningsCard extends Card<OpeningsCardConfig> {
   }
 
   protected override prepare(config: OpeningsCardConfig): OpeningsCardConfig {
-    if (!config.rows?.length && !config.entities?.length)
-      throw new Error('fluvy-openings-card: add at least one sensor');
+    listOf(config, 'rows', ['entities']);
     return config;
   }
 
   /** The sensors as entries (a bare id is an entry with nothing of its own), in their order. */
   private items(): OpeningItem[] {
-    const source = this.config?.rows ?? this.config?.entities ?? [];
-    return source.map((entry) => (typeof entry === 'string' ? { entity: entry } : entry));
+    return itemsOf(this.config?.rows ?? this.config?.entities);
   }
 
   protected override watched(): readonly string[] {
@@ -297,8 +302,9 @@ export class FluvyOpeningsCard extends Card<OpeningsCardConfig> {
   ): TemplateResult {
     // a tile's words: its share of the row less its sides (16), its circle (44) and the gap (12). Where a state would not
     // fit even alone (a long word in a narrow tile), every tile gives its circle's room to its words, as rows do; where
-    // it still would not, one tile a row. A sensor gone says a dash (its word is the tile's label, and its skin)
-    const words = (view: EntityView): string => (isUsable(view) ? this.valueText(view) : '—');
+    // it still would not, one tile a row. A sensor that cannot be read — gone, or unknown — says a dash (its word is the
+    // tile's label, and a gone one's skin): its state never lays the tiles out otherwise (1.9: a card keeps its size)
+    const words = (view: EntityView): string => (view.status === 'ok' ? this.valueText(view) : '—');
     const widest = Math.max(
       ...rows.map(({ view }) => this.headFit.ruler.width(TILE_STATE, words(view))),
     );
@@ -336,7 +342,7 @@ export class FluvyOpeningsCard extends Card<OpeningsCardConfig> {
           data-accent=${this.accents.item(item.color) ?? nothing}
           role="button"
           tabindex="0"
-          aria-label=${`${name} · ${dead ? stateText(this.hass, view) : value}`}
+          aria-label=${`${name} · ${view.status === 'ok' ? value : stateText(this.hass, view)}`}
           .fvTap=${tap}
           .fvHold=${hold}
           @pointerdown=${startPress}
@@ -477,24 +483,25 @@ export class FluvyOpeningsCard extends Card<OpeningsCardConfig> {
     const compact = variant === 'compact' || variant === 'tiles';
     const timed = variant !== 'compact' && this.config?.show_time !== false;
 
+    // nothing listed: the panel says so where the rows would be, and the head counts nothing
+    const panel = emptyPanel(this, !rows.length, 'door', 'common.no_sensors');
+    const counted = this.config?.show_count !== false && !panel;
     // the head gives way in its order: the sub's last part (the badge is the card's alert), the badge, the circle. The
-    // sheet's "Openings & motion" where it keeps the circle and the badge, else the shorter default; a typed title is
-    // the user's
+    // sheet's "Openings & motion" where it keeps the circle and the badge whole, else the shorter default; a typed
+    // title is the user's
     const fit = (title: string): FittedHead =>
       this.headFit.fit({
         width: this.contentWidth,
         title,
-        sub: this.config?.subtitle ?? (roomText ? `${countText} · ${roomText}` : countText),
-        badge:
-          this.config?.show_count === false
-            ? null
-            : { text: badgeText, tone: alerts.length > 0 ? tone : 'neutral' },
+        sub:
+          this.config?.subtitle ??
+          (panel ? '' : roomText ? `${countText} · ${roomText}` : countText),
+        badge: counted ? { text: badgeText, tone: alerts.length > 0 ? tone : 'neutral' } : null,
         badgeFirst: true,
       });
     let title = this.config?.title ?? s(this.hass, 'title');
     let fitted = fit(title);
-    const kept = (f: FittedHead): boolean =>
-      f.icon && (this.config?.show_count === false || f.badge !== nothing);
+    const kept = (f: FittedHead): boolean => f.icon && !f.cut && (!counted || f.badge !== nothing);
     if (this.config?.title === undefined && !kept(fitted)) {
       title = s(this.hass, 'title_short');
       fitted = fit(title);
@@ -534,13 +541,14 @@ export class FluvyOpeningsCard extends Card<OpeningsCardConfig> {
         name: true, // a typed title, or the card's own: a name, as the list rows' are
         sub: fitted.sub,
         trailing: fitted.badge,
-        onIconTap: () => this.tap(),
-        onHold: () => this.hold(),
+        cut: fitted.cut,
+        ...this.headActions(),
       })}
-      ${variant === 'tiles' ? this.renderTiles(shown, tone, timed, now) : nothing}
+      ${variant === 'tiles' && !panel ? this.renderTiles(shown, tone, timed, now) : nothing}
       ${
-        variant !== 'tiles' || collapsible
+        panel || variant !== 'tiles' || collapsible
           ? html`<div class="am-rows">
+              ${panel}
               ${(variant === 'tiles' ? [] : shown).map(({ item, view }) => {
                 const warn = this.alert(view);
                 const dead = !isUsable(view);

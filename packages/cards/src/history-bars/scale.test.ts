@@ -8,6 +8,7 @@ import {
   niceStep,
   niceTicks,
   thinStep,
+  typical,
 } from './scale.js';
 
 describe('a nice step', () => {
@@ -51,9 +52,52 @@ describe('nice ticks', () => {
     expect(niceTicks(-40, 0).ticks).toEqual([-40, -30, -20, -10, 0]);
   });
 
+  it('never run to more than four intervals: a signed scale widened to whole ticks takes the next step', () => {
+    // by 2.5 these widen to five intervals (the flow sheet's hybrid inverter read −7.5 … 5.0)
+    expect(niceTicks(-5.05, 2.55).ticks).toEqual([-10, -5, 0, 5]);
+    expect(niceTicks(-2.55, 5.05).ticks).toEqual([-5, 0, 5, 10]);
+    expect(niceTicks(-0.01, 7.56).ticks).toEqual([-5, 0, 5, 10]);
+    expect(niceTicks(-7.56, 0.01).ticks).toEqual([-10, -5, 0, 5]);
+    expect(niceTicks(-0.01, 0.77)).toMatchObject({ ticks: [-0.5, 0, 0.5, 1], decimals: 1 });
+    // a scale that holds four by its first step keeps it
+    expect(niceTicks(-3.2, 8.1, 3).ticks).toEqual([-5, 0, 5, 10]);
+  });
+
+  it('hold both ends and zero in the intervals asked for, over any extent either side of zero', () => {
+    const wrong: string[] = [];
+    for (let lo = 0; lo >= -30; lo -= 0.11)
+      for (let hi = 0; hi <= 30; hi += 0.13)
+        for (const intervals of [3, 4]) {
+          const { ticks, min, max } = niceTicks(lo, hi, intervals);
+          if (
+            ticks.length - 1 > intervals ||
+            min > lo + 1e-9 ||
+            max < hi - 1e-9 ||
+            !ticks.includes(0)
+          )
+            wrong.push(`${lo.toFixed(2)} … ${hi.toFixed(2)} in ${intervals}: ${ticks.join(' ')}`);
+        }
+    expect(wrong).toEqual([]);
+  });
+
   it('is the one tick, zero, for a set with nothing in it', () => {
     expect(niceTicks(0, 0)).toEqual({ min: 0, max: 0, step: 0, ticks: [0], decimals: 0 });
     expect(niceTicks(Number.NaN, Number.NaN).ticks).toEqual([0]);
+  });
+});
+
+describe('a typical bar', () => {
+  it('is the middle one by size, so a spike reads in the unit of the rest', () => {
+    // a lifetime meter after a restart, as Home Assistant counts it: 18,257.3 kWh counted again on one day
+    expect(typical([24.1, 31.5, 28.2, 26.4, 18_280.2, 30.8, 27.5])).toBe(28.2);
+    expect(typical([35_400, 34_400, 28_600, 26_500])).toBe(34_400);
+  });
+
+  it('counts a bar below zero by its size, and leaves out the bars with nothing in them', () => {
+    expect(typical([5.2, -3.1, 7.8, -6.4, 2.2])).toBe(5.2);
+    expect(typical([null, 0, 0, 12_400, 0, null])).toBe(12_400);
+    expect(typical([null, 0])).toBe(0);
+    expect(typical([])).toBe(0);
   });
 });
 
