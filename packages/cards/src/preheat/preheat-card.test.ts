@@ -84,7 +84,23 @@ describe('preheat card', () => {
       'Maximale voorverwarming',
     );
     expect(element.shadowRoot!.querySelectorAll('select')).toHaveLength(6);
-    expect(element.shadowRoot!.querySelectorAll('input[type="number"]')).toHaveLength(13);
+    expect(element.shadowRoot!.querySelectorAll('input[type="number"]')).toHaveLength(15);
+  });
+  it('shows the external reference separately from appliance and room targets', async () => {
+    const { element, callService } = await draw('comfort', {
+      settings: { comfort: 20, external_temperature: true },
+      target: 20,
+      indoor: 19.8,
+      unit_temperature: 21,
+      correction: 1,
+      external_status: 'Externe kamermeting leidend',
+    });
+    expect(element.shadowRoot!.textContent).toContain('Kamer 19,8 °C');
+    expect(element.shadowRoot!.textContent).toContain('Aircosensor 21 °C');
+    expect(element.shadowRoot!.textContent).toContain('Kamerdoel 20 °C');
+    expect(element.shadowRoot!.textContent).toContain('Correctie 1 °C');
+    expect(element.shadowRoot!.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
+    expect(callService).not.toHaveBeenCalled();
   });
   it('renders missing data without presenting zero measurements', async () => {
     const { element } = await draw(undefined as unknown as string);

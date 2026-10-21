@@ -5,6 +5,12 @@ and the versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.9.1-homelab.5] — 2026-10-21
+
+- Add an optional external room-temperature reference, configurable correction
+  limit and smoothing period, with separate room and appliance readings/targets.
+
+
 ## [1.9.1-homelab.4] — 2026-10-21
 
 - Rename the price controller UI to Slim verwarmen and show the comfort-return

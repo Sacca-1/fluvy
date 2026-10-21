@@ -30,3 +30,11 @@ compatibel met eerder opgeslagen dashboards.
 
 De kaart heeft een eigen bundelmodule. Automatische dashboards kiezen deze
 regelaar niet zelf: de eigenaar moet de beslissensor expliciet selecteren.
+
+`Externe kamertemperatuur gebruiken` maakt de geselecteerde binnensensor leidend
+via een afgevlakte correctie van het aircodoel. De kaart toont kamer- en
+unitsensor, kamerdoel, correctie en terugvalstatus afzonderlijk. Standaard staat
+het uit; correctie is maximaal ±2 °C en wordt over 15 minuten afgevlakt. Beide
+zijn instelbaar. De backend bewaakt sensorversheid, fysieke grenzen en interval.
+De comfortgrenzen gelden voor het kamerdoel; de gecompenseerde airco-instelling
+kan daarbuiten liggen. Er wordt geen warmte- of besparingsgarantie gegeven.

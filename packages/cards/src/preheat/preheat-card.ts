@@ -11,6 +11,9 @@ type Settings = Record<string, number | string | boolean>;
 const labels: Record<string, string> = {
   comfort: 'Gewenste temperatuur (°C)',
   enabled: 'Slimme prijsregeling',
+  external_temperature: 'Externe kamertemperatuur gebruiken (bijv. ALPSTUGA)',
+  max_correction: 'Maximale aircocorrectie (±°C)',
+  correction_minutes: 'Meetverschil afvlakken (minuten)',
   max_boost: 'Maximale voorverwarming (+°C)',
   max_drop: 'Maximale onderschrijding (−°C)',
   min_spread: 'Minimaal prijsverschil (€/kWh)',
@@ -25,7 +28,7 @@ const labels: Record<string, string> = {
   energy_tax: 'Energiebelasting incl. btw (€/kWh)',
   tariff_valid_until: 'Contracttarieven geldig tot (exclusief)',
   climate_entity: 'Woonkamerairco',
-  indoor_entity: 'Binnentemperatuur',
+  indoor_entity: 'Externe binnentemperatuur',
   outdoor_entity: 'Buitentemperatuur / weer',
   price_entity: 'EnergyZero huidige marktprijs incl. btw',
   power_entity: 'Aircovermogen in W (optioneel)',
@@ -33,6 +36,8 @@ const labels: Record<string, string> = {
 };
 const limits: Record<string, readonly [number, number, number]> = {
   comfort: [16, 28, 0.5],
+  max_correction: [0, 3, 0.5],
+  correction_minutes: [5, 60, 5],
   max_boost: [0, 3, 0.5],
   max_drop: [0, 2, 0.5],
   min_spread: [0, 1, 0.01],
@@ -229,7 +234,11 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
       this.draft = {
         ...this.draft,
         [key]:
-          key === 'enabled' ? input.checked : key in limits ? input.valueAsNumber : input.value,
+          key === 'enabled' || key === 'external_temperature'
+            ? input.checked
+            : key in limits
+              ? input.valueAsNumber
+              : input.value,
       };
     };
     if (key.endsWith('_entity'))
@@ -239,7 +248,7 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
           ${this.options(key).map((id) => html`<option value=${id}>${this.hass?.states[id]?.attributes.friendly_name ?? id} · ${id}</option>`)}
         </select></label
       >`;
-    if (key === 'enabled')
+    if (key === 'enabled' || key === 'external_temperature')
       return html`<label class="row"
         >${labels[key]}<input
           type="checkbox"
@@ -311,6 +320,15 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
         <div class="row">
           <span>Airco ingesteld</span><strong>${num(d.actual_target)} °C</strong>
         </div>
+        ${
+          s.external_temperature
+            ? html`<div class="muted">
+                Kamer ${num(d.indoor)} °C · Aircosensor ${num(d.unit_temperature)} °C<br />
+                Kamerdoel ${num(d.target)} °C · Correctie ${num(d.correction)} °C<br />
+                ${d.external_status ?? 'Externe regeling wordt geladen'}
+              </div>`
+            : ''
+        }
         <div class="row">
           <span>Budget stroomprijs</span
           ><strong>€ ${typeof d.price === 'number' ? d.price.toFixed(4) : '—'}/kWh</strong>
@@ -339,7 +357,10 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
           </button>
         </div>
         <p class="muted">
-          De airco blijft zelf de compressor regelen. Uit of koelen blijft behouden. Warmteverlies,
+          Met externe kamertemperatuur corrigeert de regeling het aircodoel voor het afgevlakte
+          meetverschil. De comfortgrenzen gelden voor het kamerdoel; het aircodoel kan door de
+          begrensde correctie hoger of lager zijn. Bij ontbrekende metingen vervalt de correctie. De
+          airco blijft zelf de compressor regelen. Uit of koelen blijft behouden. Warmteverlies,
           warmtecapaciteit en vermogen zijn schattingen; het voordeel is geen gemeten besparing.
         </p>
         <form
