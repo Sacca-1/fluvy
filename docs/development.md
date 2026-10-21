@@ -42,7 +42,7 @@ pnpm build
 ```
 
 The bundle is one ES module, `fluvy.js`, that imports `chunks/core-<hash>.js` (everything a page needs) and fetches
-`chunks/{activity,history,panel,pages,strategy,wall,weather,media,energy,history-bars-readings,devices,appliances,appliance-art,automations,automations-sheet,alerts,alerts-sheet,light-colour,editor,view-icons,sensor-band,lang-*}-<hash>.js`
+`chunks/{activity,history,panel,pages,strategy,wall,weather,media,energy,history-bars-readings,devices,appliances,appliance-art,automations,automations-sheet,alerts,alerts-sheet,light-colour,editor,view-icons,sensor-band,preheat,lang-*}-<hash>.js`
 on demand — the Activity page, the History page, the settings panel, the date picker they share, the automatic
 dashboards' strategy (when a dashboard asks for it), wall mode (on a device that is a wall), the weather card and the
 media, energy, devices, appliances, automations and alerts families (fetched as the bundle starts: their cards are
@@ -80,6 +80,7 @@ in `tools/docs` holds this table to it):
 | `editor` | 8 KB | the cards' visual editor |
 | `view-icons` | 4 KB | a view's icon from its name |
 | `sensor-band` | 4 KB | the Homelab sensor ruler with reference bands |
+| `preheat` | 4 KB | the Homelab smart heating card and settings dialog |
 | `pages` | 8 KB | the date picker, the time field and the dropdown the pages share |
 | `activity` | 32 KB | the Activity page |
 | `history` | 16 KB | the History page |

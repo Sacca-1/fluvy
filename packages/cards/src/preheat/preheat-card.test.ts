@@ -5,7 +5,7 @@ import { FluvyPreheatCard } from './preheat-card.js';
 customElements.define('fluvy-preheat-card', FluvyPreheatCard);
 
 afterEach(() => document.body.replaceChildren());
-async function draw(state: string = 'comfort') {
+async function draw(state: string = 'comfort', extra: Record<string, unknown> = {}) {
   const callService = vi.fn();
   const element = document.createElement('fluvy-preheat-card') as FluvyPreheatCard;
   element.setConfig({
@@ -34,6 +34,7 @@ async function draw(state: string = 'comfort') {
                 actual_target: 20.5,
                 reason: 'Comforttemperatuur',
                 next_preheat: null,
+                ...extra,
               },
               last_changed: '2026-10-19T20:00:00Z',
               last_updated: '2026-10-19T20:00:00Z',
@@ -91,5 +92,11 @@ describe('preheat card', () => {
     await element.updateComplete;
     expect(element.shadowRoot!.textContent).toContain('Regeling niet beschikbaar');
     expect(element.shadowRoot!.textContent).toContain('—');
+  });
+  it('shows when a temporary reduction ends and uses the broader control name', async () => {
+    const { element } = await draw('defer', { mode: 'defer', defer_until: 1792602000 });
+    expect(element.shadowRoot!.textContent).toContain('Terug naar comfort');
+    expect(element.shadowRoot!.textContent).toContain('Slimme prijsregeling');
+    expect(element.shadowRoot!.textContent).toContain('Maximale optimalisatieduur');
   });
 });

@@ -10,11 +10,11 @@ interface PreheatConfig extends FluvyCardConfig {
 type Settings = Record<string, number | string | boolean>;
 const labels: Record<string, string> = {
   comfort: 'Gewenste temperatuur (°C)',
-  enabled: 'Slim voorverwarmen',
+  enabled: 'Slimme prijsregeling',
   max_boost: 'Maximale voorverwarming (+°C)',
   max_drop: 'Maximale onderschrijding (−°C)',
   min_spread: 'Minimaal prijsverschil (€/kWh)',
-  max_hours: 'Maximale voorverwarmtijd (uur)',
+  max_hours: 'Maximale optimalisatieduur (uur)',
   min_saving: 'Minimaal geschat voordeel (€)',
   loss_rate: 'Geschat warmteverlies per uur',
   heat_capacity: 'Geschatte warmtecapaciteit (kWh warmte/°C)',
@@ -114,6 +114,9 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
         gap: 8px;
       }
       dialog {
+        position: fixed;
+        inset: 0;
+        margin: auto;
         color: var(--primary-text-color);
         background: var(--card-background-color);
         border: 1px solid var(--divider-color);
@@ -175,7 +178,7 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
     };
   }
   protected override prepare(config: FluvyCardConfig): FluvyCardConfig {
-    if (!config.entity) throw new Error('Kies de voorverwarming-beslissensor');
+    if (!config.entity) throw new Error('Kies de beslissensor van Slim verwarmen');
     return config;
   }
   protected override watched(): readonly string[] {
@@ -259,6 +262,13 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
       s = this.settings;
     const num = (v: unknown) =>
       typeof v === 'number' ? v.toLocaleString('nl-NL', { maximumFractionDigits: 2 }) : '—';
+    const deferred = d.mode === 'defer' && typeof d.defer_until === 'number';
+    const resume = deferred
+      ? new Date(Number(d.defer_until) * 1000).toLocaleTimeString('nl-NL', {
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : '';
     const next =
       typeof d.next_preheat === 'string'
         ? new Date(d.next_preheat).toLocaleString('nl-NL', {
@@ -269,7 +279,7 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
           })
         : 'Geen gepland';
     return html`<article class="fv-card heat" data-card>
-        <div class="title">${this.config?.name ?? 'Woonkamer verwarmen'}</div>
+        <div class="title">${this.config?.name ?? 'Slim verwarmen'}</div>
         <div class="muted">${this.config?.subtitle ?? 'Comfort en stroomprijs'}</div>
         <button
           class="hero"
@@ -305,7 +315,10 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
           <span>Budget stroomprijs</span
           ><strong>€ ${typeof d.price === 'number' ? d.price.toFixed(4) : '—'}/kWh</strong>
         </div>
-        <div class="row"><span>Volgende voorverwarming</span><strong>${next}</strong></div>
+        <div class="row">
+          <span>${deferred ? 'Terug naar comfort' : 'Volgende voorverwarming'}</span
+          ><strong>${deferred ? resume : next}</strong>
+        </div>
         <div class="muted" role="status">${d.reason ?? 'Regeling niet beschikbaar'}</div>
         ${d.manual_until ? html`<div class="muted">Pauze tot ${new Date(String(d.manual_until)).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}</div>` : ''}
         ${this.error ? html`<div class="error" role="alert">${this.error}</div>` : ''}

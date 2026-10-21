@@ -5,6 +5,12 @@ and the versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.9.1-homelab.4] — 2026-10-21
+
+- Rename the price controller UI to Slim verwarmen and show the comfort-return
+  time during a temporary reduction. Clarify the master switch and shared horizon.
+- Center the native settings dialog in the viewport.
+
 ## [1.9.1-homelab.3] — 2026-10-21
 
 - Add a native Dutch preheat card with comfort controls, live controller status
