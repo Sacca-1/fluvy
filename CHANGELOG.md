@@ -5,6 +5,13 @@ and the versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.9.1-homelab.7] — 2026-10-21
+
+- Add daily on/off time selectors and independent toggles to the smart heating
+  card, with next-event and skipped-event status. Requires smart_preheat 1.4.0.
+- Allow 5 KB gzip for the lazy preheat card to include the daily schedule controls.
+
+
 ## [1.9.1-homelab.6] — 2026-10-21
 
 - Keep the last unit temperature visible with a stale-data warning, and expose

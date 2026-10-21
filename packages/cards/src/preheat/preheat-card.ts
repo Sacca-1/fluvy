@@ -124,6 +124,15 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
         display: flex;
         gap: 8px;
       }
+      .schedule {
+        display: grid;
+        gap: 12px;
+        border-top: 1px solid var(--divider-color);
+        padding-top: 16px;
+      }
+      .schedule input[type='time'] {
+        width: 120px;
+      }
       dialog {
         position: fixed;
         inset: 0;
@@ -272,6 +281,49 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
         @change=${update}
     /></label>`;
   }
+  private renderSchedule() {
+    const s = this.settings,
+      d = this.data;
+    const next =
+      typeof d.next_switch === 'string'
+        ? new Date(d.next_switch).toLocaleString('nl-NL', {
+            day: 'numeric',
+            month: 'short',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: this.hass?.config.time_zone,
+          })
+        : '';
+    const last = d.schedule_last as { status?: string; reason?: string } | undefined;
+    return html`<section class="schedule" aria-label="Dagelijks schakelen">
+      <strong>Dagelijks schakelen</strong>
+      ${(['on', 'off'] as const).map(
+        (action) =>
+          html`<div class="row">
+            <label class="row"
+              ><input
+                type="checkbox"
+                aria-label=${action === 'on' ? 'Automatisch inschakelen' : 'Automatisch uitschakelen'}
+                .checked=${Boolean(s['auto_' + action])}
+                ?disabled=${this.busy}
+                @change=${(event: Event) => this.save({ ['auto_' + action]: (event.target as HTMLInputElement).checked })}
+              />${action === 'on' ? 'Automatisch aan' : 'Automatisch uit'}</label
+            >
+            <input
+              type="time"
+              aria-label=${action === 'on' ? 'Inschakeltijd' : 'Uitschakeltijd'}
+              .value=${String(s[action + '_time'] ?? '')}
+              ?disabled=${this.busy}
+              step="60"
+              @change=${(event: Event) => this.save({ [action + '_time']: (event.target as HTMLInputElement).value })}
+            />
+          </div>`,
+      )}
+      <div class="muted">Dagelijks · handmatige pauze gaat voor</div>
+      ${next ? html`<div class="muted">Volgende: ${d.next_switch_action === 'on' ? 'aan' : 'uit'} · ${next}</div>` : ''}
+      ${last && ['skipped', 'error'].includes(last.status ?? '') ? html`<div class="muted">${last.reason}</div>` : ''}
+    </section>`;
+  }
   protected renderCard() {
     const d = this.data,
       s = this.settings;
@@ -344,6 +396,7 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
           <span>${deferred ? 'Terug naar comfort' : 'Volgende voorverwarming'}</span
           ><strong>${deferred ? resume : next}</strong>
         </div>
+        ${this.renderSchedule()}
         <div class="muted" role="status">${d.reason ?? 'Regeling niet beschikbaar'}</div>
         ${d.manual_until ? html`<div class="muted">Pauze tot ${new Date(String(d.manual_until)).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}</div>` : ''}
         ${this.error ? html`<div class="error" role="alert">${this.error}</div>` : ''}

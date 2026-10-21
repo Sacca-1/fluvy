@@ -99,7 +99,7 @@ describe('preheat card', () => {
     expect(element.shadowRoot!.textContent).toContain('Aircosensor 21 °C');
     expect(element.shadowRoot!.textContent).toContain('Kamerdoel 20 °C');
     expect(element.shadowRoot!.textContent).toContain('Correctie 1 °C');
-    expect(element.shadowRoot!.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
+    expect(element.shadowRoot!.querySelectorAll('input[type="checkbox"]')).toHaveLength(4);
     expect(callService).not.toHaveBeenCalled();
   });
   it('keeps a cached unit reading visible with a stale warning', async () => {
@@ -112,6 +112,59 @@ describe('preheat card', () => {
     expect(element.shadowRoot!.textContent).toContain('Aircosensor 20 °C');
     expect(element.shadowRoot!.textContent).toContain('niet gebruikt voor correctie');
     expect(element.shadowRoot!.querySelector('dialog')!.textContent).toContain('Rustzone');
+  });
+  it('saves independent daily times and toggles through controller settings', async () => {
+    const { element, callService } = await draw('comfort', {
+      settings: {
+        comfort: 20,
+        auto_on: false,
+        auto_off: false,
+        on_time: '07:00',
+        off_time: '23:00',
+      },
+    });
+    const toggle = element.shadowRoot!.querySelector(
+      '[aria-label="Automatisch inschakelen"]',
+    ) as HTMLInputElement;
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    await element.updateComplete;
+    expect(callService).toHaveBeenLastCalledWith('smart_preheat', 'configure', {
+      settings: { auto_on: true },
+      resume: false,
+    });
+    const time = element.shadowRoot!.querySelector(
+      '[aria-label="Uitschakeltijd"]',
+    ) as HTMLInputElement;
+    time.value = '22:30';
+    time.dispatchEvent(new Event('change'));
+    await element.updateComplete;
+    expect(callService).toHaveBeenLastCalledWith('smart_preheat', 'configure', {
+      settings: { off_time: '22:30' },
+      resume: false,
+    });
+    const off = element.shadowRoot!.querySelector(
+      '[aria-label="Automatisch uitschakelen"]',
+    ) as HTMLInputElement;
+    off.checked = true;
+    off.dispatchEvent(new Event('change'));
+    await element.updateComplete;
+    expect(callService).toHaveBeenLastCalledWith('smart_preheat', 'configure', {
+      settings: { auto_off: true },
+      resume: false,
+    });
+    expect(element.shadowRoot!.querySelectorAll('input[type="time"]')).toHaveLength(2);
+  });
+  it('shows the next scheduled action and a skipped manual event', async () => {
+    const { element } = await draw('manual', {
+      next_switch: '2026-10-22T07:00:00+02:00',
+      next_switch_action: 'on',
+      schedule_last: { status: 'skipped', reason: 'Tijdschakeling overgeslagen: handmatige pauze' },
+    });
+    expect(element.shadowRoot!.textContent).toContain('Volgende: aan');
+    expect(element.shadowRoot!.textContent).toContain(
+      'Tijdschakeling overgeslagen: handmatige pauze',
+    );
   });
   it('renders missing data without presenting zero measurements', async () => {
     const { element } = await draw(undefined as unknown as string);

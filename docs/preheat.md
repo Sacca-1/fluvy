@@ -45,3 +45,12 @@ biedt ook instelbare proportionele kamerbijsturing, een rustzone en een aparte
 instelinterval voor die bijsturing. Het afgevlakte sensorverschil en de
 bijsturing samen vallen binnen de maximale correctie. Een warme kamer verlaagt
 het aircodoel; koelen, uitschakelen en ventilatorwijzigingen worden niet aangevraagd.
+
+De kaart biedt direct twee dagelijkse kloktijden met afzonderlijke schakelaars:
+`Automatisch aan` (verwarmen) en `Automatisch uit`. Standaard staan beide uit,
+met voorgeselecteerd 07:00 en 23:00. Wijzigingen worden direct opgeslagen via de
+bestaande configuratieservice. De volgende schakeling en overgeslagen/mislukte
+acties worden getoond. De backend gebruikt de lokale HA-tijd, voert elk moment
+maximaal eenmaal per dag uit en respecteert handmatige pauze en andere modi.
+Er is geen inhaalactie na uitval. Ontbrekende zomertijdminuten worden overgeslagen;
+het dubbele wintertijduur voert dezelfde actie slechts eenmaal uit.

@@ -66,7 +66,7 @@ const BUDGETS = {
   'view-icons': 4096,
   'sensor-band': 4096,
   // The controller-specific comfort card and its Dutch settings dialog.
-  preheat: 4096,
+  preheat: 5120,
   pages: 8192,
   activity: 32_768,
   history: 16_384,

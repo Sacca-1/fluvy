@@ -1,6 +1,6 @@
 {
   "name": "@fluvy/tokens",
-  "version": "1.9.1-homelab.6",
+  "version": "1.9.1-homelab.7",
   "private": true,
   "description": "Design tokens for the Fluvy theme: OKLCH derivation, palettes, CSS/JSON emitters",
   "license": "GPL-3.0-only",
