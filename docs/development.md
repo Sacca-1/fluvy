@@ -249,7 +249,7 @@ rewrites it from what the run saw, keeping the reasons (a new entry's is `triage
 
 ### The facts guard
 
-`tools/docs/src/facts.ts` (part of `pnpm check`) reads every count the prose spells — "fifty-six cards", "fifteen
+`tools/docs/src/facts.ts` (part of `pnpm check`) reads every count the prose spells — "fifty-seven cards", "fifteen
 palettes", "five automatic dashboards", "eight languages", "five tabs", in any case, in words or in digits — in the
 README, `CONTRIBUTING.md`, the package description, `docs/*.md`, `packages/cards/README.md` and the design language,
 and holds it to the catalogue, `PALETTE_NAMES`, the strategy's templates, `LANGUAGE_CODES` and the panel's `TABS`;

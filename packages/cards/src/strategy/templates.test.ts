@@ -159,6 +159,8 @@ describe('the dashboard templates', () => {
       'custom:fluvy-automations-card',
       'custom:fluvy-appliance-card',
       'custom:fluvy-sensor-band-card',
+      // Requires an explicitly configured heating controller; never infer an appliance.
+      'custom:fluvy-preheat-card',
     ]);
     expect(
       CATALOGUE.map(([tag]) => `custom:${tag}`).filter(

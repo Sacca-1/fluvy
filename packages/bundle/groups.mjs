@@ -143,6 +143,7 @@ export const GROUPS = [
   { name: 'editor', test: EDITOR },
   { name: 'view-icons', test: VIEW_ICONS },
   { name: 'sensor-band', test: /\/packages\/cards\/src\/(sensor-band-cards\.ts|sensor-band\/)/ },
+  { name: 'preheat', test: /\/packages\/cards\/src\/(preheat-cards\.ts|preheat\/)/ },
   { name: 'core', test: (id) => !id.includes('/packages/bundle/src/') },
 ];
 

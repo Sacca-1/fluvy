@@ -20,6 +20,7 @@ import { FluvyPeopleCard } from './people/people-card.js';
 import { FluvyReadoutsCard } from './readouts/readouts-card.js';
 import { FluvySceneCard } from './scene/scene-card.js';
 import { FluvyScenesCard } from './scenes/scenes-card.js';
+import { PREHEAT_FAMILY } from './preheat-family.js';
 import { FluvySensorCard } from './sensor/sensor-card.js';
 import { FluvyStatTilesCard } from './stat-tiles/stat-tiles-card.js';
 import { FluvyThermostatCard } from './thermostat/thermostat-card.js';
@@ -255,6 +256,7 @@ type Family = readonly [
 
 /** The weather card and the media, energy, devices, automations, appliances and alerts families. */
 const FAMILIES: readonly Family[] = [
+  [PREHEAT_FAMILY, () => import('./preheat-cards.js')],
   [SENSOR_BAND_FAMILY, () => import('./sensor-band-cards.js')],
   [WEATHER_FAMILY, () => import('./weather-cards.js')],
   [MEDIA_FAMILY, () => import('./media-cards.js')],

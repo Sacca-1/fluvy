@@ -1,6 +1,6 @@
 {
   "name": "@fluvy/render",
-  "version": "1.9.1-homelab.2",
+  "version": "1.9.1-homelab.3",
   "private": true,
   "description": "Headless Chromium tooling: screenshots of the design lab and the playground, the alignment measurer, interaction tests",
   "license": "GPL-3.0-only",

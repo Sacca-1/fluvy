@@ -5,6 +5,12 @@ and the versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.9.1-homelab.3] — 2026-10-21
+
+- Add a native Dutch preheat card with comfort controls, live controller status
+  and a settings dialog for limits, tariff components, source selectors and manual resume.
+- Keep the controller-specific card in its own module and require explicit setup.
+
 ## [1.9.1-homelab.2] — 2026-10-19
 
 - Keep the ruler accessibility reading identical to the live readout; document the sensor module budget.

@@ -1,6 +1,6 @@
 # The cards
 
-Fifty-six cards, listed as **Fluvy · …** in the card picker, each with a live preview and an editor form. The form is
+Fifty-seven cards, listed as **Fluvy · …** in the card picker, each with a live preview and an editor form. The form is
 the reference for a card's options: it shows what the card does by default, and a default you leave as it is is never
 written into the configuration. In YAML, a card is `type: custom:<tag>` plus the entity or entities it draws and any
 option the editor offers; the *Options* column below names them (a select's values in brackets, a list with its item
@@ -281,6 +281,7 @@ alerts:
 | **Weather** | `custom:fluvy-weather-card` | Condition, temperature, feels-like, wind and the daily or hourly forecast. | `variant` (`full`, `compact`), `forecast` (`daily`, `hourly`, `both`), `days`, `show_forecast` | `forecast` → `show_forecast` |
 | **Sensor** | `custom:fluvy-sensor-card` | A sensor with its 24 h curve, trend, min, max and average, or up to three sensors on one chart. | `subtitle`, `variant` (`chart`, `tile`), `hours`, `show_stats`, `label`, `entities` (a list: `entity`, `name`, `icon`, `color`) | — |
 | **Sensor band** | `custom:fluvy-sensor-band-card` | A current sensor reading on a ruler with colour bands and labelled reference markers. | `subtitle`, `label`, `min`, `max`, `bands`, `references` | — |
+| **Slim voorverwarmen** | `custom:fluvy-preheat-card` | Comforttemperatuur, prijsplanning en geavanceerde instellingen voor slimme verwarming. | `subtitle` | — |
 | **Readouts** | `custom:fluvy-readouts-card` | Up to four values side by side with their trends. | `hours`, `variant` (`grid`, `row`), `empty_text`, `hide_empty`, `rows` (a list: `entity`, `name`, `tap_action`) | `entities` → `rows` |
 | **People** | `custom:fluvy-people-card` | Who is home: avatars, zones, times and phone batteries, each person with a tap of their own. | `title`, `variant` (`grid`, `rows`), `map_path`, `show_zone`, `show_time`, `show_battery`, `empty_text`, `hide_empty`, `people` (a list: `entity`, `name`, `battery`, `color`, `tap_action`, `hold_action`) | `layout` → `variant`, `entities` → `people` |
 | **Openings** | `custom:fluvy-openings-card` | Doors, windows and motion at a glance, with what is open counted. | `title`, `subtitle`, `variant` (`rows`, `compact`, `tiles`), `max_rows`, `show_count`, `show_time`, `empty_text`, `hide_empty`, `rows` (a list: `entity`, `name`, `icon`, `color`, `tap_action`, `hold_action`) | `entities` → `rows` |
