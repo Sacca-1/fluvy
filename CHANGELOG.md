@@ -5,6 +5,12 @@ and the versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.9.1-homelab.6] — 2026-10-21
+
+- Keep the last unit temperature visible with a stale-data warning, and expose
+  bounded room-error feedback, deadband and feedback interval for smart heating.
+
+
 ## [1.9.1-homelab.5] — 2026-10-21
 
 - Add an optional external room-temperature reference, configurable correction

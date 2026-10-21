@@ -1,6 +1,6 @@
 {
   "name": "@fluvy/brand",
-  "version": "1.9.1-homelab.5",
+  "version": "1.9.1-homelab.6",
   "private": true,
   "description": "Derives the brand files (the mark with explicit inks, the lockups, the integration's icon) from brand/mark.svg",
   "license": "GPL-3.0-only",

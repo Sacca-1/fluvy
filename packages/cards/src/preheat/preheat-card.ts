@@ -14,6 +14,9 @@ const labels: Record<string, string> = {
   external_temperature: 'Externe kamertemperatuur gebruiken (bijv. ALPSTUGA)',
   max_correction: 'Maximale aircocorrectie (±°C)',
   correction_minutes: 'Meetverschil afvlakken (minuten)',
+  feedback_gain: 'Bijsturing bij afwijkende kamertemperatuur (°C/°C)',
+  feedback_deadband: 'Rustzone rond kamerdoel (±°C)',
+  external_interval: 'Instelinterval kamerbijsturing (minuten)',
   max_boost: 'Maximale voorverwarming (+°C)',
   max_drop: 'Maximale onderschrijding (−°C)',
   min_spread: 'Minimaal prijsverschil (€/kWh)',
@@ -38,6 +41,9 @@ const limits: Record<string, readonly [number, number, number]> = {
   comfort: [16, 28, 0.5],
   max_correction: [0, 3, 0.5],
   correction_minutes: [5, 60, 5],
+  feedback_gain: [0, 2, 0.1],
+  feedback_deadband: [0.1, 1, 0.1],
+  external_interval: [5, 60, 5],
   max_boost: [0, 3, 0.5],
   max_drop: [0, 2, 0.5],
   min_spread: [0, 1, 0.01],
@@ -326,6 +332,7 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
                 Kamer ${num(d.indoor)} °C · Aircosensor ${num(d.unit_temperature)} °C<br />
                 Kamerdoel ${num(d.target)} °C · Correctie ${num(d.correction)} °C<br />
                 ${d.external_status ?? 'Externe regeling wordt geladen'}
+                ${d.unit_status ? html`<br />${d.unit_status}` : ''}
               </div>`
             : ''
         }
@@ -357,11 +364,12 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
           </button>
         </div>
         <p class="muted">
-          Met externe kamertemperatuur corrigeert de regeling het aircodoel voor het afgevlakte
-          meetverschil. De comfortgrenzen gelden voor het kamerdoel; het aircodoel kan door de
-          begrensde correctie hoger of lager zijn. Bij ontbrekende metingen vervalt de correctie. De
-          airco blijft zelf de compressor regelen. Uit of koelen blijft behouden. Warmteverlies,
-          warmtecapaciteit en vermogen zijn schattingen; het voordeel is geen gemeten besparing.
+          De externe regeling combineert het afgevlakte meetverschil met bijsturing op het
+          kamerdoel. Bijsturing 0 schakelt alleen die toevoeging uit. Het begrensde aircodoel kan
+          buiten de comfortgrenzen van het kamerdoel liggen. Oude metingen blijven zichtbaar, maar
+          worden pas na een verse melding gebruikt. De airco regelt zelf de compressor. Uit of
+          koelen blijft behouden. Warmteverlies, warmtecapaciteit en vermogen zijn schattingen; het
+          voordeel is geen gemeten besparing.
         </p>
         <form
           @submit=${(event: Event) => {

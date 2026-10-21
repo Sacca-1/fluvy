@@ -1,6 +1,6 @@
 {
   "name": "@fluvy/bundle",
-  "version": "1.9.1-homelab.5",
+  "version": "1.9.1-homelab.6",
   "private": true,
   "description": "Builds the module Home Assistant loads: the entry, its chunks, the loader and the fonts, into custom_components/fluvy/frontend",
   "license": "GPL-3.0-only",

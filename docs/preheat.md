@@ -38,3 +38,10 @@ het uit; correctie is maximaal ±2 °C en wordt over 15 minuten afgevlakt. Beide
 zijn instelbaar. De backend bewaakt sensorversheid, fysieke grenzen en interval.
 De comfortgrenzen gelden voor het kamerdoel; de gecompenseerde airco-instelling
 kan daarbuiten liggen. Er wordt geen warmte- of besparingsgarantie gegeven.
+
+Vanaf backend 1.3.0 wordt een oudere ThinQ-unitmeting zichtbaar gehouden met een
+waarschuwing, terwijl de backend begrensd een statusverversing vraagt. De kaart
+biedt ook instelbare proportionele kamerbijsturing, een rustzone en een aparte
+instelinterval voor die bijsturing. Het afgevlakte sensorverschil en de
+bijsturing samen vallen binnen de maximale correctie. Een warme kamer verlaagt
+het aircodoel; koelen, uitschakelen en ventilatorwijzigingen worden niet aangevraagd.

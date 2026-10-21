@@ -84,7 +84,7 @@ describe('preheat card', () => {
       'Maximale voorverwarming',
     );
     expect(element.shadowRoot!.querySelectorAll('select')).toHaveLength(6);
-    expect(element.shadowRoot!.querySelectorAll('input[type="number"]')).toHaveLength(15);
+    expect(element.shadowRoot!.querySelectorAll('input[type="number"]')).toHaveLength(18);
   });
   it('shows the external reference separately from appliance and room targets', async () => {
     const { element, callService } = await draw('comfort', {
@@ -101,6 +101,17 @@ describe('preheat card', () => {
     expect(element.shadowRoot!.textContent).toContain('Correctie 1 °C');
     expect(element.shadowRoot!.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
     expect(callService).not.toHaveBeenCalled();
+  });
+  it('keeps a cached unit reading visible with a stale warning', async () => {
+    const { element } = await draw('comfort', {
+      settings: { comfort: 19, external_temperature: true },
+      unit_temperature: 20,
+      unit_temperature_fresh: false,
+      unit_status: 'Laatste melding ouder dan 15 minuten; niet gebruikt voor correctie',
+    });
+    expect(element.shadowRoot!.textContent).toContain('Aircosensor 20 °C');
+    expect(element.shadowRoot!.textContent).toContain('niet gebruikt voor correctie');
+    expect(element.shadowRoot!.querySelector('dialog')!.textContent).toContain('Rustzone');
   });
   it('renders missing data without presenting zero measurements', async () => {
     const { element } = await draw(undefined as unknown as string);
