@@ -5,6 +5,11 @@ and the versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.9.1-homelab.9] — 2026-10-22
+
+- Expose separate extra feedback strength for an overheated room and a lower
+  appliance target limit, preserving the existing upper correction. Requires smart_preheat 1.6.0.
+
 ## [1.9.1-homelab.8] — 2026-10-22
 
 - Use the smart heating net benefit per shifted kWh threshold and show the active

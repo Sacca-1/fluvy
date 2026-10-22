@@ -85,7 +85,13 @@ describe('preheat card', () => {
       'Maximale voorverwarming',
     );
     expect(element.shadowRoot!.querySelectorAll('select')).toHaveLength(6);
-    expect(element.shadowRoot!.querySelectorAll('input[type="number"]')).toHaveLength(17);
+    expect(element.shadowRoot!.querySelectorAll('input[type="number"]')).toHaveLength(19);
+    expect(element.shadowRoot!.querySelector('dialog')!.textContent).toContain(
+      'Extra tegensturing',
+    );
+    expect(element.shadowRoot!.querySelector('dialog')!.textContent).toContain(
+      'Maximale aircoverlaging',
+    );
     expect(element.shadowRoot!.querySelector('dialog')!.textContent).toContain(
       'Minimaal voordeel na warmteverlies (€/kWh stroom)',
     );
@@ -102,6 +108,29 @@ describe('preheat card', () => {
     expect(element.shadowRoot!.textContent).toContain('Gepland voordeel per kWh');
     expect(element.shadowRoot!.textContent).toContain('€ 0.089/kWh');
     expect(element.shadowRoot!.textContent).not.toContain('€ 0.012/kWh');
+  });
+  it('saves separate warm-room strength and reduction limit while preserving comfort', async () => {
+    const { element, callService } = await draw('comfort', {
+      settings: { comfort: 18.5, overheat_multiplier: 1, max_overheat_correction: 0 },
+    });
+    (element.shadowRoot!.querySelector('button.hero') as HTMLButtonElement).click();
+    await element.updateComplete;
+    for (const name of ['Extra tegensturing', 'Maximale aircoverlaging']) {
+      const label = [...element.shadowRoot!.querySelectorAll('label')].find((node) =>
+        node.textContent!.includes(name),
+      )!;
+      const input = label.querySelector('input')!;
+      input.value = '2';
+      input.dispatchEvent(new Event('change'));
+    }
+    element
+      .shadowRoot!.querySelector('form')!
+      .dispatchEvent(new Event('submit', { cancelable: true }));
+    await element.updateComplete;
+    expect(callService).toHaveBeenCalledWith('smart_preheat', 'configure', {
+      settings: { comfort: 18.5, overheat_multiplier: 2, max_overheat_correction: 2 },
+      resume: false,
+    });
   });
   it('shows the active strategy benefit rather than a later forecast', async () => {
     const { element } = await draw('defer', {

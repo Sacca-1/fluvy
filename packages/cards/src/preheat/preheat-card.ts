@@ -15,6 +15,8 @@ const labels: Record<string, string> = {
   max_correction: 'Maximale aircocorrectie (±°C)',
   correction_minutes: 'Meetverschil afvlakken (minuten)',
   feedback_gain: 'Bijsturing bij afwijkende kamertemperatuur (°C/°C)',
+  overheat_multiplier: 'Extra tegensturing bij te warme kamer (×)',
+  max_overheat_correction: 'Maximale aircoverlaging (°C; 0 = algemene grens)',
   feedback_deadband: 'Rustzone rond kamerdoel (±°C)',
   external_interval: 'Instelinterval kamerbijsturing (minuten)',
   max_boost: 'Maximale voorverwarming (+°C)',
@@ -41,6 +43,8 @@ const limits: Record<string, readonly [number, number, number]> = {
   max_correction: [0, 3, 0.5],
   correction_minutes: [5, 60, 5],
   feedback_gain: [0, 2, 0.1],
+  overheat_multiplier: [1, 3, 0.25],
+  max_overheat_correction: [0, 3, 0.5],
   feedback_deadband: [0.1, 1, 0.1],
   external_interval: [5, 60, 5],
   max_boost: [0, 3, 0.5],
@@ -427,8 +431,10 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
           buiten de comfortgrenzen van het kamerdoel liggen. Oude metingen blijven zichtbaar, maar
           worden pas na een verse melding gebruikt. De airco regelt zelf de compressor. Uit of
           koelen blijft behouden. Warmteverlies, warmtecapaciteit en vermogen zijn schattingen; het
-          voordeel is geen gemeten besparing. De regeling start op voordeel per verschoven kWh
-          stroom, na geschat warmteverlies. Er geldt geen minimum totaalbedrag per actie.
+          voordeel is geen gemeten besparing. Extra tegensturing en de aparte verlagingsgrens
+          verlagen alleen het aircodoel; het kamerdoel blijft behouden. De regeling start op
+          voordeel per verschoven kWh stroom, na geschat warmteverlies. Er geldt geen minimum
+          totaalbedrag per actie.
         </p>
         <form
           @submit=${(event: Event) => {

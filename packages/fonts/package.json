@@ -1,6 +1,6 @@
 {
   "name": "@fluvy/fonts",
-  "version": "1.9.1-homelab.8",
+  "version": "1.9.1-homelab.9",
   "private": true,
   "description": "Inter, self-hosted as a variable font (SIL OFL 1.1), subset to Latin + Latin Extended, with its licence",
   "license": "GPL-3.0-only",
