@@ -1,5 +1,6 @@
 import type { FluvyCardConfig, LovelaceConfigForm } from '@fluvy/core';
-import { css, html, type CSSResultGroup } from 'lit';
+import { css, html, svg, type CSSResultGroup } from 'lit';
+import { glyph } from '@fluvy/ui';
 import { Card } from '../shared/base.js';
 import { entityField, textField, formLabels } from '../shared/form.js';
 
@@ -65,7 +66,7 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
   static override base = ['entity', 'name'] as const;
   static override keys = ['subtitle'];
   static override layoutHeight(): number {
-    return 500;
+    return 432;
   }
   static getStubConfig(_hass: unknown, entities: readonly string[]): PreheatConfig {
     return {
@@ -86,13 +87,38 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
     ...(Card.styles as CSSResultGroup[]),
     css`
       .heat {
-        padding: 24px;
+        padding: 20px;
         display: grid;
-        gap: 16px;
+        gap: 12px;
+        container-type: inline-size;
+      }
+      .heading,
+      .row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+      }
+      .identity {
+        display: grid;
+        gap: 6px;
+        min-width: 0;
       }
       .title {
-        font-size: 18px;
+        font-size: 17px;
         font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+      .state {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--fluvy-text-secondary);
+        font-size: 12px;
+      }
+      .state svg {
+        width: 14px;
+        height: 14px;
       }
       button {
         font: inherit;
@@ -101,30 +127,209 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
         border: 1px solid var(--fluvy-border, #8884);
         border-radius: 16px;
         padding: 12px 16px;
-        background: var(--fluvy-surface-2, #8881);
+        background: var(--fluvy-page, #8881);
+        touch-action: manipulation;
+      }
+      button:disabled {
+        opacity: 0.35;
+        cursor: default;
+      }
+      button:focus-visible {
+        outline: 2px solid var(--fluvy-accent);
+        outline-offset: 4px;
+      }
+      .settings {
+        width: 44px;
+        height: 44px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border-radius: 50%;
+        background: transparent;
+      }
+      .settings svg {
+        width: 20px;
+        height: 20px;
+      }
+      .dial {
+        position: relative;
+        width: min(100%, 280px);
+        aspect-ratio: 280/260;
+        margin: -6px auto 0;
+        --dial-ink: var(--fluvy-accent, #ba995d);
+      }
+      .dial.is-boost {
+        --dial-ink: var(--fluvy-heat, #df9f67);
+      }
+      .dial.is-lower {
+        --dial-ink: var(--fluvy-cool, #8ebec8);
+      }
+      .dial > svg {
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+      }
+      .track {
+        fill: none;
+        stroke: var(--fluvy-border, #8883);
+        stroke-width: 5;
+        stroke-linecap: round;
+      }
+      .ticks {
+        fill: none;
+        stroke: var(--fluvy-text-secondary);
+        opacity: 0.24;
+        stroke-width: 1.5;
+        stroke-dasharray: 0.3 2.2;
+      }
+      .progress {
+        fill: none;
+        stroke: var(--dial-ink);
+        stroke-width: 5;
+        stroke-linecap: round;
+        transition: stroke-dasharray 0.4s ease;
+      }
+      .room-dot {
+        fill: var(--fluvy-text, currentColor);
+        stroke: var(--fluvy-card, #24211c);
+        stroke-width: 3;
       }
       .hero {
-        text-align: left;
-        width: 100%;
+        position: absolute;
+        top: 25%;
+        left: 14%;
+        width: 72%;
+        height: 48%;
+        border: 0;
+        padding: 0;
+        background: transparent;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        border-radius: 50%;
+      }
+      .caption {
+        color: var(--fluvy-text-secondary);
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
       }
       .value {
-        font-size: 44px;
-        line-height: 1.3;
-        font-weight: 500;
+        font-size: clamp(40px, 22cqw, 64px);
+        font-weight: 400;
+        letter-spacing: -0.055em;
+        line-height: 1.1;
+        font-variant-numeric: tabular-nums;
+      }
+      .value .unit {
+        font-size: 20px;
+        letter-spacing: -0.02em;
+        vertical-align: top;
+        position: relative;
+        top: 8px;
+        color: var(--fluvy-text-secondary);
+      }
+      .boost {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 9px;
+        border-radius: 20px;
+        font-size: 12px;
+        color: var(--dial-ink);
+        background: color-mix(in srgb, var(--dial-ink) 12%, transparent);
+      }
+      .boost svg {
+        width: 13px;
+        height: 13px;
+      }
+      .adjust {
+        position: absolute;
+        bottom: 0;
+        left: 14%;
+        right: 14%;
+        display: flex;
+        justify-content: space-between;
+      }
+      .adjust button {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        padding: 0;
+        font-size: 25px;
+        font-weight: 300;
+        display: grid;
+        place-items: center;
+      }
+      .readings {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        padding-top: 18px;
+        border-top: 1px solid var(--fluvy-border, #8883);
+      }
+      .reading {
+        display: grid;
+        gap: 7px;
+        justify-items: center;
+      }
+      .reading + .reading {
+        border-left: 1px solid var(--fluvy-border, #8883);
+      }
+      .reading-label {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        font-size: 11px;
+        color: var(--fluvy-text-secondary);
+      }
+      .reading-label svg {
+        width: 15px;
+        height: 15px;
+      }
+      .reading strong {
+        font-size: 26px;
+        font-weight: 450;
+        letter-spacing: -0.035em;
+        font-variant-numeric: tabular-nums;
+      }
+      .reading strong span {
+        font-size: 14px;
+        color: var(--fluvy-text-secondary);
       }
       .muted {
         color: var(--fluvy-text-secondary);
         line-height: 1.5;
       }
-      .row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 12px;
+      .details {
+        display: grid;
+        gap: 14px;
+        margin: 24px 0;
       }
-      .adjust {
-        display: flex;
-        gap: 8px;
+      @container (max-width: 220px) {
+        .dial {
+          height: 230px;
+          aspect-ratio: auto;
+        }
+        .reading strong {
+          font-size: 22px;
+          white-space: nowrap;
+        }
+        .reading-label {
+          font-size: 10px;
+          gap: 3px;
+        }
+        .reading-label svg {
+          width: 12px;
+          height: 12px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .progress {
+          transition: none;
+        }
       }
       .schedule {
         display: grid;
@@ -330,7 +535,9 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
     const d = this.data,
       s = this.settings;
     const num = (v: unknown) =>
-      typeof v === 'number' ? v.toLocaleString('nl-NL', { maximumFractionDigits: 2 }) : '—';
+      typeof v === 'number' && Number.isFinite(v)
+        ? v.toLocaleString('nl-NL', { maximumFractionDigits: 2 })
+        : '—';
     const deferred = d.mode === 'defer' && typeof d.defer_until === 'number';
     const active = d.mode === 'preheat' || d.mode === 'defer';
     const benefit = active
@@ -349,65 +556,102 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
         ? new Date(d.next_preheat).toLocaleString('nl-NL', {
             day: 'numeric',
             month: 'short',
+            timeZone: this.hass?.config.time_zone,
             hour: '2-digit',
             minute: '2-digit',
           })
         : 'Geen gepland';
+    const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+    const strategy = ['preheat', 'defer', 'coast'].includes(String(d.mode));
+    const delta = strategy && finite(d.target) && finite(s.comfort) ? d.target - s.comfort : 0;
+    const shifted = Math.abs(delta) > 0.04;
+    const lower = shifted && delta < 0;
+    const status =
+      d.mode === 'manual'
+        ? 'Handmatig'
+        : d.mode === 'off'
+          ? 'Uit'
+          : shifted
+            ? lower
+              ? 'Tijdelijk lager'
+              : 'Voorverwarmen'
+            : ['error', 'unavailable', 'blocked'].includes(String(d.mode)) || !finite(s.comfort)
+              ? 'Controle nodig'
+              : 'Comfort';
+    const symbol =
+      d.mode === 'manual'
+        ? 'pause'
+        : d.mode === 'off'
+          ? 'power'
+          : shifted
+            ? lower
+              ? 'snow'
+              : 'flame'
+            : 'leaf';
+    const scale = (v: number) => Math.max(0, Math.min(1, (v - 16) / 12));
+    const angle = ((scale(finite(d.indoor) ? d.indoor : 16) * 270 + 135) * Math.PI) / 180;
+    const progress = scale(finite(d.target) ? d.target : finite(s.comfort) ? s.comfort : 16) * 100;
     return html`<article class="fv-card heat" data-card>
-        <div class="title">${this.config?.name ?? 'Slim verwarmen'}</div>
-        <div class="muted">${this.config?.subtitle ?? 'Comfort en stroomprijs'}</div>
-        <button
-          class="hero"
-          @click=${() => this.openSettings()}
-          aria-label="Gewenste temperatuur en geavanceerde instellingen"
-        >
-          <div class="muted">Gewenste temperatuur</div>
-          <div class="value">${num(s.comfort)} °C</div>
-          <div class="muted">Tik voor instellingen</div>
-        </button>
-        <div class="row">
-          <span class="muted">Comfort aanpassen</span
-          ><span class="adjust"
-            ><button
-              ?disabled=${this.busy || !s.comfort || Number(s.comfort) <= 16}
+        <div class="heading">
+          <div class="identity">
+            <div class="title">${this.config?.name ?? 'Thermostaat'}</div>
+            <div class="state" role="status">${glyph(symbol)}${status}</div>
+          </div>
+          <button
+            class="settings"
+            aria-label="Instellingen en details"
+            @click=${() => this.openSettings()}
+          >
+            ${glyph('sliders')}
+          </button>
+        </div>
+        <div class="dial ${shifted ? (lower ? 'is-lower' : 'is-boost') : ''}">
+          <svg viewBox="0 0 280 260" aria-hidden="true">
+            <path class="ticks" d="M 52 228 A 124 124 0 1 1 228 228" pathLength="100" />
+            <path class="track" d="M 62 218 A 110 110 0 1 1 218 218" pathLength="100" />
+            <path
+              class="progress"
+              d="M 62 218 A 110 110 0 1 1 218 218"
+              pathLength="100"
+              stroke-dasharray="${progress} 100"
+            />
+            ${finite(d.indoor) ? svg`<circle class="room-dot" cx=${140 + 110 * Math.cos(angle)} cy=${140 + 110 * Math.sin(angle)} r="5" />` : ''}
+          </svg>
+          <button
+            class="hero"
+            aria-label="Gewenste temperatuur en geavanceerde instellingen"
+            @click=${() => this.openSettings()}
+          >
+            <span class="caption">Gewenst</span
+            ><span class="value">${num(s.comfort)}<span class="unit"> °C</span></span
+            >${shifted ? html`<span class="boost" aria-label=${lower ? 'Tijdelijke prijsverlaging' : 'Tijdelijke prijsverhoging'}>${glyph(lower ? 'snow' : 'flame')}${delta > 0 ? '+' : '−'}${num(Math.abs(delta))}°</span>` : ''}
+          </button>
+          <div class="adjust">
+            <button
+              ?disabled=${this.busy || !finite(s.comfort) || s.comfort <= 16}
               aria-label="Temperatuur verlagen"
               @click=${() => this.save({ comfort: Number(s.comfort) - 0.5 })}
             >
               −</button
             ><button
-              ?disabled=${this.busy || !s.comfort || Number(s.comfort) >= 28}
+              ?disabled=${this.busy || !finite(s.comfort) || s.comfort >= 28}
               aria-label="Temperatuur verhogen"
               @click=${() => this.save({ comfort: Number(s.comfort) + 0.5 })}
             >
               +
-            </button></span
-          >
+            </button>
+          </div>
         </div>
-        <div class="row">
-          <span>Airco ingesteld</span><strong>${num(d.actual_target)} °C</strong>
+        <div class="readings">
+          <div class="reading">
+            <span class="reading-label">${glyph('home')} ALPSTUGA</span
+            ><strong>${num(d.indoor)}<span> °C</span></strong>
+          </div>
+          <div class="reading">
+            <span class="reading-label">${glyph('heater')} Airco ingesteld</span
+            ><strong>${num(d.actual_target)}<span> °C</span></strong>
+          </div>
         </div>
-        ${
-          s.external_temperature
-            ? html`<div class="muted">
-                Kamer ${num(d.indoor)} °C · Aircosensor ${num(d.unit_temperature)} °C<br />
-                Kamerdoel ${num(d.target)} °C · Correctie ${num(d.correction)} °C<br />
-                ${d.external_status ?? 'Externe regeling wordt geladen'}
-                ${d.unit_status ? html`<br />${d.unit_status}` : ''}
-              </div>`
-            : ''
-        }
-        <div class="row">
-          <span>Budget stroomprijs</span
-          ><strong>€ ${typeof d.price === 'number' ? d.price.toFixed(4) : '—'}/kWh</strong>
-        </div>
-        <div class="row">
-          <span>${deferred ? 'Terug naar comfort' : 'Volgende voorverwarming'}</span
-          ><strong>${deferred ? resume : next}</strong>
-        </div>
-        ${typeof benefit === 'number' ? html`<div class="row"><span>${active ? 'Voordeel per verschoven kWh' : 'Gepland voordeel per kWh'}</span><strong>€ ${benefit.toFixed(3)}/kWh</strong></div>` : ''}
-        ${this.renderSchedule()}
-        <div class="muted" role="status">${d.reason ?? 'Regeling niet beschikbaar'}</div>
-        ${d.manual_until ? html`<div class="muted">Pauze tot ${new Date(String(d.manual_until)).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}</div>` : ''}
         ${this.error ? html`<div class="error" role="alert">${this.error}</div>` : ''}
       </article>
       <dialog
@@ -424,6 +668,24 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
           >
             ×
           </button>
+        </div>
+        <div class="details">
+          <div class="muted" role="status">${d.reason ?? 'Regeling niet beschikbaar'}</div>
+          <div class="muted">
+            Kamer ${num(d.indoor)} °C · Aircosensor ${num(d.unit_temperature)} °C<br />Kamerdoel
+            ${num(d.target)} °C · Correctie ${num(d.correction)} °C<br />${d.external_status ?? ''}${d.unit_status ? html`<br />${d.unit_status}` : ''}
+          </div>
+          <div class="row">
+            <span>Budget stroomprijs</span
+            ><strong>€ ${finite(d.price) ? d.price.toFixed(4) : '—'}/kWh</strong>
+          </div>
+          <div class="row">
+            <span>${deferred ? 'Terug naar comfort' : 'Volgende voorverwarming'}</span
+            ><strong>${deferred ? resume : next}</strong>
+          </div>
+          ${finite(benefit) ? html`<div class="row"><span>${active ? 'Voordeel per verschoven kWh' : 'Gepland voordeel per kWh'}</span><strong>€ ${benefit.toFixed(3)}/kWh</strong></div>` : ''}
+          ${d.manual_until ? html`<div class="muted">Pauze tot ${new Date(String(d.manual_until)).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: this.hass?.config.time_zone })}</div>` : ''}
+          ${this.renderSchedule()}
         </div>
         <p class="muted">
           De externe regeling combineert het afgevlakte meetverschil met bijsturing op het

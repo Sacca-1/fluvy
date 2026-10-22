@@ -80,7 +80,7 @@ in `tools/docs` holds this table to it):
 | `editor` | 8 KB | the cards' visual editor |
 | `view-icons` | 4 KB | a view's icon from its name |
 | `sensor-band` | 4 KB | the Homelab sensor ruler with reference bands |
-| `preheat` | 5 KB | the Homelab smart heating card and settings dialog |
+| `preheat` | 7 KB | the Homelab smart heating card and settings dialog |
 | `pages` | 8 KB | the date picker, the time field and the dropdown the pages share |
 | `activity` | 32 KB | the Activity page |
 | `history` | 16 KB | the History page |

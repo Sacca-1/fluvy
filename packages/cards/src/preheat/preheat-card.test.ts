@@ -68,6 +68,43 @@ describe('preheat card', () => {
     expect(element.shadowRoot!.textContent).toContain('Comforttemperatuur');
     expect(callService).not.toHaveBeenCalled();
   });
+  it('keeps the thermostat face minimal and diagnostics behind settings', async () => {
+    const { element, callService } = await draw('comfort', { indoor: 19.8, correction: 2 });
+    const face = element.shadowRoot!.querySelector('article')!;
+    expect(face.textContent).toContain('ALPSTUGA');
+    expect(face.textContent).not.toContain('Budget');
+    expect(face.textContent).not.toContain('Dagelijks');
+    expect(face.textContent).not.toContain('Correctie');
+    expect(face.querySelector('.boost')).toBeNull();
+    expect(face.querySelector('.room-dot')!.namespaceURI).toBe('http://www.w3.org/2000/svg');
+    (face.querySelector('.settings') as HTMLButtonElement).click();
+    await element.updateComplete;
+    expect(element.shadowRoot!.querySelector('dialog')!.open).toBe(true);
+    expect(callService).not.toHaveBeenCalled();
+  });
+  it('shows a signed room-plan boost, never the appliance sensor correction', async () => {
+    const { element } = await draw('preheat', { target: 20.5, actual_target: 22, correction: 1.5 });
+    expect(element.shadowRoot!.querySelector('article .boost')!.textContent).toContain('+0,5°');
+    expect(element.shadowRoot!.querySelector('article .state')!.textContent).toContain(
+      'Voorverwarmen',
+    );
+  });
+  it('shows passive lowering without claiming active cooling and hides it during a manual hold', async () => {
+    const { element } = await draw('coast', { target: 19.5 });
+    expect(element.shadowRoot!.querySelector('article .boost')!.textContent).toContain('−0,5°');
+    expect(element.shadowRoot!.querySelector('article .state')!.textContent).toContain(
+      'Tijdelijk lager',
+    );
+    const { element: manual } = await draw('manual', { target: 19.5 });
+    expect(manual.shadowRoot!.querySelector('article .boost')).toBeNull();
+  });
+  it('renders missing and nonfinite readings as unavailable without a false room marker', async () => {
+    const { element } = await draw('comfort', { indoor: NaN, actual_target: null });
+    const face = element.shadowRoot!.querySelector('article')!;
+    expect(face.querySelector('.room-dot')).toBeNull();
+    expect(face.textContent).not.toContain('NaN');
+    expect(face.textContent).toContain('—');
+  });
   it('changes comfort using the controller service, without physical entity IDs', async () => {
     const { element, callService } = await draw();
     (
@@ -152,7 +189,7 @@ describe('preheat card', () => {
     });
     expect(element.shadowRoot!.textContent).toContain('Kamer 19,8 °C');
     expect(element.shadowRoot!.textContent).toContain('Aircosensor 21 °C');
-    expect(element.shadowRoot!.textContent).toContain('Kamerdoel 20 °C');
+    expect(element.shadowRoot!.textContent!.replace(/\s+/g, ' ')).toContain('Kamerdoel 20 °C');
     expect(element.shadowRoot!.textContent).toContain('Correctie 1 °C');
     expect(element.shadowRoot!.querySelectorAll('input[type="checkbox"]')).toHaveLength(4);
     expect(callService).not.toHaveBeenCalled();

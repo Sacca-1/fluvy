@@ -5,6 +5,12 @@ and the versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.9.1-homelab.10] — 2026-10-22
+
+- Redesign smart heating as a compact thermostat dial with room and appliance readings,
+  signed price-shift badge, and a settings button containing diagnostics and daily schedules.
+- Allow 7 KB gzip for the on-demand thermostat module, including its accessible controls and detail view.
+
 ## [1.9.1-homelab.9] — 2026-10-22
 
 - Expose separate extra feedback strength for an overheated room and a lower
