@@ -23,6 +23,7 @@ async function draw(state: string = 'comfort', extra: Record<string, unknown> = 
               state,
               attributes: {
                 smart_preheat: true,
+                mode: state,
                 settings: {
                   comfort: 20,
                   enabled: true,
@@ -84,7 +85,32 @@ describe('preheat card', () => {
       'Maximale voorverwarming',
     );
     expect(element.shadowRoot!.querySelectorAll('select')).toHaveLength(6);
-    expect(element.shadowRoot!.querySelectorAll('input[type="number"]')).toHaveLength(18);
+    expect(element.shadowRoot!.querySelectorAll('input[type="number"]')).toHaveLength(17);
+    expect(element.shadowRoot!.querySelector('dialog')!.textContent).toContain(
+      'Minimaal voordeel na warmteverlies (€/kWh stroom)',
+    );
+    expect(element.shadowRoot!.querySelector('dialog')!.textContent).not.toContain(
+      'Minimaal geschat voordeel (€)',
+    );
+  });
+  it('shows the next opportunity per kWh without confusing it with the action total', async () => {
+    const { element } = await draw('comfort', {
+      next_preheat: '2026-10-22T11:00:00Z',
+      next_saving_per_kwh: 0.0888,
+      saving: 0.0123,
+    });
+    expect(element.shadowRoot!.textContent).toContain('Gepland voordeel per kWh');
+    expect(element.shadowRoot!.textContent).toContain('€ 0.089/kWh');
+    expect(element.shadowRoot!.textContent).not.toContain('€ 0.012/kWh');
+  });
+  it('shows the active strategy benefit rather than a later forecast', async () => {
+    const { element } = await draw('defer', {
+      saving_per_kwh: 0.12,
+      next_saving_per_kwh: 0.09,
+      defer_until: 1792670400,
+    });
+    expect(element.shadowRoot!.textContent).toContain('Voordeel per verschoven kWh');
+    expect(element.shadowRoot!.textContent).toContain('€ 0.120/kWh');
   });
   it('shows the external reference separately from appliance and room targets', async () => {
     const { element, callService } = await draw('comfort', {

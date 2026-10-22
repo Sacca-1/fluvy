@@ -5,6 +5,11 @@ and the versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.9.1-homelab.8] — 2026-10-22
+
+- Use the smart heating net benefit per shifted kWh threshold and show the active
+  or planned benefit; remove the total euro threshold. Requires smart_preheat 1.5.0.
+
 ## [1.9.1-homelab.7] — 2026-10-21
 
 - Add daily on/off time selectors and independent toggles to the smart heating

@@ -19,9 +19,8 @@ const labels: Record<string, string> = {
   external_interval: 'Instelinterval kamerbijsturing (minuten)',
   max_boost: 'Maximale voorverwarming (+°C)',
   max_drop: 'Maximale onderschrijding (−°C)',
-  min_spread: 'Minimaal prijsverschil (€/kWh)',
+  min_spread: 'Minimaal voordeel na warmteverlies (€/kWh stroom)',
   max_hours: 'Maximale optimalisatieduur (uur)',
-  min_saving: 'Minimaal geschat voordeel (€)',
   loss_rate: 'Geschat warmteverlies per uur',
   heat_capacity: 'Geschatte warmtecapaciteit (kWh warmte/°C)',
   electric_power: 'Geschat elektrisch vermogen (kW)',
@@ -48,7 +47,6 @@ const limits: Record<string, readonly [number, number, number]> = {
   max_drop: [0, 2, 0.5],
   min_spread: [0, 1, 0.01],
   max_hours: [0, 3, 0.5],
-  min_saving: [0.01, 5, 0.01],
   loss_rate: [0.01, 0.5, 0.01],
   heat_capacity: [0.2, 20, 0.1],
   electric_power: [0.1, 5, 0.1],
@@ -330,6 +328,12 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
     const num = (v: unknown) =>
       typeof v === 'number' ? v.toLocaleString('nl-NL', { maximumFractionDigits: 2 }) : '—';
     const deferred = d.mode === 'defer' && typeof d.defer_until === 'number';
+    const active = d.mode === 'preheat' || d.mode === 'defer';
+    const benefit = active
+      ? d.saving_per_kwh
+      : typeof d.next_preheat === 'string'
+        ? d.next_saving_per_kwh
+        : undefined;
     const resume = deferred
       ? new Date(Number(d.defer_until) * 1000).toLocaleTimeString('nl-NL', {
           hour: '2-digit',
@@ -396,6 +400,7 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
           <span>${deferred ? 'Terug naar comfort' : 'Volgende voorverwarming'}</span
           ><strong>${deferred ? resume : next}</strong>
         </div>
+        ${typeof benefit === 'number' ? html`<div class="row"><span>${active ? 'Voordeel per verschoven kWh' : 'Gepland voordeel per kWh'}</span><strong>€ ${benefit.toFixed(3)}/kWh</strong></div>` : ''}
         ${this.renderSchedule()}
         <div class="muted" role="status">${d.reason ?? 'Regeling niet beschikbaar'}</div>
         ${d.manual_until ? html`<div class="muted">Pauze tot ${new Date(String(d.manual_until)).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}</div>` : ''}
@@ -422,7 +427,8 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
           buiten de comfortgrenzen van het kamerdoel liggen. Oude metingen blijven zichtbaar, maar
           worden pas na een verse melding gebruikt. De airco regelt zelf de compressor. Uit of
           koelen blijft behouden. Warmteverlies, warmtecapaciteit en vermogen zijn schattingen; het
-          voordeel is geen gemeten besparing.
+          voordeel is geen gemeten besparing. De regeling start op voordeel per verschoven kWh
+          stroom, na geschat warmteverlies. Er geldt geen minimum totaalbedrag per actie.
         </p>
         <form
           @submit=${(event: Event) => {

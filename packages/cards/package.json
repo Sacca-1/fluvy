@@ -1,6 +1,6 @@
 {
   "name": "@fluvy/cards",
-  "version": "1.9.1-homelab.7",
+  "version": "1.9.1-homelab.8",
   "private": true,
   "description": "Fluvy's cards for Home Assistant, one folder per card, with the automatic dashboard and the settings panel",
   "license": "GPL-3.0-only",

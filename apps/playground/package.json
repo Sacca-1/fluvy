@@ -1,6 +1,6 @@
 {
   "name": "@fluvy/playground",
-  "version": "1.9.1-homelab.7",
+  "version": "1.9.1-homelab.8",
   "private": true,
   "description": "The cards running outside Home Assistant against a simulated `hass`: visual comparison with the design sheets, the alignment measurer and interaction tests",
   "license": "GPL-3.0-only",
