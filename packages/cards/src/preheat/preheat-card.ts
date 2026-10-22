@@ -1,6 +1,6 @@
 import type { FluvyCardConfig, LovelaceConfigForm } from '@fluvy/core';
 import { css, html, svg, type CSSResultGroup } from 'lit';
-import { glyph } from '@fluvy/ui';
+import { glyph, startPress, clickPress, preventMenu } from '@fluvy/ui';
 import { Card } from '../shared/base.js';
 import { entityField, textField, formLabels } from '../shared/form.js';
 
@@ -275,6 +275,15 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
         gap: 7px;
         justify-items: center;
       }
+      button.reading {
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        padding: 0;
+        min-height: 48px;
+        user-select: none;
+        -webkit-touch-callout: none;
+      }
       .reading + .reading {
         border-left: 1px solid var(--fluvy-border, #8883);
       }
@@ -419,6 +428,12 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
   }
   private get settings(): Settings {
     return (this.data.settings ?? {}) as Settings;
+  }
+  private openRoomHistory(): void {
+    const entity = this.settings.indoor_entity;
+    if (typeof entity === 'string' && entity.startsWith('sensor.') && this.hass?.states[entity]) {
+      this.tap(entity, { action: 'more-info' });
+    }
   }
   private async openSettings(): Promise<void> {
     this.draft = { ...this.settings };
@@ -643,10 +658,20 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
           </div>
         </div>
         <div class="readings">
-          <div class="reading">
+          <button
+            class="reading room-reading"
+            aria-label="Temperatuurgrafiek kamersensor openen"
+            title="Houd ingedrukt voor de temperatuurgrafiek"
+            ?disabled=${typeof s.indoor_entity !== 'string' || !this.hass?.states[s.indoor_entity]}
+            .fvTap=${() => this.openRoomHistory()}
+            .fvHold=${() => this.openRoomHistory()}
+            @pointerdown=${startPress}
+            @contextmenu=${preventMenu}
+            @click=${clickPress}
+          >
             <span class="reading-label">${glyph('home')} ALPSTUGA</span
             ><strong>${num(d.indoor)}<span> °C</span></strong>
-          </div>
+          </button>
           <div class="reading">
             <span class="reading-label">${glyph('heater')} Airco ingesteld</span
             ><strong>${num(d.actual_target)}<span> °C</span></strong>

@@ -4,7 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FluvyPreheatCard } from './preheat-card.js';
 customElements.define('fluvy-preheat-card', FluvyPreheatCard);
 
-afterEach(() => document.body.replaceChildren());
+afterEach(() => {
+  document.body.replaceChildren();
+  vi.useRealTimers();
+});
 async function draw(state: string = 'comfort', extra: Record<string, unknown> = {}) {
   const callService = vi.fn();
   const element = document.createElement('fluvy-preheat-card') as FluvyPreheatCard;
@@ -18,6 +21,7 @@ async function draw(state: string = 'comfort', extra: Record<string, unknown> = 
       state === undefined
         ? {}
         : {
+            'sensor.room_probe': { entity_id: 'sensor.room_probe', state: '19.8', attributes: {} },
             'sensor.test': {
               entity_id: 'sensor.test',
               state,
@@ -104,6 +108,45 @@ describe('preheat card', () => {
     expect(face.querySelector('.room-dot')).toBeNull();
     expect(face.textContent).not.toContain('NaN');
     expect(face.textContent).toContain('—');
+  });
+  it('opens the configured room sensor history on hold, suppresses its click and cancels a scroll', async () => {
+    const { element, callService } = await draw('comfort', {
+      settings: { comfort: 20, indoor_entity: 'sensor.room_probe' },
+    });
+    const more = vi.fn();
+    element.addEventListener('hass-more-info', more);
+    const button = element.shadowRoot!.querySelector('.room-reading') as HTMLButtonElement;
+    vi.useFakeTimers();
+    button.dispatchEvent(
+      new PointerEvent('pointerdown', { pointerType: 'touch', clientX: 20, clientY: 20 }),
+    );
+    await vi.advanceTimersByTimeAsync(501);
+    expect(more).toHaveBeenCalledTimes(1);
+    expect(more.mock.calls[0]![0].detail.entityId).toBe('sensor.room_probe');
+    window.dispatchEvent(new PointerEvent('pointerup'));
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+    expect(more).toHaveBeenCalledTimes(1);
+    button.dispatchEvent(
+      new PointerEvent('pointerdown', { pointerType: 'touch', clientX: 20, clientY: 20 }),
+    );
+    window.dispatchEvent(
+      new PointerEvent('pointermove', { pointerType: 'touch', clientX: 20, clientY: 50 }),
+    );
+    await vi.advanceTimersByTimeAsync(501);
+    window.dispatchEvent(new PointerEvent('pointercancel'));
+    expect(more).toHaveBeenCalledTimes(1);
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 0 }));
+    expect(more).toHaveBeenCalledTimes(2);
+    expect(callService).not.toHaveBeenCalled();
+  });
+  it('disables history when no configured sensor is available', async () => {
+    const { element } = await draw();
+    const more = vi.fn();
+    element.addEventListener('hass-more-info', more);
+    const button = element.shadowRoot!.querySelector('.room-reading') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    button.click();
+    expect(more).not.toHaveBeenCalled();
   });
   it('changes comfort using the controller service, without physical entity IDs', async () => {
     const { element, callService } = await draw();

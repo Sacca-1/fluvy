@@ -1,6 +1,6 @@
 {
   "name": "@fluvy/demo",
-  "version": "1.9.1-homelab.10",
+  "version": "1.9.1-homelab.11",
   "private": true,
   "description": "The public demo: the real cards, pages and settings panel on a simulated home, published to GitHub Pages",
   "license": "GPL-3.0-only",

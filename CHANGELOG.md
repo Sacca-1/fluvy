@@ -5,6 +5,10 @@ and the versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.9.1-homelab.11] — 2026-10-22
+
+- Thermostat: hold or tap the room temperature to open the configured sensor history; preserve scrolling and suppress duplicate taps.
+
 ## [1.9.1-homelab.10] — 2026-10-22
 
 - Redesign smart heating as a compact thermostat dial with room and appliance readings,
