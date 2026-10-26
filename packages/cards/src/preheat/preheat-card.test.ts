@@ -148,6 +148,73 @@ describe('preheat card', () => {
     button.click();
     expect(more).not.toHaveBeenCalled();
   });
+  it('starts only the configured airco in heat mode without changing settings or resuming a pause', async () => {
+    const { element, callService } = await draw('off', {
+      settings: { comfort: 18.5, climate_entity: 'climate.living_room' },
+    });
+    element.hass = {
+      ...element.hass!,
+      states: {
+        ...element.hass!.states,
+        'climate.living_room': {
+          ...element.hass!.states['sensor.test']!,
+          entity_id: 'climate.living_room',
+          state: 'off',
+          attributes: { hvac_modes: ['off', 'heat'] },
+        },
+      },
+    } as HomeAssistant;
+    await element.updateComplete;
+    const button = element.shadowRoot!.querySelector('.power') as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    button.click();
+    await element.updateComplete;
+    expect(callService).toHaveBeenCalledExactlyOnceWith('climate', 'set_hvac_mode', {
+      entity_id: 'climate.living_room',
+      hvac_mode: 'heat',
+    });
+    for (const state of ['heat', 'cool', 'unavailable']) {
+      element.hass = {
+        ...element.hass!,
+        states: {
+          ...element.hass!.states,
+          'climate.living_room': { ...element.hass!.states['climate.living_room']!, state },
+        },
+      };
+      await element.updateComplete;
+      expect((element.shadowRoot!.querySelector('.power') as HTMLButtonElement).disabled).toBe(
+        true,
+      );
+    }
+    expect(callService).toHaveBeenCalledTimes(1);
+  });
+  it('shows an error on failed start and offers no start without a heat-capable source', async () => {
+    const { element, callService } = await draw('off', {
+      settings: { comfort: 18.5, climate_entity: 'climate.living_room' },
+    });
+    expect((element.shadowRoot!.querySelector('.power') as HTMLButtonElement).disabled).toBe(true);
+    element.hass = {
+      ...element.hass!,
+      states: {
+        ...element.hass!.states,
+        'climate.living_room': {
+          ...element.hass!.states['sensor.test']!,
+          entity_id: 'climate.living_room',
+          state: 'off',
+          attributes: { hvac_modes: ['off', 'heat'] },
+        },
+      },
+    } as HomeAssistant;
+    await element.updateComplete;
+    callService.mockRejectedValueOnce(new Error('Niet bereikbaar'));
+    (element.shadowRoot!.querySelector('.power') as HTMLButtonElement).click();
+    await element.updateComplete;
+    await Promise.resolve();
+    await element.updateComplete;
+    expect(element.shadowRoot!.querySelector('[role="alert"]')!.textContent).toContain(
+      'Niet bereikbaar',
+    );
+  });
   it('changes comfort using the controller service, without physical entity IDs', async () => {
     const { element, callService } = await draw();
     (

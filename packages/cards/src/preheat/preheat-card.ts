@@ -138,7 +138,16 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
         outline: 2px solid var(--fluvy-accent);
         outline-offset: 4px;
       }
-      .settings {
+      .actions {
+        display: flex;
+        gap: 6px;
+      }
+      .power.is-on {
+        color: var(--success-color, #89b783);
+        opacity: 1;
+      }
+      .settings,
+      .power {
         width: 44px;
         height: 44px;
         display: grid;
@@ -147,7 +156,8 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
         border-radius: 50%;
         background: transparent;
       }
-      .settings svg {
+      .settings svg,
+      .power svg {
         width: 20px;
         height: 20px;
       }
@@ -418,7 +428,7 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
     return config;
   }
   protected override watched(): readonly string[] {
-    return [this.config?.entity ?? ''];
+    return [this.config?.entity ?? '', String(this.settings.climate_entity ?? '')];
   }
   override getCardSize(): number {
     return 4;
@@ -428,6 +438,31 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
   }
   private get settings(): Settings {
     return (this.data.settings ?? {}) as Settings;
+  }
+  private async turnOn(): Promise<void> {
+    const entity = this.settings.climate_entity;
+    const state = typeof entity === 'string' ? this.hass?.states[entity] : undefined;
+    if (
+      this.busy ||
+      !this.hass ||
+      typeof entity !== 'string' ||
+      !entity.startsWith('climate.') ||
+      state?.state !== 'off' ||
+      !(state.attributes.hvac_modes as string[] | undefined)?.includes('heat')
+    )
+      return;
+    this.busy = true;
+    this.error = '';
+    try {
+      await this.hass.callService('climate', 'set_hvac_mode', {
+        entity_id: entity,
+        hvac_mode: 'heat',
+      });
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.busy = false;
+    }
   }
   private openRoomHistory(): void {
     const entity = this.settings.indoor_entity;
@@ -553,6 +588,12 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
       typeof v === 'number' && Number.isFinite(v)
         ? v.toLocaleString('nl-NL', { maximumFractionDigits: 2 })
         : '—';
+    const climate =
+      typeof s.climate_entity === 'string' ? this.hass?.states[s.climate_entity] : undefined;
+    const heating = climate?.state === 'heat';
+    const canTurnOn =
+      climate?.state === 'off' &&
+      (climate.attributes.hvac_modes as string[] | undefined)?.includes('heat');
     const deferred = d.mode === 'defer' && typeof d.defer_until === 'number';
     const active = d.mode === 'preheat' || d.mode === 'defer';
     const benefit = active
@@ -612,13 +653,24 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
             <div class="title">${this.config?.name ?? 'Thermostaat'}</div>
             <div class="state" role="status">${glyph(symbol)}${status}</div>
           </div>
-          <button
-            class="settings"
-            aria-label="Instellingen en details"
-            @click=${() => this.openSettings()}
-          >
-            ${glyph('sliders')}
-          </button>
+          <div class="actions">
+            <button
+              class="power ${heating ? 'is-on' : ''}"
+              aria-label=${heating ? 'Airco staat aan' : 'Airco nu aanzetten'}
+              title=${heating ? 'Airco staat op verwarmen' : canTurnOn ? 'Nu handmatig verwarmen' : 'Airco niet beschikbaar om aan te zetten'}
+              ?disabled=${this.busy || !canTurnOn}
+              @click=${() => this.turnOn()}
+            >
+              ${glyph('power')}
+            </button>
+            <button
+              class="settings"
+              aria-label="Instellingen en details"
+              @click=${() => this.openSettings()}
+            >
+              ${glyph('sliders')}
+            </button>
+          </div>
         </div>
         <div class="dial ${shifted ? (lower ? 'is-lower' : 'is-boost') : ''}">
           <svg viewBox="0 0 280 260" aria-hidden="true">

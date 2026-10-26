@@ -5,6 +5,10 @@ and the versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.9.1-homelab.12] — 2026-10-26
+
+- Add a compact thermostat power button to start the configured room airco in heating mode; preserve settings and manual override behavior.
+
 ## [1.9.1-homelab.11] — 2026-10-22
 
 - Thermostat: hold or tap the room temperature to open the configured sensor history; preserve scrolling and suppress duplicate taps.
