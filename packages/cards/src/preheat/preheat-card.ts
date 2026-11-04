@@ -15,6 +15,7 @@ const labels: Record<string, string> = {
   external_temperature: 'Externe kamertemperatuur gebruiken (bijv. ALPSTUGA)',
   max_correction: 'Maximale aircocorrectie (±°C)',
   correction_minutes: 'Meetverschil afvlakken (minuten)',
+  correction_fade: 'Afbouw binnen temperatuurtekort (°C)',
   feedback_gain: 'Bijsturing bij afwijkende kamertemperatuur (°C/°C)',
   overheat_multiplier: 'Extra tegensturing bij te warme kamer (×)',
   max_overheat_correction: 'Maximale aircoverlaging (°C; 0 = algemene grens)',
@@ -41,8 +42,9 @@ const labels: Record<string, string> = {
 };
 const limits: Record<string, readonly [number, number, number]> = {
   comfort: [16, 28, 0.5],
-  max_correction: [0, 3, 0.5],
+  max_correction: [0, 5, 0.5],
   correction_minutes: [5, 60, 5],
+  correction_fade: [0.1, 1, 0.1],
   feedback_gain: [0, 2, 0.1],
   overheat_multiplier: [1, 3, 0.25],
   max_overheat_correction: [0, 3, 0.5],

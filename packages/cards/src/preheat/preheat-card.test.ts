@@ -232,7 +232,7 @@ describe('preheat card', () => {
       'Maximale voorverwarming',
     );
     expect(element.shadowRoot!.querySelectorAll('select')).toHaveLength(6);
-    expect(element.shadowRoot!.querySelectorAll('input[type="number"]')).toHaveLength(19);
+    expect(element.shadowRoot!.querySelectorAll('input[type="number"]')).toHaveLength(20);
     expect(element.shadowRoot!.querySelector('dialog')!.textContent).toContain(
       'Extra tegensturing',
     );
@@ -255,6 +255,34 @@ describe('preheat card', () => {
     expect(element.shadowRoot!.textContent).toContain('Gepland voordeel per kWh');
     expect(element.shadowRoot!.textContent).toContain('€ 0.089/kWh');
     expect(element.shadowRoot!.textContent).not.toContain('€ 0.012/kWh');
+  });
+  it('accepts five-degree correction and narrow fade without changing comfort', async () => {
+    const { element, callService } = await draw('comfort', {
+      settings: { comfort: 18.5, max_correction: 3, correction_fade: 0.3 },
+    });
+    (element.shadowRoot!.querySelector('.settings') as HTMLButtonElement).click();
+    await element.updateComplete;
+    const fields = [...element.shadowRoot!.querySelectorAll('label')];
+    const correction = fields
+      .find((x) => x.textContent!.includes('Maximale aircocorrectie'))!
+      .querySelector('input')!;
+    expect(correction.max).toBe('5');
+    correction.value = '5';
+    correction.dispatchEvent(new Event('change'));
+    const fade = fields
+      .find((x) => x.textContent!.includes('Afbouw binnen'))!
+      .querySelector('input')!;
+    fade.value = '0.1';
+    fade.dispatchEvent(new Event('change'));
+    await element.updateComplete;
+    element
+      .shadowRoot!.querySelector('form')!
+      .dispatchEvent(new Event('submit', { cancelable: true }));
+    await element.updateComplete;
+    expect(callService).toHaveBeenCalledWith('smart_preheat', 'configure', {
+      settings: expect.objectContaining({ comfort: 18.5, max_correction: 5, correction_fade: 0.1 }),
+      resume: false,
+    });
   });
   it('saves separate warm-room strength and reduction limit while preserving comfort', async () => {
     const { element, callService } = await draw('comfort', {

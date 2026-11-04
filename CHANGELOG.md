@@ -5,6 +5,10 @@ and the versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.9.1-homelab.13] — 2026-11-04
+
+- Allow airco correction up to five degrees and configure the final approach fade.
+
 ## [1.9.1-homelab.12] — 2026-10-26
 
 - Add a compact thermostat power button to start the configured room airco in heating mode; preserve settings and manual override behavior.
