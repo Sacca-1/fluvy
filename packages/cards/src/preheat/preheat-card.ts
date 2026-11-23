@@ -6,6 +6,11 @@ import { entityField, textField, formLabels } from '../shared/form.js';
 
 interface PreheatConfig extends FluvyCardConfig {
   subtitle?: string;
+  room?: string;
+  sensor_label?: string;
+  climate_label?: string;
+  heat_source_entity?: string;
+  regulator_entity?: string;
 }
 
 type Settings = Record<string, number | string | boolean>;
@@ -66,7 +71,14 @@ const limits: Record<string, readonly [number, number, number]> = {
 /** One controller entity; physical sources come from its validated backend settings. */
 export class FluvyPreheatCard extends Card<PreheatConfig> {
   static override base = ['entity', 'name'] as const;
-  static override keys = ['subtitle'];
+  static override keys = [
+    'subtitle',
+    'room',
+    'sensor_label',
+    'climate_label',
+    'heat_source_entity',
+    'regulator_entity',
+  ];
   static override layoutHeight(): number {
     return 432;
   }
@@ -420,9 +432,26 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
     `,
   ];
   static override getConfigForm(): LovelaceConfigForm {
+    const own: Record<string, string> = {
+      room: 'Kamer',
+      sensor_label: 'Kamersensorlabel',
+      climate_label: 'Airco-label',
+      heat_source_entity: 'Warmtebronsensor',
+      regulator_entity: 'Cv-regelaarsensor',
+    };
+    const shared = formLabels();
     return {
-      schema: [entityField(['sensor']), textField('name'), textField('subtitle')],
-      ...formLabels(),
+      schema: [
+        entityField(['sensor']),
+        textField('name'),
+        textField('subtitle'),
+        textField('room'),
+        textField('sensor_label'),
+        textField('climate_label'),
+        entityField(['sensor'], 'heat_source_entity', false),
+        entityField(['sensor'], 'regulator_entity', false),
+      ],
+      computeLabel: (schema, localize) => own[schema.name] ?? shared.computeLabel(schema, localize),
     };
   }
   protected override prepare(config: FluvyCardConfig): FluvyCardConfig {
@@ -430,7 +459,13 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
     return config;
   }
   protected override watched(): readonly string[] {
-    return [this.config?.entity ?? '', String(this.settings.climate_entity ?? '')];
+    return [
+      this.config?.entity ?? '',
+      String(this.settings.climate_entity ?? ''),
+      this.config?.heat_source_entity ?? '',
+      this.config?.regulator_entity ?? '',
+      ...(this.config?.heat_source_entity ? ['climate.heating_zone'] : []),
+    ];
   }
   override getCardSize(): number {
     return 4;
@@ -441,25 +476,55 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
   private get settings(): Settings {
     return (this.data.settings ?? {}) as Settings;
   }
+  private heatSourceState(): 'airco' | 'gas' | 'both' | undefined {
+    const id = this.config?.heat_source_entity;
+    const value = id ? this.hass?.states[id]?.state : undefined;
+    return value === 'airco' || value === 'gas' || value === 'both' ? value : undefined;
+  }
+  private isGasActive(): boolean {
+    const living = this.config?.heat_source_entity
+      ? this.hass?.states[this.config.heat_source_entity]
+      : undefined;
+    const regulator = this.config?.regulator_entity
+      ? this.hass?.states[this.config.regulator_entity]
+      : undefined;
+    const warmControl = regulator?.attributes.warm_control as { enabled?: unknown } | undefined;
+    return (
+      Boolean(living?.attributes.enabled) &&
+      (!this.config?.regulator_entity || Boolean(warmControl?.enabled))
+    );
+  }
   private async turnOn(): Promise<void> {
     const entity = this.settings.climate_entity;
     const state = typeof entity === 'string' ? this.hass?.states[entity] : undefined;
+    const sourceMode = this.heatSourceState();
+    const isGas = sourceMode === 'gas';
+    const usesCv = isGas || sourceMode === 'both';
+    const heatCapable = Boolean(
+      (state?.attributes.hvac_modes as string[] | undefined)?.includes('heat'),
+    );
+    const canStart = isGas
+      ? !this.isGasActive() && Boolean(state && heatCapable)
+      : state?.state === 'off' && heatCapable;
     if (
       this.busy ||
       !this.hass ||
       typeof entity !== 'string' ||
       !entity.startsWith('climate.') ||
-      state?.state !== 'off' ||
-      !(state.attributes.hvac_modes as string[] | undefined)?.includes('heat')
+      !canStart
     )
       return;
     this.busy = true;
     this.error = '';
     try {
-      await this.hass.callService('climate', 'set_hvac_mode', {
-        entity_id: entity,
-        hvac_mode: 'heat',
-      });
+      if (usesCv) {
+        await this.hass.callService('room_heat', 'set_living_enabled', { enabled: true });
+      } else {
+        await this.hass.callService('climate', 'set_hvac_mode', {
+          entity_id: entity,
+          hvac_mode: 'heat',
+        });
+      }
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
     } finally {
@@ -483,7 +548,9 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
     this.busy = true;
     this.error = '';
     try {
-      await this.hass?.callService('smart_preheat', 'configure', { settings, resume });
+      const payload: Record<string, unknown> = { settings, resume };
+      if (this.config?.room) payload.room = this.config.room;
+      await this.hass?.callService('smart_preheat', 'configure', payload);
       this.renderRoot.querySelector('dialog')?.close();
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
@@ -515,23 +582,26 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
               : input.value,
       };
     };
+    const fieldLabel =
+      key === 'climate_entity' && this.config?.climate_label
+        ? this.config.climate_label
+        : key === 'external_temperature' && this.config?.sensor_label
+          ? `Externe kamertemperatuur gebruiken (bijv. ${this.config.sensor_label})`
+          : labels[key];
     if (key.endsWith('_entity'))
       return html`<label
-        >${labels[key]}<select .value=${String(this.draft[key] ?? '')} @change=${update}>
+        >${fieldLabel}<select .value=${String(this.draft[key] ?? '')} @change=${update}>
           <option value="">Niet gekoppeld</option>
           ${this.options(key).map((id) => html`<option value=${id}>${this.hass?.states[id]?.attributes.friendly_name ?? id} · ${id}</option>`)}
         </select></label
       >`;
     if (key === 'enabled' || key === 'external_temperature')
       return html`<label class="row"
-        >${labels[key]}<input
-          type="checkbox"
-          .checked=${Boolean(this.draft[key])}
-          @change=${update}
+        >${fieldLabel}<input type="checkbox" .checked=${Boolean(this.draft[key])} @change=${update}
       /></label>`;
     const range = limits[key];
     return html`<label
-      >${labels[key]}<input
+      >${fieldLabel}<input
         type=${range ? 'number' : 'date'}
         .value=${String(this.draft[key] ?? '')}
         min=${range?.[0] ?? ''}
@@ -590,14 +660,58 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
       typeof v === 'number' && Number.isFinite(v)
         ? v.toLocaleString('nl-NL', { maximumFractionDigits: 2 })
         : '—';
+    const sourceMode = this.heatSourceState();
+    const isGas = sourceMode === 'gas';
+    const gasActive = isGas && this.isGasActive();
+    const effectiveMode = isGas ? (gasActive ? 'gas' : 'off') : String(d.mode ?? '');
+    const zone = isGas ? this.hass?.states['climate.heating_zone'] : undefined;
+    const actualTarget = isGas ? zone?.attributes.temperature : d.actual_target;
+    const unitTemperature = isGas ? zone?.attributes.current_temperature : d.unit_temperature;
+    const sensorLabel = this.config?.sensor_label ?? 'ALPSTUGA';
+    const targetLabel = isGas ? 'Bosch ingesteld' : 'Airco ingesteld';
+    const unitLabel = isGas ? 'Bosch-meting' : 'Aircosensor';
+    const dialogTitle = this.config?.name ?? 'Slimme woonkamerverwarming';
     const climate =
       typeof s.climate_entity === 'string' ? this.hass?.states[s.climate_entity] : undefined;
-    const heating = climate?.state === 'heat';
-    const canTurnOn =
-      climate?.state === 'off' &&
-      (climate.attributes.hvac_modes as string[] | undefined)?.includes('heat');
-    const deferred = d.mode === 'defer' && typeof d.defer_until === 'number';
-    const active = d.mode === 'preheat' || d.mode === 'defer';
+    const heatCapable = Boolean(
+      (climate?.attributes.hvac_modes as string[] | undefined)?.includes('heat'),
+    );
+    const heating = isGas ? gasActive : climate?.state === 'heat';
+    const canTurnOn = isGas
+      ? !gasActive && Boolean(climate && heatCapable)
+      : climate?.state === 'off' && heatCapable;
+    const powerAria =
+      sourceMode === 'gas'
+        ? heating
+          ? 'Gasverwarming staat aan'
+          : 'Gasverwarming nu aanzetten'
+        : sourceMode === 'both'
+          ? heating
+            ? 'Woonkamerverwarming staat aan'
+            : 'Airco en cv aanzetten'
+          : heating
+            ? 'Airco staat aan'
+            : 'Airco nu aanzetten';
+    const powerTitle =
+      sourceMode === 'gas'
+        ? heating
+          ? 'Bosch volgt de woonkamer'
+          : canTurnOn
+            ? 'Nu handmatig verwarmen'
+            : 'Gasverwarming niet beschikbaar om aan te zetten'
+        : sourceMode === 'both'
+          ? heating
+            ? 'Airco staat op verwarmen'
+            : canTurnOn
+              ? 'Nu handmatig verwarmen'
+              : 'Airco niet bereikbaar'
+          : heating
+            ? 'Airco staat op verwarmen'
+            : canTurnOn
+              ? 'Nu handmatig verwarmen'
+              : 'Airco niet beschikbaar om aan te zetten';
+    const deferred = effectiveMode === 'defer' && typeof d.defer_until === 'number';
+    const active = effectiveMode === 'preheat' || effectiveMode === 'defer';
     const benefit = active
       ? d.saving_per_kwh
       : typeof d.next_preheat === 'string'
@@ -620,26 +734,26 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
           })
         : 'Geen gepland';
     const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-    const strategy = ['preheat', 'defer', 'coast'].includes(String(d.mode));
+    const strategy = ['preheat', 'defer', 'coast'].includes(effectiveMode);
     const delta = strategy && finite(d.target) && finite(s.comfort) ? d.target - s.comfort : 0;
     const shifted = Math.abs(delta) > 0.04;
     const lower = shifted && delta < 0;
     const status =
-      d.mode === 'manual'
+      effectiveMode === 'manual'
         ? 'Handmatig'
-        : d.mode === 'off'
+        : effectiveMode === 'off'
           ? 'Uit'
           : shifted
             ? lower
               ? 'Tijdelijk lager'
               : 'Voorverwarmen'
-            : ['error', 'unavailable', 'blocked'].includes(String(d.mode)) || !finite(s.comfort)
+            : ['error', 'unavailable', 'blocked'].includes(effectiveMode) || !finite(s.comfort)
               ? 'Controle nodig'
               : 'Comfort';
     const symbol =
-      d.mode === 'manual'
+      effectiveMode === 'manual'
         ? 'pause'
-        : d.mode === 'off'
+        : effectiveMode === 'off'
           ? 'power'
           : shifted
             ? lower
@@ -658,8 +772,8 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
           <div class="actions">
             <button
               class="power ${heating ? 'is-on' : ''}"
-              aria-label=${heating ? 'Airco staat aan' : 'Airco nu aanzetten'}
-              title=${heating ? 'Airco staat op verwarmen' : canTurnOn ? 'Nu handmatig verwarmen' : 'Airco niet beschikbaar om aan te zetten'}
+              aria-label=${powerAria}
+              title=${powerTitle}
               ?disabled=${this.busy || !canTurnOn}
               @click=${() => this.turnOn()}
             >
@@ -723,24 +837,24 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
             @contextmenu=${preventMenu}
             @click=${clickPress}
           >
-            <span class="reading-label">${glyph('home')} ALPSTUGA</span
+            <span class="reading-label">${glyph('home')} ${sensorLabel}</span
             ><strong>${num(d.indoor)}<span> °C</span></strong>
           </button>
           <div class="reading">
-            <span class="reading-label">${glyph('heater')} Airco ingesteld</span
-            ><strong>${num(d.actual_target)}<span> °C</span></strong>
+            <span class="reading-label">${glyph('heater')} ${targetLabel}</span
+            ><strong>${num(actualTarget)}<span> °C</span></strong>
           </div>
         </div>
         ${this.error ? html`<div class="error" role="alert">${this.error}</div>` : ''}
       </article>
       <dialog
-        aria-label="Slimme woonkamerverwarming"
+        aria-label=${dialogTitle}
         @cancel=${() => {
           this.error = '';
         }}
       >
         <div class="row">
-          <strong>Slimme woonkamerverwarming</strong
+          <strong>${dialogTitle}</strong
           ><button
             aria-label="Sluiten"
             @click=${() => this.renderRoot.querySelector('dialog')?.close()}
@@ -751,7 +865,7 @@ export class FluvyPreheatCard extends Card<PreheatConfig> {
         <div class="details">
           <div class="muted" role="status">${d.reason ?? 'Regeling niet beschikbaar'}</div>
           <div class="muted">
-            Kamer ${num(d.indoor)} °C · Aircosensor ${num(d.unit_temperature)} °C<br />Kamerdoel
+            Kamer ${num(d.indoor)} °C · ${unitLabel} ${num(unitTemperature)} °C<br />Kamerdoel
             ${num(d.target)} °C · Correctie ${num(d.correction)} °C<br />${d.external_status ?? ''}${d.unit_status ? html`<br />${d.unit_status}` : ''}
           </div>
           <div class="row">

@@ -409,4 +409,120 @@ describe('preheat card', () => {
     expect(element.shadowRoot!.textContent).toContain('Slimme prijsregeling');
     expect(element.shadowRoot!.textContent).toContain('Maximale optimalisatieduur');
   });
+  it('forwards configured room and uses custom sensor and climate labels', async () => {
+    const callService = vi.fn();
+    const element = document.createElement('fluvy-preheat-card') as FluvyPreheatCard;
+    element.setConfig({
+      type: 'custom:fluvy-preheat-card',
+      entity: 'sensor.slaapkamer_voorverwarming',
+      name: 'Slaapkamer · Slim verwarmen',
+      room: 'slaapkamer',
+      sensor_label: 'Airguard 1',
+      climate_label: 'Slaapkamerairco',
+    });
+    const base = (await draw('comfort', { indoor: 17.2 })).element.hass!;
+    element.hass = {
+      ...base,
+      callService,
+      states: {
+        ...base.states,
+        'sensor.slaapkamer_voorverwarming': {
+          ...base.states['sensor.test']!,
+          entity_id: 'sensor.slaapkamer_voorverwarming',
+        },
+      },
+    } as HomeAssistant;
+    document.body.append(element);
+    await element.updateComplete;
+    expect(element.shadowRoot!.textContent).toContain('Airguard 1');
+    const dialog = element.shadowRoot!.querySelector('dialog')!;
+    expect(dialog.textContent).toContain('Slaapkamer · Slim verwarmen');
+    expect(dialog.textContent).toContain('Slaapkamerairco');
+    expect(dialog.textContent).toContain('Externe kamertemperatuur gebruiken (bijv. Airguard 1)');
+    (
+      element.shadowRoot!.querySelector('[aria-label="Temperatuur verhogen"]') as HTMLButtonElement
+    ).click();
+    await element.updateComplete;
+    expect(callService).toHaveBeenCalledWith('smart_preheat', 'configure', {
+      settings: { comfort: 20.5 },
+      resume: false,
+      room: 'slaapkamer',
+    });
+  });
+  it('routes living room gas and both modes through heating_zone and room_heat', async () => {
+    const { element, callService } = await draw('comfort', {
+      settings: { comfort: 19, climate_entity: 'climate.living_room' },
+      actual_target: 18,
+      unit_temperature: 17,
+    });
+    element.setConfig({
+      type: 'custom:fluvy-preheat-card',
+      entity: 'sensor.test',
+      name: 'Woonkamer · Slim verwarmen',
+      room: 'woonkamer',
+      heat_source_entity: 'sensor.woonkamer_warmtebron',
+      regulator_entity: 'sensor.kantoorverwarming_regeling',
+    });
+    const baseStates = element.hass!.states;
+    element.hass = {
+      ...element.hass!,
+      callService,
+      states: {
+        ...baseStates,
+        'climate.living_room': {
+          ...baseStates['sensor.test']!,
+          entity_id: 'climate.living_room',
+          state: 'off',
+          attributes: { hvac_modes: ['off', 'heat'] },
+        },
+        'climate.heating_zone': {
+          ...baseStates['sensor.test']!,
+          entity_id: 'climate.heating_zone',
+          state: 'heat',
+          attributes: { temperature: 20, current_temperature: 18.2 },
+        },
+        'sensor.woonkamer_warmtebron': {
+          ...baseStates['sensor.test']!,
+          entity_id: 'sensor.woonkamer_warmtebron',
+          state: 'gas',
+          attributes: { enabled: false },
+        },
+        'sensor.kantoorverwarming_regeling': {
+          ...baseStates['sensor.test']!,
+          entity_id: 'sensor.kantoorverwarming_regeling',
+          state: 'actief',
+          attributes: { warm_control: { enabled: false } },
+        },
+      },
+    } as HomeAssistant;
+    await element.updateComplete;
+    expect(element.shadowRoot!.textContent).toContain('Bosch ingesteld');
+    expect(element.shadowRoot!.textContent).toContain('20 °C');
+    expect(element.shadowRoot!.textContent).toContain('Bosch-meting 18,2 °C');
+    expect(element.shadowRoot!.querySelector('article .state')!.textContent).toContain('Uit');
+    const powerBtn = element.shadowRoot!.querySelector('.power') as HTMLButtonElement;
+    expect(powerBtn.getAttribute('aria-label')).toBe('Gasverwarming nu aanzetten');
+    powerBtn.click();
+    await element.updateComplete;
+    expect(callService).toHaveBeenCalledExactlyOnceWith('room_heat', 'set_living_enabled', {
+      enabled: true,
+    });
+
+    element.hass = {
+      ...element.hass!,
+      states: {
+        ...element.hass!.states,
+        'sensor.woonkamer_warmtebron': {
+          ...element.hass!.states['sensor.woonkamer_warmtebron']!,
+          state: 'both',
+          attributes: { enabled: true },
+        },
+      },
+    };
+    await element.updateComplete;
+    expect(powerBtn.getAttribute('aria-label')).toBe('Airco en cv aanzetten');
+    powerBtn.click();
+    await element.updateComplete;
+    expect(callService).toHaveBeenCalledTimes(2);
+  });
 });

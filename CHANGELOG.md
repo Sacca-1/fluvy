@@ -5,6 +5,11 @@ and the versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.9.1-homelab.14] — 2026-11-23
+
+- Add native multi-room (`room`, `sensor_label`, `climate_label`) and living heat-source (`heat_source_entity`, `regulator_entity`) routing to `fluvy-preheat-card`.
+- Allow 8 KB gzip for the lazy `preheat` module to support multi-room and heat-source routing.
+
 ## [1.9.1-homelab.13] — 2026-11-04
 
 - Allow airco correction up to five degrees and configure the final approach fade.
